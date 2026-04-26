@@ -8,12 +8,13 @@
   <link rel="stylesheet" href="./settings.css" />
 </head>
 <body>
-  <div class="card">
+  <div class="settingsShell">
+  <div class="card" id="settingsCard">
     <div class="header">
       <div class="title">Настройки</div>
       <div class="subtitle">Горячие клавиши: Ctrl+R · Ctrl+/− · F9</div>
     </div>
-
+    <div class="scrollableContent" id="scrollableContent">
     <div class="row">
       <div class="label">Поверх всех окон</div>
       <button class="btn" id="btnAOT" title="F9">Выкл</button>
@@ -87,6 +88,8 @@
     <div class="hint">
       Очистка кеша не удаляет cookies. “Выйти из Google” удаляет cookies и данные сайтов внутри SproutG.
     </div>
+    </div>
+  </div>
   </div>
 
   <script src="./settings.js"></script>

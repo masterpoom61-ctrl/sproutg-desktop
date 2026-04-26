@@ -21,6 +21,7 @@ const updateProgressBar = $('updateProgressBar');
 const btnCheckUpdate = $('btnCheckUpdate');
 const btnDownloadUpdate = $('btnDownloadUpdate');
 const btnInstallUpdate = $('btnInstallUpdate');
+const settingsCard = $('settingsCard');
 
 let current = { theme:'dark', zoom:1.0, alwaysOnTop:false };
 let currentUpdateState = null;
@@ -54,15 +55,31 @@ function updateLabel(state){
   return map[state] || '—';
 }
 
+function formatVersion(v){
+  const raw = String(v || '').trim();
+  if (!raw) return '—';
+  return raw.startsWith('v') ? raw : `v${raw}`;
+}
+
 function renderUpdateState(state){
   currentUpdateState = state || {};
-  const version = currentUpdateState.version || '—';
-  appVersion.textContent = `Версия: ${version}`;
+  const installedVersion = formatVersion(currentUpdateState.version);
+  const availableVersion = formatVersion(currentUpdateState.availableVersion);
+  appVersion.textContent = `Версия: ${installedVersion}`;
   updateBadge.textContent = updateLabel(currentUpdateState.status);
 
-  const msg = currentUpdateState.message || 'Обновления еще не проверялись';
-  const err = currentUpdateState.error ? `\n${currentUpdateState.error}` : '';
-  updateStatus.textContent = msg + err;
+  const fallbackByStatus = {
+    checking: 'Проверяем обновления…',
+    available: `Доступно обновление: ${availableVersion}`,
+    downloading: `Скачивание обновления… ${Math.round(Number(currentUpdateState.progress?.percent || 0))}%`,
+    downloaded: `Обновление ${availableVersion} загружено и готово к установке`,
+    'not-available': `Установлена последняя версия: ${installedVersion}`,
+    error: 'Ошибка обновления',
+    idle: 'Обновления еще не проверялись'
+  };
+  const safeMsg = String(currentUpdateState.message || fallbackByStatus[currentUpdateState.status] || fallbackByStatus.idle).trim();
+  const safeErr = currentUpdateState.error ? `\n${String(currentUpdateState.error).trim()}` : '';
+  updateStatus.textContent = safeMsg + safeErr;
 
   const isChecking = currentUpdateState.status === 'checking';
   const isDownloading = currentUpdateState.status === 'downloading';
@@ -76,6 +93,12 @@ function renderUpdateState(state){
   const percent = Math.round(Number(currentUpdateState.progress?.percent || 0));
   updateProgress.hidden = !isDownloading && percent <= 0;
   updateProgressBar.style.width = `${Math.max(0, Math.min(100, percent))}%`;
+}
+
+function closeSettingsSoon(){
+  window.setTimeout(() => {
+    window.sproutgSettings.closeWindow().catch(() => {});
+  }, 0);
 }
 
 async function refresh(){
@@ -95,6 +118,7 @@ async function refresh(){
 btnAOT.addEventListener('click', async () => {
   current = await window.sproutgSettings.toggleAOT();
   setAotUi(!!current.alwaysOnTop);
+  closeSettingsSoon();
 });
 
 btnZoomIn.addEventListener('click', async () => {
@@ -117,18 +141,21 @@ themeDark.addEventListener('click', async () => {
 
 btnReload.addEventListener('click', async () => {
   await window.sproutgSettings.reloadWeb();
+  closeSettingsSoon();
 });
 
 btnClearCache.addEventListener('click', async () => {
   btnClearCache.disabled = true;
   try { await window.sproutgSettings.clearCache(); }
   finally { btnClearCache.disabled = false; }
+  closeSettingsSoon();
 });
 
 btnLogout.addEventListener('click', async () => {
   btnLogout.disabled = true;
   try { await window.sproutgSettings.logout(); }
   finally { btnLogout.disabled = false; }
+  closeSettingsSoon();
 });
 
 btnChangeUrl.addEventListener('click', async () => {
@@ -162,5 +189,16 @@ window.sproutgSettings.onApplySettings((s) => {
 });
 
 window.sproutgSettings.onUpdateState((s) => renderUpdateState(s));
+
+document.addEventListener('pointerdown', (event) => {
+  if (event.button !== 0) return;
+  if (!settingsCard) return;
+  if (settingsCard.contains(event.target)) return;
+  closeSettingsSoon();
+}, true);
+
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') closeSettingsSoon();
+});
 
 refresh();

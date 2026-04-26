@@ -188,14 +188,15 @@ function configureAutoUpdater(){
 }
 
 autoUpdater.on('checking-for-update', () => {
-  setUpdateState({ status: 'checking', message: 'Проверяю обновления…', error: null, progress: null });
+  setUpdateState({ status: 'checking', message: 'Проверяем обновления…', error: null, progress: null });
 });
 
 autoUpdater.on('update-available', (info) => {
+  const availableVersion = info?.version || null;
   setUpdateState({
     status: 'available',
-    message: ('Доступна версия ' + (info?.version || '')).trim(),
-    availableVersion: info?.version || null,
+    message: ('Доступно обновление: v' + String(availableVersion || '').replace(/^v/i, '')).trim(),
+    availableVersion,
     updateInfo: info || null,
     downloaded: false,
     error: null,
@@ -203,17 +204,27 @@ autoUpdater.on('update-available', (info) => {
   });
 });
 
-autoUpdater.on('update-not-available', () => {
-  setUpdateState({ status: 'not-available', message: 'Установлена последняя версия', availableVersion: null, downloaded: false, error: null, progress: null });
+autoUpdater.on('update-not-available', (info) => {
+  const installed = 'v' + String(app.getVersion()).replace(/^v/i, '');
+  setUpdateState({
+    status: 'not-available',
+    message: `Установлена последняя версия: ${installed}`,
+    availableVersion: info?.version || null,
+    downloaded: false,
+    error: null,
+    progress: null
+  });
 });
 
 autoUpdater.on('download-progress', (p) => {
   const percent = Math.round(Number(p?.percent || 0));
-  setUpdateState({ status: 'downloading', message: 'Скачиваю обновление… ' + percent + '%', progress: p || null, error: null });
+  setUpdateState({ status: 'downloading', message: 'Скачивание обновления… ' + percent + '%', progress: p || null, error: null });
 });
 
 autoUpdater.on('update-downloaded', (info) => {
-  setUpdateState({ status: 'downloaded', message: 'Обновление скачано. Можно установить.', availableVersion: info?.version || updateState.availableVersion, downloaded: true, progress: null, error: null });
+  const availableVersion = info?.version || updateState.availableVersion || '';
+  const v = 'v' + String(availableVersion).replace(/^v/i, '');
+  setUpdateState({ status: 'downloaded', message: `Обновление ${v} загружено и готово к установке`, availableVersion, downloaded: true, progress: null, error: null });
 });
 
 autoUpdater.on('error', (err) => {
@@ -330,18 +341,26 @@ function normalizeValue(v){
 }
 
 function makeStateKey(payload){
+  const explicit = String(payload?.dedupeKey || payload?.eventId || '').trim();
+  if (explicit) return explicit;
   const page = String(payload?.page || '').toUpperCase();
   const group = normalizeText(payload?.group);
   const col = String(payload?.col || '').trim().toUpperCase();
   const row = String(payload?.row ?? '').trim();
-  return page + '|' + group + '|' + col + '|' + row;
+  const action = normalizeText(payload?.action || payload?.event || payload?.kind || '');
+  const profile = normalizeText(payload?.profile || payload?.account || payload?.accountId || payload?.profileId || '');
+  const dateRef = normalizeText(payload?.date || payload?.day || '');
+  return page + '|' + group + '|' + col + '|' + row + '|' + action + '|' + profile + '|' + dateRef;
 }
 
-function classifyWork(page, group, valueRaw){
-  const pageN = String(page || '').toUpperCase();
+function classifyWork(payload, valueRaw){
+  const pageN = String(payload?.page || '').toUpperCase();
+  const group = payload?.group;
   const grp = normalizeText(group);
   const vRaw = normalizeValue(valueRaw);
   const v = normalizeText(vRaw);
+  const actionText = normalizeText(payload?.action || payload?.event || payload?.kind || '');
+  const isAppealAction = actionText.includes('апел') && (actionText.includes('готов') || actionText.includes('done') || actionText.includes('complete'));
 
   const plus = vRaw.trim() === '+';
   const isSuccess = v === 'успешно';
@@ -358,7 +377,7 @@ function classifyWork(page, group, valueRaw){
     if (grp.includes('речек') && plus) return { type: 'Речек (O1)', points: 10, clicks: 1 };
     if ((grp === 'рк' || grp.includes(' рк') || grp.includes('рк ')) && plus) return { type: 'РК (O1)', points: 20, clicks: 1 };
     if (grp.includes('вериф') && (isSuccess || isReject)) return { type: 'Верификации (O1+MCC)', points: (isSuccess ? 50 : 10), clicks: 1 };
-    if (isAppeal && plus) return { type: 'Апелл (O1+MCC)', points: 25, clicks: 1 };
+    if ((isAppeal && plus) || isAppealAction) return { type: 'Апелляции O1', points: 25, clicks: 1 };
     if (isMini && plus) return { type: 'Мини (O1+MCC)', points: 25, clicks: 1 };
   }
 
@@ -370,7 +389,7 @@ function classifyWork(page, group, valueRaw){
     }
     if (grp.includes('речек') && plus) return { type: 'Речек (MCC)', points: 10, clicks: 1 };
     if (grp.includes('вериф') && (isSuccess || isReject)) return { type: 'Верификации (O1+MCC)', points: (isSuccess ? 50 : 10), clicks: 1 };
-    if (isAppeal && plus) return { type: 'Апелл (O1+MCC)', points: 25, clicks: 1 };
+    if ((isAppeal && plus) || isAppealAction) return { type: 'Апелляции MCC', points: 25, clicks: 1 };
     if (isMini && plus) return { type: 'Мини (O1+MCC)', points: 25, clicks: 1 };
   }
 
@@ -378,7 +397,7 @@ function classifyWork(page, group, valueRaw){
 }
 
 function scoreFor(payload, value){
-  const info = classifyWork(payload?.page, payload?.group, value);
+  const info = classifyWork(payload, value);
   if (!info) return { points: 0, clicks: 0, type: null };
   return { points: Number(info.points||0), clicks: Number(info.clicks||0), type: info.type || null };
 }
@@ -558,13 +577,18 @@ function positionSettingsWindow(){
   settingsWindow.setPosition(Math.round(b.x + b.width - sw - 12), Math.round(b.y + TOPBAR_HEIGHT + 6), false);
 }
 
+function closeSettingsWindow(){
+  if (!settingsWindow || settingsWindow.isDestroyed()) return false;
+  try { settingsWindow.close(); return true; } catch(e) { return false; }
+}
+
 function openSettingsWindow(){
   if (!mainWindow) return;
 
   if (settingsWindow && !settingsWindow.isDestroyed()) {
   // Toggle: if already visible -> close (destroy) to avoid "blink" / double-show glitches
   if (settingsWindow.isVisible()) {
-    try { settingsWindow.close(); } catch(e) {}
+    closeSettingsWindow();
     return;
   }
   positionSettingsWindow();
@@ -615,9 +639,7 @@ function openSettingsWindow(){
     settingsWindow.focus();
     settingsWindow.webContents.send('sproutg:apply-settings', getSettings());
   });
-
-  // NOTE: no auto-hide on blur.
-  // User requirement: the Settings button should reliably toggle open/close.
+  settingsWindow.on('blur', () => closeSettingsWindow());
 
   mainWindow.on('move', positionSettingsWindow);
   mainWindow.on('resize', positionSettingsWindow);
@@ -915,6 +937,7 @@ ipcMain.handle('sproutg:set-setting', (_e, partial) => { const n = setSettings(p
 ipcMain.handle('sproutg:zoom', (_e, dir) => zoom(dir));
 ipcMain.handle('sproutg:toggle-aot', () => toggleAOT());
 ipcMain.handle('sproutg:reload-web', () => { reloadWeb(); return true; });
+ipcMain.handle('sproutg:close-settings-window', () => closeSettingsWindow());
 
 ipcMain.handle('sproutg:clear-cache', async () => {
   const s = getSession();

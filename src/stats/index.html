@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="ru" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self';">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Статистика</title>
+  <link rel="stylesheet" href="./stats.css" />
+</head>
+<body>
+  <div class="card">
+    <div class="dragbar" title="Перетащи окно мышью"></div>
+    <div class="header">
+      <div class="title">Статистика</div>
+      <div class="subtitle">Поинты считаются локально. Сброс — только при “Выйти из Google”.</div>
+    </div>
+
+    <div class="grid">
+      <div class="kpi">
+        <div class="kpi__label">Сегодня</div>
+        <div class="kpi__value" id="todayValue">0</div>
+        <div class="kpi__hint" id="todayHint">00:00–23:59</div>
+      </div>
+
+      <div class="kpi">
+        <div class="kpi__label">Этот месяц</div>
+        <div class="kpi__value" id="monthTotal">0</div>
+        <div class="kpi__hint" id="monthHint">Сумма поинтов</div>
+      </div>
+
+      <div class="kpi kpi--record">
+        <div class="kpi__label">Рекорд за день</div>
+        <div class="kpi__value" id="monthRecord">0</div>
+        <div class="kpi__hint" id="monthRecordHint">—</div>
+      </div>
+
+      <div class="kpi">
+        <div class="kpi__label">Среднее в день</div>
+        <div class="kpi__value" id="monthAvg">0</div>
+        <div class="kpi__hint" id="monthAvgHint">За текущий месяц</div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section__title">Текущая неделя</div>
+      <div class="chartwrap">
+        <canvas id="weekChart" height="110"></canvas>
+        <div class="tooltip" id="weekTooltip" style="display:none;"></div>
+      </div>
+      <div class="legend" id="weekLegend"></div>
+    </div>
+
+    <div class="section">
+      <div class="section__title">Текущий месяц</div>
+      <div class="chartwrap">
+        <canvas id="monthChart" height="90"></canvas>
+        <div class="tooltip" id="monthTooltip" style="display:none;"></div>
+      </div>
+      <div class="legend" id="monthLegend"></div>
+    </div>
+
+    <div class="section">
+  <div class="section__title">Сводка выполненной работы</div>
+  <div class="tabs" id="workTabs">
+    <button class="tab is-active" data-range="week">Неделя</button>
+    <button class="tab" data-range="month">Месяц</button>
+  </div>
+
+  <div class="chartwrap">
+    <div class="charttitle">Общий график</div>
+    <canvas id="workAllChart" height="120"></canvas>
+        <div class="tooltip" id="workAllTooltip" style="display:none;"></div>
+  </div>
+
+  <div class="chips" id="workChips"></div>
+
+  <div class="chartwrap">
+    <div class="charttitle" id="workOneTitle">Категория</div>
+    <canvas id="workOneChart" height="110"></canvas>
+        <div class="tooltip" id="workOneTooltip" style="display:none;"></div>
+  </div>
+
+  <div class="worktable" id="workTable"></div>
+</div>
+
+  <div class="footer">
+      <div class="muted">Начисление поинтов идёт только когда Web отправляет события смены статусов.</div>
+    </div>
+  </div>
+
+  <script src="./stats.js"></script>
+</body>
+</html>

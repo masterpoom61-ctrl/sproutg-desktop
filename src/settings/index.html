@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="ru" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self';">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Настройки</title>
+  <link rel="stylesheet" href="./settings.css" />
+</head>
+<body>
+  <div class="card">
+    <div class="header">
+      <div class="title">Настройки</div>
+      <div class="subtitle">Горячие клавиши: Ctrl+R · Ctrl+/− · F9</div>
+    </div>
+
+    <div class="row">
+      <div class="label">Поверх всех окон</div>
+      <button class="btn" id="btnAOT" title="F9">Выкл</button>
+    </div>
+
+    <div class="row">
+      <div class="label">Масштаб</div>
+      <div class="group">
+        <button class="btn" id="btnZoomOut" title="Ctrl+-">−</button>
+        <button class="btn" id="btnZoomIn" title="Ctrl+">+</button>
+        <div class="pill" id="zoomValue">100%</div>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="label">Тема</div>
+      <div class="segmented">
+        <button class="seg" id="themeLight">Светлая</button>
+        <button class="seg" id="themeDark">Тёмная</button>
+      </div>
+    </div>
+
+    <div class="row">
+      <button class="btn btn-wide" id="btnReload" title="Ctrl+R">Перезагрузить страницу</button>
+    </div>
+
+    <div class="row">
+      <button class="btn btn-wide" id="btnClearCache">Очистить кеш</button>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="updateBox">
+      <div class="updateTop">
+        <div>
+          <div class="label label-strong">Обновления</div>
+          <div class="hint compact" id="appVersion">Версия: —</div>
+        </div>
+        <div class="pill" id="updateBadge">—</div>
+      </div>
+      <div class="hint updateStatus" id="updateStatus">Обновления еще не проверялись</div>
+      <div class="progress" id="updateProgress" hidden>
+        <div class="progressBar" id="updateProgressBar"></div>
+      </div>
+      <div class="row updateActions">
+        <button class="btn" id="btnCheckUpdate">Проверить</button>
+        <button class="btn" id="btnDownloadUpdate" disabled>Скачать</button>
+        <button class="btn" id="btnInstallUpdate" disabled>Установить</button>
+      </div>
+      <div class="hint compact">Кеш, вход Google, URL и статистика сохраняются: обновление не трогает userData.</div>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="row">
+      <button class="btn btn-wide btn-danger" id="btnLogout">Выйти из Google</button>
+    </div>
+
+    <div class="divider"></div>
+
+    <details class="details">
+      <summary>Дополнительно</summary>
+      <div class="row">
+        <button class="btn btn-wide" id="btnChangeUrl">Изменить URL Web</button>
+      </div>
+      <div class="hint">
+        URL спрашивается только при первом запуске. Здесь можно изменить вручную.
+      </div>
+    </details>
+
+    <div class="hint">
+      Очистка кеша не удаляет cookies. “Выйти из Google” удаляет cookies и данные сайтов внутри SproutG.
+    </div>
+  </div>
+
+  <script src="./settings.js"></script>
+</body>
+</html>

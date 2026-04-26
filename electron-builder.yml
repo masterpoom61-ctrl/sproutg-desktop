@@ -1,0 +1,27 @@
+appId: com.sproutg.desktop
+productName: SproutG
+files:
+  - "src/**/*"
+  - "assets/**/*"
+  - "sproutg.config.json"
+asar: true
+directories:
+  buildResources: assets
+win:
+  target:
+    - nsis
+  icon: "assets/icon.ico"
+  artifactName: "${productName}-Setup-${version}.${ext}"
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: SproutG
+  deleteAppDataOnUninstall: false
+publish:
+  provider: github
+  owner: masterpoom61-ctrl
+  repo: sproutg-desktop
+  releaseType: release

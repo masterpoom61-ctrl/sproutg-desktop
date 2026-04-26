@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self';">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Подключение</title>
+  <link rel="stylesheet" href="./url.css" />
+</head>
+<body>
+  <div class="wrap">
+    <div class="title">Подключение SproutG</div>
+    <div class="desc">
+      Вставь <b>URL</b> Web App (deploy) или просто <b>ID</b> (ключ). Это спрашивается <b>только при первом запуске</b>.
+    </div>
+
+    <input id="urlInput" class="input" placeholder="URL или ID (ключ)" autofocus />
+
+    <div class="actions">
+      <button class="btn" id="btnCancel">Отмена</button>
+      <button class="btn btn-primary" id="btnSave">Сохранить</button>
+    </div>
+
+    <div class="error" id="err"></div>
+    <div class="hint">
+      URL: https://script.google.com/macros/s/XXXX/exec<br>
+      ID: XXXX
+    </div>
+  </div>
+
+  <script src="./url.js"></script>
+</body>
+</html>

@@ -1,0 +1,13 @@
+{
+  "webUrl": "",
+  "openDevTools": false,
+  "updates": {
+    "enabled": true,
+    "provider": "github",
+    "owner": "masterpoom61-ctrl",
+    "repo": "sproutg-desktop",
+    "channel": "latest",
+    "autoCheckOnStart": true,
+    "allowPrerelease": false
+  }
+}

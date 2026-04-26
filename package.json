@@ -1,0 +1,28 @@
+{
+  "name": "sproutg-desktop",
+  "productName": "SproutG",
+  "version": "1.3.6",
+  "description": "SproutG Desktop (Electron wrapper for SproutG web app with GitHub auto-updates)",
+  "main": "src/main.js",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron .",
+    "make-ico": "node scripts/make-ico.js",
+    "dist:win": "electron-builder --win",
+    "dist:win:publish": "electron-builder --win --publish always"
+  },
+  "dependencies": {
+    "electron-store": "^8.2.0",
+    "electron-updater": "^6.3.9"
+  },
+  "devDependencies": {
+    "electron": "^35.0.0",
+    "electron-builder": "^24.13.3",
+    "png-to-ico": "^2.1.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/masterpoom61-ctrl/sproutg-desktop.git"
+  }
+}

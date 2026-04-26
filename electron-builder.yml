@@ -16,10 +16,13 @@ nsis:
   oneClick: false
   perMachine: false
   allowToChangeInstallationDirectory: true
-  createDesktopShortcut: true
+  createDesktopShortcut: always
   createStartMenuShortcut: true
   shortcutName: SproutG
   deleteAppDataOnUninstall: false
+  installerIcon: "assets/icon.ico"
+  uninstallerIcon: "assets/icon.ico"
+  installerHeaderIcon: "assets/icon.ico"
 publish:
   provider: github
   owner: masterpoom61-ctrl

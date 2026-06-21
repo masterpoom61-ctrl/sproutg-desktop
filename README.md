@@ -1,6 +1,16 @@
-# SproutG Desktop v2.0.0-beta.0
+# SproutG Desktop v2.0.0-beta.1
 
 Electron desktop app for SproutG. The main SproutG interface is rendered locally, while Apps Script is used as a hidden bridge/API layer for Google Sheets, ScriptProperties, CacheService, LockService and SMSPool.
+
+## What Changed In v2.0.0-beta.1
+
+- Russian topbar and Google Sheet connection status.
+- `Компании` moved to the topbar; internal page switchers now keep only O1/MCC.
+- Added four theme ids: Dark Classic, Light Classic, Dark iOS, Light OldMoney.
+- Moved UI/bridge reload into Settings.
+- Added visible sync/loading indicator for bridge requests.
+- Startup update check is notification-only and runs at most once per Windows boot.
+- Removed obsolete wrapper renderer files and old BrowserView helpers.
 
 ## What Changed In v2.0.0-beta.0
 
@@ -40,10 +50,10 @@ The release workflow is still triggered by tags matching `v*.*.*`.
 
 ```bash
 git add .
-git commit -m "Release SproutG Desktop v2.0.0-beta.0"
-git tag v2.0.0-beta.0
+git commit -m "Release SproutG Desktop v2.0.0-beta.1"
+git tag v2.0.0-beta.1
 git push origin main
-git push origin v2.0.0-beta.0
+git push origin v2.0.0-beta.1
 ```
 
 GitHub Actions runs `npm run dist:win:publish`. `electron-builder` publishes the installer and `latest.yml` to GitHub Releases.

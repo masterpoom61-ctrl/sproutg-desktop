@@ -18,6 +18,7 @@ contextBridge.exposeInMainWorld('sproutg', {
   getBridgeState: () => ipcRenderer.invoke('sproutg:bridge-state'),
   postWebMessage: (msg) => ipcRenderer.send('sproutg:web-message', msg),
   onUpdateState: (cb) => ipcRenderer.on('sproutg:update-state', (_e, payload) => cb(payload)),
+  onNotice: (cb) => ipcRenderer.on('sproutg:notice', (_e, payload) => cb(payload)),
   onBridgeState: (cb) => ipcRenderer.on('sproutg:bridge-state', (_e, payload) => cb(payload)),
   onThemeColors: (cb) => ipcRenderer.on('sproutg:theme-colors', (_e, payload) => cb(payload)),
   onApplySettings: (cb) => ipcRenderer.on('sproutg:apply-settings', (_e, settings) => cb(settings))

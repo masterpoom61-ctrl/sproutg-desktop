@@ -628,7 +628,8 @@ for (const [k,obj] of Object.entries(days || {})){
 }
 
 function setTheme(theme){
-  document.documentElement.setAttribute('data-theme', theme === 'light' ? 'light' : 'dark');
+  const lightThemes = new Set(['light', 'light-classic', 'light-oldmoney']);
+  document.documentElement.setAttribute('data-theme', lightThemes.has(theme) ? 'light' : 'dark');
 }
 
 window.sproutgStats.onApplySettings((s) => { if (s?.theme) setTheme(s.theme); });

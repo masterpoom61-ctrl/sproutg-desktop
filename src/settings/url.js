@@ -5,7 +5,9 @@ const btnSave = $('btnSave');
 const btnCancel = $('btnCancel');
 const err = $('err');
 
-function setError(t){ err.textContent = t || ''; }
+function setError(text) {
+  err.textContent = text || '';
+}
 
 btnCancel.addEventListener('click', () => window.close());
 
@@ -19,6 +21,6 @@ btnSave.addEventListener('click', async () => {
   window.close();
 });
 
-urlInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') btnSave.click();
+urlInput.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter') btnSave.click();
 });

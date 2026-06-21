@@ -23,7 +23,7 @@ class BridgeManager extends EventEmitter {
       ready: false,
       url: null,
       bridgeVersion: null,
-      message: 'Bridge is not connected',
+      message: 'Мост к Google Таблице не подключён',
       error: null,
       ts: Date.now()
     };
@@ -46,7 +46,7 @@ class BridgeManager extends EventEmitter {
     this.rejectAllPending('Bridge reconnecting', 'BRIDGE_RECONNECT');
 
     if (!this.url) {
-      this.setState({ status: 'missing-url', message: 'Bridge URL is not configured', error: null, bridgeVersion: null });
+      this.setState({ status: 'missing-url', message: 'Не задан URL Apps Script', error: null, bridgeVersion: null });
       return;
     }
 
@@ -72,42 +72,42 @@ class BridgeManager extends EventEmitter {
     });
 
     const wc = this.window.webContents;
-    wc.on('did-start-loading', () => this.setState({ status: 'connecting', message: 'Connecting to Apps Script bridge', error: null }));
+    wc.on('did-start-loading', () => this.setState({ status: 'connecting', message: 'Подключение к Google Таблице', error: null }));
     wc.on('did-finish-load', () => {
       clearTimeout(this.readyTimer);
       this.readyTimer = setTimeout(() => {
         if (this.ready) return;
         this.setState({
           status: 'login-required',
-          message: 'Bridge loaded but is not ready. Click the Bridge badge to sign in or grant access.',
+          message: 'Нужен вход в Google или доступ к таблице',
           error: null
         });
       }, 5000);
     });
     wc.on('did-fail-load', (_event, code, description) => {
       this.ready = false;
-      this.setState({ status: 'error', message: 'Bridge failed to load', error: `${code}: ${description}` });
+      this.setState({ status: 'error', message: 'Не удалось загрузить мост Google Таблицы', error: `${code}: ${description}` });
       this.scheduleReconnect();
     });
     wc.on('render-process-gone', (_event, details) => {
       this.ready = false;
-      this.setState({ status: 'disconnected', message: 'Bridge renderer stopped', error: details?.reason || null });
+      this.setState({ status: 'disconnected', message: 'Мост Google Таблицы остановлен', error: details?.reason || null });
       this.scheduleReconnect();
     });
     wc.on('destroyed', () => {
       this.ready = false;
-      this.setState({ status: 'disconnected', message: 'Bridge webContents destroyed' });
+      this.setState({ status: 'disconnected', message: 'Мост Google Таблицы закрыт' });
     });
     this.window.on('closed', () => {
       this.window = null;
       this.ready = false;
-      this.setState({ status: 'disconnected', message: 'Bridge window closed' });
+      this.setState({ status: 'disconnected', message: 'Окно моста закрыто' });
     });
 
-    this.setState({ status: 'connecting', message: 'Connecting to Apps Script bridge', error: null, bridgeVersion: null });
+    this.setState({ status: 'connecting', message: 'Подключение к Google Таблице', error: null, bridgeVersion: null });
     wc.loadURL(this.url).catch((err) => {
       this.ready = false;
-      this.setState({ status: 'error', message: 'Bridge load error', error: err?.message || String(err) });
+      this.setState({ status: 'error', message: 'Ошибка загрузки моста Google Таблицы', error: err?.message || String(err) });
       this.scheduleReconnect();
     });
   }
@@ -115,7 +115,7 @@ class BridgeManager extends EventEmitter {
   reload() {
     if (this.window && !this.window.webContents.isDestroyed()) {
       this.ready = false;
-      this.setState({ status: 'reconnecting', message: 'Reloading bridge', error: null });
+      this.setState({ status: 'reconnecting', message: 'Перезагрузка моста Google Таблицы', error: null });
       this.window.webContents.reloadIgnoringCache();
       return;
     }
@@ -126,7 +126,7 @@ class BridgeManager extends EventEmitter {
     clearTimeout(this.reconnectTimer);
     this.reconnectTimer = setTimeout(() => {
       if (!this.url) return;
-      this.setState({ status: 'reconnecting', message: 'Reconnecting bridge', error: null });
+      this.setState({ status: 'reconnecting', message: 'Повторное подключение к Google Таблице', error: null });
       this.load(this.url);
     }, 1500);
   }
@@ -143,7 +143,7 @@ class BridgeManager extends EventEmitter {
       this.ready = true;
       this.setState({
         status: 'ready',
-        message: 'Bridge ready',
+        message: 'Google Таблица подключена',
         error: null,
         bridgeVersion: message.bridgeVersion || null
       });
@@ -242,7 +242,7 @@ class BridgeManager extends EventEmitter {
       this.pending.delete(item.id);
       this.ready = false;
       this.queue.unshift(item);
-      this.setState({ status: 'disconnected', message: 'Bridge is not available', error: null });
+      this.setState({ status: 'disconnected', message: 'Мост Google Таблицы недоступен', error: null });
       this.scheduleReconnect();
     }
   }
@@ -254,13 +254,13 @@ class BridgeManager extends EventEmitter {
     this.pending.delete(id);
 
     if (item.attempts <= item.retries) {
-      this.setState({ status: 'timeout', message: 'Bridge request timed out, retrying', error: item.action || item.type });
+      this.setState({ status: 'timeout', message: 'Google Таблица отвечает медленно, повторяем запрос', error: item.action || item.type });
       this.reload();
       this.queue.unshift(item);
       return;
     }
 
-    item.reject(Object.assign(new Error('Apps Script bridge timeout'), { code: 'BRIDGE_TIMEOUT' }));
+    item.reject(Object.assign(new Error('Google Таблица отвечает слишком долго'), { code: 'BRIDGE_TIMEOUT' }));
   }
 
   settle(id, result) {

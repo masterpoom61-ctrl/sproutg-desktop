@@ -1,4 +1,4 @@
-<!doctype html>
+﻿<!doctype html>
 <!-- Local SproutG Desktop renderer. UI ported from FarmA LegacyIndex.html. -->
 <html lang="ru" data-theme="dark">
 <head>
@@ -13,30 +13,28 @@
     <div class="drag topbar__left">
       <img class="appicon" src="../../assets/icon.png" alt="SproutG" />
       <div class="apptitle">SproutG</div>
-      <div class="bridgeBadge" id="bridgeBadge" title="Bridge status">Bridge: idle</div>
+      <div class="bridgeBadge" id="bridgeBadge" title="?????? ??????????? ? Google ???????">???????: ????</div>
     </div>
     <div class="drag topbar__center"></div>
     <div class="topbar__right">
-      <button class="tbbtn" id="btnStats" title="Stats">Stats</button>
-      <button class="tbbtn" id="btnSettings" title="Settings">Settings</button>
-      <button class="tbbtn tbbtnIcon" id="btnReload" title="Reload UI and bridge">R</button>
+      <button class="tbbtn" id="btnCompany" title="Компании">Компании</button>
+      <button class="tbbtn" id="btnStats" title="Статистика">Статистика</button>
+      <button class="tbbtn" id="btnSettings" title="Настройки">Настройки</button>
       <div class="winbtns">
-        <button class="winbtn" id="btnMin" title="Minimize">-</button>
-        <button class="winbtn" id="btnMax" title="Maximize">□</button>
-        <button class="winbtn winbtn--close" id="btnClose" title="Close">×</button>
+        <button class="winbtn" id="btnMin" title="Свернуть">-</button>
+        <button class="winbtn" id="btnMax" title="Развернуть">□</button>
+        <button class="winbtn winbtn--close" id="btnClose" title="Закрыть">×</button>
       </div>
     </div>
   </div>
   <main id="sproutgAppRoot">
 <div id="pageSelector" class="pageSelector hidden">
     <div class="selectorCard">
-      <h2>Выберите страницу</h2>
-      <p>Откройте O1, MCC или раздел настроек SproutG.</p>
+      <h2>???????? ????????</h2>
+      <p>???????? O1 ??? MCC. ????????, ?????????? ? ????????? ???????? ??????.</p>
       <div class="selectorBtns">
         <button class="btn btnPrimary" onclick="choosePage('O1')">O1</button>
         <button class="btn" onclick="choosePage('MCC')">MCC</button>
-        <button class="btn" onclick="choosePage('SETTINGS')">Настройки SproutG</button>
-        <button class="btn" onclick="choosePage('COMPANY')">Компании</button>
       </div>
     </div>
   </div>
@@ -49,31 +47,31 @@
           <div class="fhMeta" id="fhMeta"></div>
 
           <div class="fhRight">
-            <div class="profilePill" id="profilePill" title="Копировать название профиля">—</div>
+            <div class="profilePill" id="profilePill" title="РљРѕРїРёСЂРѕРІР°С‚СЊ РЅР°Р·РІР°РЅРёРµ РїСЂРѕС„РёР»СЏ">вЂ”</div>
             <div class="banText" id="banText" style="display:none;"></div>
             <div class="deletedText" id="deletedText" style="display:none;"></div>
-            <button id="btnEdit" class="btn btnPrimary" onclick="toggleEdit()" disabled>Редактировать</button>
+            <button id="btnEdit" class="btn btnPrimary" onclick="toggleEdit()" disabled>Р РµРґР°РєС‚РёСЂРѕРІР°С‚СЊ</button>
           </div>
         </div>
 
         <div class="navLine">
           <div class="navStage" id="navStage" style="display:none;">
-            Открыто из: <b id="navStageText">—</b>
+            РћС‚РєСЂС‹С‚Рѕ РёР·: <b id="navStageText">вЂ”</b>
           </div>
 
           <div class="navRight">
             <span class="badge countBadge" id="countLeft" style="display:none;">0</span>
-            <button id="btnPrev" class="btn" onclick="navPrev()" disabled>←</button>
+            <button id="btnPrev" class="btn" onclick="navPrev()" disabled>в†ђ</button>
             <span class="badge" id="countMid" style="display:none;">0 / 0</span>
-            <button id="btnNext" class="btn" onclick="navNext()" disabled>→</button>
+            <button id="btnNext" class="btn" onclick="navNext()" disabled>в†’</button>
             <span class="badge countBadge" id="countRight" style="display:none;">0</span>
           </div>
         </div>
 
         <div class="tabsWrap">
-          <button class="tabsArrow" onclick="scrollTabs(-1)" title="Влево">‹</button>
+          <button class="tabsArrow" onclick="scrollTabs(-1)" title="Р’Р»РµРІРѕ">вЂ№</button>
           <div class="tabsBar" id="tabsBar"></div>
-          <button class="tabsArrow" onclick="scrollTabs(1)" title="Вправо">›</button>
+          <button class="tabsArrow" onclick="scrollTabs(1)" title="Р’РїСЂР°РІРѕ">вЂє</button>
         </div>
 
       </div>
@@ -87,25 +85,23 @@
             <select id="pageSwitchO1" class="pageSwitch" aria-label="Переключение страницы">
               <option value="O1">O1</option>
               <option value="MCC">MCC</option>
-              <option value="SETTINGS">Настройки SproutG</option>
-              <option value="COMPANY">Компании</option>
             </select>
           </div>
         </div>
 
         <div class="panel">
-          <h3>Поиск</h3>
+          <h3>РџРѕРёСЃРє</h3>
           <div class="row">
-            <input id="profile" class="half" type="text" placeholder="Название профиля"/>
-            <button class="btn btnPrimary" onclick="search()">Найти</button>
+            <input id="profile" class="half" type="text" placeholder="РќР°Р·РІР°РЅРёРµ РїСЂРѕС„РёР»СЏ"/>
+            <button class="btn btnPrimary" onclick="search()">РќР°Р№С‚Рё</button>
           </div>
           <div id="err" class="err"></div>
         </div>
 
         <div class="panel panelCollapsible" data-panel-key="FarmA.ui.O1.panel.filters.collapsed">
           <div class="panelHeader" data-panel-header>
-            <h3>Фильтры</h3>
-            <span class="panelCaret">▾</span>
+            <h3>Р¤РёР»СЊС‚СЂС‹</h3>
+            <span class="panelCaret">в–ѕ</span>
           </div>
 
           <div class="panelBody">
@@ -113,18 +109,18 @@
             <div class="miniPanel">
               <div class="row" style="margin-top:0;">
                 <select id="fltGroup" class="w220">
-                  <option value="Ads Видео">Ads Видео</option>
-                  <option value="Аккаунт">Аккаунт</option>
-                  <option value="Платежка">Платежка</option>
-                  <option value="Речек">Речек</option>
-                  <option value="РК">РК</option>
+                  <option value="Ads Р’РёРґРµРѕ">Ads Р’РёРґРµРѕ</option>
+                  <option value="РђРєРєР°СѓРЅС‚">РђРєРєР°СѓРЅС‚</option>
+                  <option value="РџР»Р°С‚РµР¶РєР°">РџР»Р°С‚РµР¶РєР°</option>
+                  <option value="Р РµС‡РµРє">Р РµС‡РµРє</option>
+                  <option value="Р Рљ">Р Рљ</option>
                 </select>
 
                 <input id="fltDate" type="date" class="w220"/>
-                <button class="btn" onclick="runFilter()">Показать</button>
-                <button class="btn" onclick="clearFilter()">Сброс</button>
+                <button class="btn" onclick="runFilter()">РџРѕРєР°Р·Р°С‚СЊ</button>
+                <button class="btn" onclick="clearFilter()">РЎР±СЂРѕСЃ</button>
 
-                <input id="fltText" type="text" class="half" placeholder="Поиск в результатах"/>
+                <input id="fltText" type="text" class="half" placeholder="РџРѕРёСЃРє РІ СЂРµР·СѓР»СЊС‚Р°С‚Р°С…"/>
               </div>
 
               <div class="list" id="fltList"></div>
@@ -133,18 +129,18 @@
             <div class="miniPanel">
               <div class="workFilterRow">
                 <div class="workFilterDates">
-                  <input id="workFrom" type="date" class="dateCompact" placeholder="От"/>
-                  <input id="workTo" type="date" class="dateCompact" placeholder="До"/>
+                  <input id="workFrom" type="date" class="dateCompact" placeholder="РћС‚"/>
+                  <input id="workTo" type="date" class="dateCompact" placeholder="Р”Рѕ"/>
                 </div>
                 <div class="workFilterBtns">
-                  <button class="btn btnPrimary" onclick="loadWork('today')">Сегодня</button>
-                  <button class="btn" onclick="loadWork('overdue')">Просрочено</button>
-                  <button class="btn" onclick="loadWork('new')">Новые</button>
-                  <button class="btn" onclick="loadWork('verify')">Верификации</button>
-                  <button class="btn" onclick="loadWork('review')">На рассмотрении</button>
-                  <button class="btn" onclick="loadWork('nospend')">Без расхода</button>
-                  <button class="btn" onclick="loadWork('c1')">С1</button>
-                  <button class="btn" onclick="loadWork('cleanup')">Очистка профилей</button>
+                  <button class="btn btnPrimary" onclick="loadWork('today')">РЎРµРіРѕРґРЅСЏ</button>
+                  <button class="btn" onclick="loadWork('overdue')">РџСЂРѕСЃСЂРѕС‡РµРЅРѕ</button>
+                  <button class="btn" onclick="loadWork('new')">РќРѕРІС‹Рµ</button>
+                  <button class="btn" onclick="loadWork('verify')">Р’РµСЂРёС„РёРєР°С†РёРё</button>
+                  <button class="btn" onclick="loadWork('review')">РќР° СЂР°СЃСЃРјРѕС‚СЂРµРЅРёРё</button>
+                  <button class="btn" onclick="loadWork('nospend')">Р‘РµР· СЂР°СЃС…РѕРґР°</button>
+                  <button class="btn" onclick="loadWork('c1')">РЎ1</button>
+                  <button class="btn" onclick="loadWork('cleanup')">РћС‡РёСЃС‚РєР° РїСЂРѕС„РёР»РµР№</button>
                 </div>
               </div>
 
@@ -155,10 +151,10 @@
         </div>
 
         <div class="panel">
-          <h3>Профиль</h3>
+          <h3>РџСЂРѕС„РёР»СЊ</h3>
           <div class="row" style="margin-top:0;">
-            <button id="btnDeleted" class="btn btnPrimary" onclick="toggleDeleted()" disabled>Профиль удален</button>
-            <button id="btnSync" class="btn" onclick="syncProfile()" disabled>Синхронизировать</button>
+            <button id="btnDeleted" class="btn btnPrimary" onclick="toggleDeleted()" disabled>РџСЂРѕС„РёР»СЊ СѓРґР°Р»РµРЅ</button>
+            <button id="btnSync" class="btn" onclick="syncProfile()" disabled>РЎРёРЅС…СЂРѕРЅРёР·РёСЂРѕРІР°С‚СЊ</button>
           </div>
         </div>
 
@@ -175,31 +171,31 @@
           <div class="fhMeta" id="mccMeta"></div>
 
           <div id="mccProfileTabsWrap" class="mccHeaderSelectWrap">
-            <select id="mccProfileTabsSelect" class="mccProfileTabsSelect" aria-label="MCC вкладки профилей"></select>
+            <select id="mccProfileTabsSelect" class="mccProfileTabsSelect" aria-label="MCC РІРєР»Р°РґРєРё РїСЂРѕС„РёР»РµР№"></select>
           </div>
 
           <div class="fhRight">
-            <div class="profilePill" id="mccProfilePill" title="Копировать название профиля">—</div>
-            <button id="mccBtnEdit" class="btn btnPrimary" onclick="toggleMccEdit()" disabled>Редактировать</button>
+            <div class="profilePill" id="mccProfilePill" title="РљРѕРїРёСЂРѕРІР°С‚СЊ РЅР°Р·РІР°РЅРёРµ РїСЂРѕС„РёР»СЏ">вЂ”</div>
+            <button id="mccBtnEdit" class="btn btnPrimary" onclick="toggleMccEdit()" disabled>Р РµРґР°РєС‚РёСЂРѕРІР°С‚СЊ</button>
           </div>
         </div>
 
         <div class="navLine">
           <div class="navStage" id="mccNavStage">
-            Аккаунт: <b id="mccNavAccount">—</b>
+            РђРєРєР°СѓРЅС‚: <b id="mccNavAccount">вЂ”</b>
           </div>
 
           <div class="navRight">
             <span class="badge" id="mccNavCount" style="display:none;">0 / 0</span>
-            <button id="mccPrev" class="btn" onclick="mccNavPrev()" disabled>←</button>
-            <button id="mccNext" class="btn" onclick="mccNavNext()" disabled>→</button>
+            <button id="mccPrev" class="btn" onclick="mccNavPrev()" disabled>в†ђ</button>
+            <button id="mccNext" class="btn" onclick="mccNavNext()" disabled>в†’</button>
           </div>
         </div>
 
         <div class="tabsWrap">
-          <button class="tabsArrow" onclick="scrollMccTabs(-1)" title="Влево">‹</button>
+          <button class="tabsArrow" onclick="scrollMccTabs(-1)" title="Р’Р»РµРІРѕ">вЂ№</button>
           <div class="tabsBar" id="mccAccountTabs"></div>
-          <button class="tabsArrow" onclick="scrollMccTabs(1)" title="Вправо">›</button>
+          <button class="tabsArrow" onclick="scrollMccTabs(1)" title="Р’РїСЂР°РІРѕ">вЂє</button>
         </div>
       </div>
     </div>
@@ -211,24 +207,22 @@
             <select id="pageSwitchMcc" class="pageSwitch" aria-label="Переключение страницы">
               <option value="O1">O1</option>
               <option value="MCC">MCC</option>
-              <option value="SETTINGS">Настройки SproutG</option>
-              <option value="COMPANY">Компании</option>
             </select>
           </div>
         </div>
         <div class="panel">
           <h3>MCC</h3>
           <div class="row">
-            <input id="mccProfileInput" class="half" type="text" placeholder="Название профиля MCC"/>
-            <button class="btn btnPrimary" onclick="mccSearch()">Найти</button>
+            <input id="mccProfileInput" class="half" type="text" placeholder="РќР°Р·РІР°РЅРёРµ РїСЂРѕС„РёР»СЏ MCC"/>
+            <button class="btn btnPrimary" onclick="mccSearch()">РќР°Р№С‚Рё</button>
           </div>
           <div id="mccErr" class="err"></div>
         </div>
 
         <div class="panel panelCollapsible" data-panel-key="FarmA.ui.MCC.panel.filters.collapsed">
           <div class="panelHeader" data-panel-header>
-            <h3>Фильтры</h3>
-            <span class="panelCaret">▾</span>
+            <h3>Р¤РёР»СЊС‚СЂС‹</h3>
+            <span class="panelCaret">в–ѕ</span>
           </div>
           <div class="panelBody">
             <div class="filtersGrid">
@@ -236,24 +230,24 @@
               <div class="row" style="margin-top:0;">
                 <select id="mccStageFilter" class="w220">
                   <option value="D">MCC</option>
-                  <option value="T">Верификация</option>
-                  <option value="W">Речек</option>
+                  <option value="T">Р’РµСЂРёС„РёРєР°С†РёСЏ</option>
+                  <option value="W">Р РµС‡РµРє</option>
                 </select>
                 <input id="mccStageFrom" type="date" class="w220"/>
                 <input id="mccStageTo" type="date" class="w220"/>
-                <button class="btn" onclick="mccApplyStageFilter()">Показать</button>
-                <button class="btn" onclick="mccClearStageFilter()">Сброс</button>
+                <button class="btn" onclick="mccApplyStageFilter()">РџРѕРєР°Р·Р°С‚СЊ</button>
+                <button class="btn" onclick="mccClearStageFilter()">РЎР±СЂРѕСЃ</button>
               </div>
               <div class="list" id="mccStageFilterList"></div>
             </div>
 
             <div class="miniPanel">
               <div class="row" style="margin-top:0;">
-                <button class="btn btnPrimary" onclick="mccLoadWorkFilter('inwork')">В работе</button>
-                <button class="btn" onclick="mccLoadWorkFilter('review')">На рассмотрении</button>
-                <button class="btn" onclick="mccLoadWorkFilter('nospend')">Без расхода</button>
-                <button class="btn" onclick="mccLoadWorkFilter('active')">Актуальные</button>
-                <button class="btn" onclick="mccLoadWorkFilter('clear')">Сброс</button>
+                <button class="btn btnPrimary" onclick="mccLoadWorkFilter('inwork')">Р’ СЂР°Р±РѕС‚Рµ</button>
+                <button class="btn" onclick="mccLoadWorkFilter('review')">РќР° СЂР°СЃСЃРјРѕС‚СЂРµРЅРёРё</button>
+                <button class="btn" onclick="mccLoadWorkFilter('nospend')">Р‘РµР· СЂР°СЃС…РѕРґР°</button>
+                <button class="btn" onclick="mccLoadWorkFilter('active')">РђРєС‚СѓР°Р»СЊРЅС‹Рµ</button>
+                <button class="btn" onclick="mccLoadWorkFilter('clear')">РЎР±СЂРѕСЃ</button>
               </div>
               <div class="list" id="mccWorkFilterList"></div>
             </div>
@@ -264,22 +258,22 @@
 
         <div class="panel panelCollapsible" data-panel-key="FarmA.ui.MCC.panel.allmcc.collapsed">
           <div class="panelHeader" data-panel-header>
-            <h3>Все MCC</h3>
-            <span class="panelCaret">▾</span>
+            <h3>Р’СЃРµ MCC</h3>
+            <span class="panelCaret">в–ѕ</span>
           </div>
           <div class="panelBody">
             <div class="row" style="margin-top:0;">
-              <button class="btn" onclick="loadMccOverview()">Обновить</button>
+              <button class="btn" onclick="loadMccOverview()">РћР±РЅРѕРІРёС‚СЊ</button>
             </div>
             <div id="mccOverviewList" class="list workListTall"></div>
           </div>
         </div>
 
         <div class="panel">
-          <h3>Профиль</h3>
+          <h3>РџСЂРѕС„РёР»СЊ</h3>
           <div class="row" style="margin-top:0;">
-            <button id="mccBtnDeleted" class="btn btnPrimary" onclick="mccToggleDeleted()" disabled>Профиль удален</button>
-            <button id="mccBtnSync" class="btn" onclick="mccSyncProfile()" disabled>Синхронизировать</button>
+            <button id="mccBtnDeleted" class="btn btnPrimary" onclick="mccToggleDeleted()" disabled>РџСЂРѕС„РёР»СЊ СѓРґР°Р»РµРЅ</button>
+            <button id="mccBtnSync" class="btn" onclick="mccSyncProfile()" disabled>РЎРёРЅС…СЂРѕРЅРёР·РёСЂРѕРІР°С‚СЊ</button>
           </div>
         </div>
 
@@ -303,17 +297,15 @@
             <select id="pageSwitchSettings" class="pageSwitch" aria-label="Переключение страницы">
               <option value="O1">O1</option>
               <option value="MCC">MCC</option>
-              <option value="SETTINGS">Настройки SproutG</option>
-              <option value="COMPANY">Компании</option>
             </select>
           </div>
         </div>
 
         <div class="panel">
-          <h3>Настройки SproutG</h3>
+          <h3>РќР°СЃС‚СЂРѕР№РєРё SproutG</h3>
           <div class="settingsGrid">
             <div>
-              <div class="settingsHint">Тема интерфейса</div>
+              <div class="settingsHint">РўРµРјР° РёРЅС‚РµСЂС„РµР№СЃР°</div>
               <div class="themeChooser row">
                 <button id="themeDarkBtn" class="btn" type="button" onclick="setTheme('dark', { persist:true, notifyDesktop:true })">Dark</button>
                 <button id="themeLightBtn" class="btn" type="button" onclick="setTheme('light', { persist:true, notifyDesktop:true })">Light</button>
@@ -321,8 +313,8 @@
             </div>
 
             <div>
-              <div class="settingsHint">Интеграция Desktop</div>
-              <div class="desktopStatus" id="desktopIntegrationStatus">Ожидание параметров от SproutG Desktop…</div>
+              <div class="settingsHint">РРЅС‚РµРіСЂР°С†РёСЏ Desktop</div>
+              <div class="desktopStatus" id="desktopIntegrationStatus">РћР¶РёРґР°РЅРёРµ РїР°СЂР°РјРµС‚СЂРѕРІ РѕС‚ SproutG DesktopвЂ¦</div>
             </div>
           </div>
         </div>
@@ -345,20 +337,18 @@
             <select id="pageSwitchCompany" class="pageSwitch" aria-label="Переключение страницы">
               <option value="O1">O1</option>
               <option value="MCC">MCC</option>
-              <option value="SETTINGS">Настройки SproutG</option>
-              <option value="COMPANY">Компании</option>
             </select>
           </div>
         </div>
         <div class="panel">
-          <h3>Компании</h3>
+          <h3>РљРѕРјРїР°РЅРёРё</h3>
           <div class="row" style="margin-top:0;">
-            <button class="btn btnPrimary" id="companyAddBtn" type="button">Добавить компанию</button>
+            <button class="btn btnPrimary" id="companyAddBtn" type="button">Р”РѕР±Р°РІРёС‚СЊ РєРѕРјРїР°РЅРёСЋ</button>
           </div>
           <div id="companyFormWrap" style="display:none;margin-top:12px;">
             <div id="companyFormGrid" class="companyFormGrid"></div>
             <div class="row" style="margin-top:12px;">
-              <button class="btn btnPrimary" id="companySubmitBtn" type="button">Готово</button>
+              <button class="btn btnPrimary" id="companySubmitBtn" type="button">Р“РѕС‚РѕРІРѕ</button>
             </div>
           </div>
           <div id="companyErr" class="err"></div>
@@ -368,19 +358,23 @@
   </div>
 
   <div id="toast" class="toast"></div>
-  <button id="o1SyncLeft" class="btn sideSyncBtn hidden" type="button" title="Синхронизировать">С</button>
-  <button id="mccSyncLeft" class="btn sideSyncBtn hidden" type="button" title="Синхронизировать">С</button>
+  <button id="o1SyncLeft" class="btn sideSyncBtn hidden" type="button" title="РЎРёРЅС…СЂРѕРЅРёР·РёСЂРѕРІР°С‚СЊ">РЎ</button>
+  <button id="mccSyncLeft" class="btn sideSyncBtn hidden" type="button" title="РЎРёРЅС…СЂРѕРЅРёР·РёСЂРѕРІР°С‚СЊ">РЎ</button>
   <div id="o1TopCluster" class="o1TopCluster">
-    <button id="o1ToTop" class="btn o1TopBtn" type="button" title="В начало">↑</button>
+    <button id="o1ToTop" class="btn o1TopBtn" type="button" title="Р’ РЅР°С‡Р°Р»Рѕ">в†‘</button>
   </div>
   <div id="mccBottomBar" class="mccBottomBar">
     <div id="mccTopCluster" class="mccTopCluster">
-      <button id="mccToTop" class="btn mccTopBtn" type="button" title="В начало">↑</button>
-      <button id="mccToVerification" class="btn mccTopBtn" type="button" title="К Верификациям">В</button>
-      <button id="mccToRechek" class="btn mccTopBtn" type="button" title="К Речекам">Р</button>
+      <button id="mccToTop" class="btn mccTopBtn" type="button" title="Р’ РЅР°С‡Р°Р»Рѕ">в†‘</button>
+      <button id="mccToVerification" class="btn mccTopBtn" type="button" title="Рљ Р’РµСЂРёС„РёРєР°С†РёСЏРј">Р’</button>
+      <button id="mccToRechek" class="btn mccTopBtn" type="button" title="Рљ Р РµС‡РµРєР°Рј">Р </button>
     </div>
   </div>
   </main>
+  <div class="apiLoading" id="apiLoading" aria-live="polite">
+    <span class="apiSpinner"></span>
+    <span>РЎРёРЅС…СЂРѕРЅРёР·Р°С†РёСЏ</span>
+  </div>
   <script src="./core/api.js"></script>
   <script src="./app.js"></script>
 </body>

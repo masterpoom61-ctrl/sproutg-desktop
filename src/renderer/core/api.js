@@ -41,6 +41,7 @@
 
   const readCache = new Map();
   let lastVersion = '';
+  let pendingRequests = 0;
 
   const READ_ACTIONS = new Set([
     'meta.config', 'dropdown.maps',
@@ -58,33 +59,51 @@
     return { ok: false, error: err?.message || String(err || 'Unknown API error'), code: err?.code || 'CLIENT_ERROR' };
   }
 
+  function setLoading(delta) {
+    pendingRequests = Math.max(0, pendingRequests + delta);
+    document.documentElement.classList.toggle('api-busy', pendingRequests > 0);
+  }
+
   async function callApi(action, payload = {}, opts = {}) {
     const useCache = opts.cache !== false && READ_ACTIONS.has(action);
     const key = useCache ? cacheKey(action, payload) : '';
     if (useCache && readCache.has(key)) return readCache.get(key);
 
-    const res = await window.sproutg.apiCall(action, payload, opts);
-    if (res && res.version && lastVersion && res.version !== lastVersion) readCache.clear();
-    if (res && res.version) lastVersion = res.version;
-    if (useCache && res && res.ok) readCache.set(key, res);
-    if (res && !res.ok && useCache && readCache.has(key)) return { ...readCache.get(key), stale: true, warning: res.error };
-    return res;
+    setLoading(1);
+    try {
+      const res = await window.sproutg.apiCall(action, payload, opts);
+      if (res && res.version && lastVersion && res.version !== lastVersion) readCache.clear();
+      if (res && res.version) lastVersion = res.version;
+      if (useCache && res && res.ok) readCache.set(key, res);
+      if (res && !res.ok && useCache && readCache.has(key)) return { ...readCache.get(key), stale: true, warning: res.error };
+      return res;
+    } finally {
+      setLoading(-1);
+    }
   }
 
   async function batchApi(calls = [], opts = {}) {
-    const res = await window.sproutg.apiBatch(calls, opts);
-    if (res && res.version && lastVersion && res.version !== lastVersion) readCache.clear();
-    if (res && res.version) lastVersion = res.version;
-    return res;
+    setLoading(1);
+    try {
+      const res = await window.sproutg.apiBatch(calls, opts);
+      if (res && res.version && lastVersion && res.version !== lastVersion) readCache.clear();
+      if (res && res.version) lastVersion = res.version;
+      return res;
+    } finally {
+      setLoading(-1);
+    }
   }
 
   async function legacyCall(name, args) {
     const spec = LEGACY_TO_ACTION[name];
     if (!spec) return { ok: false, error: `Unknown legacy API method: ${name}`, code: 'UNKNOWN_LEGACY_METHOD' };
+    setLoading(1);
     try {
       return await window.sproutg.legacyCall(spec.action, spec.payload(Array.from(args || [])));
     } catch (err) {
       return normalizeError(err);
+    } finally {
+      setLoading(-1);
     }
   }
 
@@ -170,9 +189,43 @@
     const badge = document.getElementById('bridgeBadge');
     if (!badge) return;
     const status = state?.status || 'idle';
+    const labels = {
+      idle: 'Таблица: ждём',
+      connecting: 'Таблица: вход',
+      reconnecting: 'Таблица: повтор',
+      ready: 'Таблица: ок',
+      'login-required': 'Таблица: вход',
+      timeout: 'Таблица: ждём',
+      error: 'Таблица: сбой',
+      disconnected: 'Таблица: нет',
+      'missing-url': 'Таблица: URL'
+    };
+    const details = {
+      idle: 'Подключение к Google Таблице ещё не началось.',
+      connecting: 'Подключаемся к сервису Google Таблицы.',
+      reconnecting: 'Переподключаем bridge к Google Таблице.',
+      ready: 'Подключение к Google Таблице активно.',
+      'login-required': 'Нужен вход в Google. Нажмите, чтобы открыть окно авторизации.',
+      timeout: 'Google Таблица отвечает медленно. Запрос будет повторён.',
+      error: 'Ошибка подключения к Google Таблице.',
+      disconnected: 'Bridge отключён. Нажмите, чтобы переподключиться.',
+      'missing-url': 'Не задан URL подключения к Google Таблице.'
+    };
     badge.dataset.status = status;
-    badge.textContent = `Bridge: ${status}`;
-    badge.title = state?.error || state?.message || 'Bridge status';
+    badge.textContent = labels[status] || 'Таблица: ...';
+    badge.title = state?.error || details[status] || state?.message || 'Статус подключения к Google Таблице';
+  }
+
+  function showNotice(payload) {
+    const box = document.createElement('div');
+    box.className = 'desktopNotice';
+    box.innerHTML = `<b>${payload?.title || 'SproutG'}</b><span>${payload?.body || ''}</span>`;
+    document.body.appendChild(box);
+    requestAnimationFrame(() => box.classList.add('show'));
+    setTimeout(() => {
+      box.classList.remove('show');
+      setTimeout(() => box.remove(), 220);
+    }, 6500);
   }
 
   window.addEventListener('DOMContentLoaded', () => {
@@ -190,5 +243,6 @@
   });
 
   window.sproutg.onBridgeState(renderBridgeState);
+  window.sproutg.onNotice(showNotice);
   window.sproutg.getBridgeState().then(renderBridgeState).catch(() => {});
 })();

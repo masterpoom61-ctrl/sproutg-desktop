@@ -8,15 +8,17 @@ function lockBtn(key, ms=220){
   return true;
 }
 
+$('btnCompany').addEventListener('click', () => setActivePage('COMPANY', { persist:true, hideSelector:true }));
 $('btnStats').addEventListener('click', () => { if (!lockBtn('stats')) return; window.sproutg.openStats(); });
 $('btnSettings').addEventListener('click', () => { if (!lockBtn('settings')) return; window.sproutg.openSettings(); });
-$('btnReload').addEventListener('click', () => window.sproutg.reloadWeb());
 $('btnMin').addEventListener('click', () => window.sproutg.windowControl('minimize'));
 $('btnMax').addEventListener('click', () => window.sproutg.windowControl('maximize-toggle'));
 $('btnClose').addEventListener('click', () => window.sproutg.windowControl('close'));
 
-function setTheme(theme){
-  document.documentElement.setAttribute('data-theme', theme === 'light' ? 'light' : 'dark');
+function setTopbarTheme(theme){
+  const aliases = { dark:'dark-classic', light:'light-classic' };
+  const normalized = aliases[theme] || theme || 'dark-classic';
+  document.documentElement.setAttribute('data-theme', normalized);
 }
 
 window.sproutg.onThemeColors((p) => {
@@ -25,19 +27,21 @@ window.sproutg.onThemeColors((p) => {
   if (p.topbarTextColor) document.documentElement.style.setProperty('--topbar-fg', p.topbarTextColor);
 });
 
-window.sproutg.onApplySettings((s) => { if (s && s.theme) setTheme(s.theme); });
+window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme); });
 
 (async () => {
   const s = await window.sproutg.getSettings();
-  setTheme(s.theme || 'dark');
+  setTopbarTheme(s.theme || 'dark-classic');
 })();
 
 // Ported SproutG UI from FarmA LegacyIndex.html. Keep this below core/api.js so
 // the compatibility API exists before old UI code calls google.script.run.
 
-  const APP_VERSION = '2.0.0-beta.0';
+  const APP_VERSION = '2.0.0-beta.1';
   const PAGE_KEY = 'FarmA.page';
   const THEME_KEY = 'sproutg.theme';
+  const THEMES = ['dark-classic', 'light-classic', 'dark-ios', 'light-oldmoney'];
+  const THEME_ALIASES = { dark:'dark-classic', light:'light-classic' };
 
   let current = null;
   let editMode = false;
@@ -564,7 +568,7 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTheme(s.theme); });
 
   function initPageSelection(){
     const saved = localStorage.getItem(PAGE_KEY);
-    if(saved === 'O1' || saved === 'MCC' || saved === 'SETTINGS' || saved === 'COMPANY'){
+    if(saved === 'O1' || saved === 'MCC' || saved === 'COMPANY'){
       setActivePage(saved, { persist:false, hideSelector:true });
     } else {
       const selector = document.getElementById('pageSelector');
@@ -6200,16 +6204,15 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTheme(s.theme); });
 
   function getTheme(){
     const root = document.documentElement;
-    const t = root.getAttribute('data-theme');
-    return t === 'light' ? 'light' : 'dark';
+    const t = THEME_ALIASES[root.getAttribute('data-theme')] || root.getAttribute('data-theme');
+    return THEMES.includes(t) ? t : 'dark-classic';
   }
 
   function updateThemeButtons(){
     const theme = getTheme();
-    const darkBtn = document.getElementById('themeDarkBtn');
-    const lightBtn = document.getElementById('themeLightBtn');
-    if(darkBtn) darkBtn.classList.toggle('btnPrimary', theme === 'dark');
-    if(lightBtn) lightBtn.classList.toggle('btnPrimary', theme === 'light');
+    document.querySelectorAll('[data-theme-choice]').forEach((btn)=>{
+      btn.classList.toggle('btnPrimary', btn.dataset.themeChoice === theme);
+    });
   }
 
   function getThemeColorsFromCss(){
@@ -6237,7 +6240,8 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTheme(s.theme); });
   }
 
   function setTheme(theme, opts = {}){
-    const next = theme === 'light' ? 'light' : 'dark';
+    const nextRaw = THEME_ALIASES[String(theme || '')] || String(theme || '');
+    const next = THEMES.includes(nextRaw) ? nextRaw : 'dark-classic';
     document.documentElement.setAttribute('data-theme', next);
     if(opts.persist !== false){
       try{ localStorage.setItem(THEME_KEY, next); }catch(e){}
@@ -6253,7 +6257,7 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTheme(s.theme); });
 
   function initTheme(){
     const saved = (localStorage.getItem(THEME_KEY) || '').trim();
-    setTheme(saved === 'light' ? 'light' : 'dark', { persist:false });
+    setTheme(THEME_ALIASES[saved] || saved || 'dark-classic', { persist:false });
     const meta = document.getElementById('settingsMeta');
     if(meta) meta.textContent = `v${APP_VERSION} • Настройки`;
     updateCompanyMeta();
@@ -6363,8 +6367,8 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTheme(s.theme); });
         if(data.type !== 'SETTINGS') return;
         const payload = data.payload || {};
         state.lastSettings = payload;
-        const theme = payload.theme;
-        if(theme === 'light' || theme === 'dark'){
+        const theme = THEME_ALIASES[payload.theme] || payload.theme;
+        if(THEMES.includes(theme)){
           setTheme(theme, { persist:true, notifyDesktop:true });
           sendThemeColorsToDesktop();
         }

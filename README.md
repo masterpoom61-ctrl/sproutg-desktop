@@ -1,45 +1,50 @@
-# SproutG Desktop v1.3.6
+# SproutG Desktop v1.4.0
 
-Electron-обертка для SproutG web app с локальной статистикой, настройками, persistent Google-сессией и GitHub auto-update.
+Electron desktop app for SproutG. The main SproutG interface is rendered locally, while Apps Script is used as a hidden bridge/API layer for Google Sheets, ScriptProperties, CacheService, LockService and SMSPool.
 
-## Главное в v1.3.6
+## What Changed In v1.4.0
 
-- Добавлены автообновления через GitHub Releases (`electron-updater`).
-- В настройках добавлен блок `Обновления`: проверить, скачать, установить.
-- Добавлена автопроверка обновлений при запуске установленной Windows-сборки.
-- Подготовлен GitHub Actions workflow: `.github/workflows/release.yml`.
-- Сохранение кеша и статистики при обновлении: `appId` и `productName` не менялись, NSIS не удаляет `userData`.
+- The main window no longer loads the Apps Script `/exec` UI as the visible application.
+- The O1/MCC/Settings/Company UI was ported from the legacy Apps Script interface into local renderer files.
+- A hidden bridge webContents keeps using the same Electron session partition: `persist:sproutg`.
+- Renderer calls main process through IPC; main talks to Apps Script through `API_CALL` / `API_BATCH` postMessage transport.
+- Added request queueing until `BRIDGE_READY`, request timeouts, bridge reconnect, and read-operation retry.
+- Preserved local settings, stats, points, status state, stored web URL, window bounds, Google session and GitHub auto-update.
 
-## Быстрый старт разработки
+## Development
 
 ```bash
 npm install
 npm start
 ```
 
-## Сборка Windows
+On first launch, paste the Apps Script Web App deploy URL or deploy ID. The stored value remains in `electron-store` under `web.url`.
+
+## Windows Build
 
 ```bash
 npm install
-npm run make-ico
 npm run dist:win
 ```
 
-## Публикация релиза с автообновлением
+## Release With GitHub Auto-Update
 
-1. Замени `CHANGE_ME_GITHUB_OWNER` в:
-   - `electron-builder.yml`
-   - `package.json`
-   - `sproutg.config.json`
-2. Запушь проект в GitHub.
-3. Подними версию в `package.json`.
-4. Создай tag вида `v1.3.7` и запушь его:
+The release workflow is still triggered by tags matching `v*.*.*`.
 
 ```bash
-git tag v1.3.7
-git push origin v1.3.7
+git add .
+git commit -m "Release SproutG Desktop v1.4.0"
+git tag v1.4.0
+git push origin main
+git push origin v1.4.0
 ```
 
-GitHub Actions соберет Windows installer и прикрепит его к GitHub Release.
+GitHub Actions runs `npm run dist:win:publish`. `electron-builder` publishes the installer and `latest.yml` to GitHub Releases.
 
-Подробная инструкция: `docs/GITHUB_AUTO_UPDATE.md`.
+## Compatibility Notes
+
+- `appId` remains `com.sproutg.desktop`.
+- `productName` remains `SproutG`.
+- `persist:sproutg` remains unchanged to preserve Google login/session.
+- NSIS keeps `deleteAppDataOnUninstall: false`.
+- Do not reset `electron-store` or app `userData` during updates.

@@ -3,6 +3,8 @@ const { autoUpdater } = require('electron-updater');
 const path = require('path');
 const fs = require('fs');
 const Store = require('electron-store');
+const { BridgeManager } = require('./main/bridgeManager');
+const { registerApiIpc } = require('./main/apiIpc');
 
 const TOPBAR_HEIGHT = 38;
 const PARTITION = 'persist:sproutg';
@@ -102,9 +104,11 @@ let mainWindow = null;
 let lastSettingsToggleAt = 0;
 let lastStatsToggleAt = 0;
 let view = null;
+let bridgeManager = null;
 let settingsWindow = null;
 let statsWindow = null;
 let urlWindow = null;
+let bridgeLoginWindow = null;
 let statsSaveTimer = null;
 let ses = null;
 
@@ -151,6 +155,12 @@ function broadcastUpdateState(){
   const payload = { ...updateState, version: app.getVersion(), isPackaged: app.isPackaged };
   try { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('sproutg:update-state', payload); } catch(e) {}
   try { if (settingsWindow && !settingsWindow.isDestroyed()) settingsWindow.webContents.send('sproutg:update-state', payload); } catch(e) {}
+}
+
+function broadcastBridgeState(state){
+  const payload = state || (bridgeManager ? bridgeManager.getState() : { status:'idle', ready:false });
+  try { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('sproutg:bridge-state', payload); } catch(e) {}
+  try { if (settingsWindow && !settingsWindow.isDestroyed()) settingsWindow.webContents.send('sproutg:bridge-state', payload); } catch(e) {}
 }
 
 function setUpdateState(patch){
@@ -501,6 +511,9 @@ function setSettings(partial){
 
 function applySettings(next){
   if (mainWindow) mainWindow.setAlwaysOnTop(!!next.alwaysOnTop);
+  if (mainWindow) {
+    try { mainWindow.webContents.setZoomFactor(next.zoom || 1); } catch(e) {}
+  }
   if (view) view.webContents.setZoomFactor(next.zoom || 1);
   if (mainWindow) mainWindow.webContents.send('sproutg:apply-settings', next);
   if (settingsWindow) settingsWindow.webContents.send('sproutg:apply-settings', next);
@@ -558,16 +571,8 @@ function updateViewBounds(){
 }
 
 function loadWeb(url){
-  if (!view) return;
-  view.webContents.loadURL(url);
-  view.webContents.once('did-finish-load', () => {
-    const s = getSettings();
-    view.webContents.setZoomFactor(s.zoom || 1);
-    view.webContents.send('sproutg:desktop-settings', s);
-    // PING for theme colors + also push SETTINGS to the web app
-    pingWebForTheme();
-    postSettingsToWeb(s);
-});
+  if (!bridgeManager) return;
+  bridgeManager.load(url);
 }
 
 function positionSettingsWindow(){
@@ -786,12 +791,59 @@ function openUrlWindow(firstRun){
   urlWindow.on('closed', () => { urlWindow = null; });
 }
 
+function openBridgeLoginWindow(){
+  if (!mainWindow) return false;
+  const url = getWebUrl();
+  if (!url) {
+    openUrlWindow(true);
+    return false;
+  }
+
+  if (bridgeLoginWindow && !bridgeLoginWindow.isDestroyed()) {
+    bridgeLoginWindow.show();
+    bridgeLoginWindow.focus();
+    return true;
+  }
+
+  bridgeLoginWindow = new BrowserWindow({
+    parent: mainWindow,
+    modal: false,
+    show: false,
+    width: 980,
+    height: 720,
+    minWidth: 720,
+    minHeight: 520,
+    title: 'SproutG Bridge Login',
+    backgroundColor: '#0f1115',
+    autoHideMenuBar: true,
+    webPreferences: {
+      partition: PARTITION,
+      contextIsolation: true,
+      sandbox: true,
+      nodeIntegration: false
+    }
+  });
+
+  bridgeLoginWindow.loadURL(url);
+  bridgeLoginWindow.once('ready-to-show', () => {
+    if (bridgeLoginWindow && !bridgeLoginWindow.isDestroyed()) bridgeLoginWindow.show();
+  });
+  bridgeLoginWindow.on('closed', () => {
+    bridgeLoginWindow = null;
+    if (bridgeManager) bridgeManager.reload();
+  });
+  return true;
+}
+
 function toggleAOT(){
   const next = setSettings({ alwaysOnTop: !getSettings().alwaysOnTop });
   applySettings(next);
   return next;
 }
-function reloadWeb(){ if (view) view.webContents.reload(); }
+function reloadWeb(){
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.reload();
+  if (bridgeManager) bridgeManager.reload();
+}
 function zoom(dir){
   const s = getSettings();
   const step = 0.1;
@@ -852,22 +904,8 @@ function createMainWindow(){
   const s = getSettings();
   mainWindow.setAlwaysOnTop(!!s.alwaysOnTop);
 
-  mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+  mainWindow.loadFile(path.join(__dirname, 'renderer', 'app.html'));
   mainWindow.once('ready-to-show', () => mainWindow.show());
-
-  view = new BrowserView({
-    webPreferences: {
-      partition: PARTITION,
-      preload: path.join(__dirname, 'viewPreload.js'),
-      contextIsolation: true,
-      sandbox: true,
-      nodeIntegration: false
-    }
-  });
-
-  mainWindow.setBrowserView(view);
-  updateViewBounds();
-  mainWindow.on('resize', updateViewBounds);
 
   // save bounds
   let lastNormal = safeBounds || mainWindow.getBounds();
@@ -902,7 +940,7 @@ function createMainWindow(){
   mainWindow.webContents.on('did-finish-load', () => applySettings(getSettings()));
   if (winState && winState.isMaximized) mainWindow.maximize();
 
-  attachShortcuts(view.webContents);
+  attachShortcuts(mainWindow.webContents);
 }
 
 function registerGlobal(){
@@ -914,6 +952,9 @@ function registerGlobal(){
 app.whenReady().then(() => {
   app.setName('SproutG');
   if (process.platform === 'win32') app.setAppUserModelId('com.sproutg.desktop');
+  bridgeManager = new BridgeManager({ getSession, partition: PARTITION, appDir: __dirname });
+  bridgeManager.on('state', broadcastBridgeState);
+  registerApiIpc(ipcMain, bridgeManager);
   createMainWindow();
   registerGlobal();
 
@@ -963,11 +1004,12 @@ ipcMain.handle('sproutg:open-settings', () => { openSettingsWindow(); return tru
 ipcMain.handle('sproutg:open-stats', () => { openStatsWindow(); return true; });
 ipcMain.handle('sproutg:get-points', () => getPoints());
 ipcMain.handle('sproutg:open-url', (_e, firstRun) => { openUrlWindow(!!firstRun); return true; });
+ipcMain.handle('sproutg:open-bridge-login', () => openBridgeLoginWindow());
 
 ipcMain.handle('sproutg:set-web-url', (_e, input) => {
   const url = setWebUrl(input);
   if (!url) return { ok:false, error:'Неверный URL или ID' };
-  if (view) loadWeb(url);
+  if (bridgeManager) loadWeb(url);
   if (urlWindow && !urlWindow.isDestroyed()) urlWindow.close();
   return { ok:true, url };
 });

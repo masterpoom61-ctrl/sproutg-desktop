@@ -1,8 +1,8 @@
 {
   "name": "sproutg-desktop",
   "productName": "SproutG",
-  "version": "1.3.7",
-  "description": "SproutG Desktop (Electron wrapper for SproutG web app with GitHub auto-updates)",
+  "version": "1.4.0",
+  "description": "SproutG Desktop (local Electron UI with Apps Script bridge/API and GitHub auto-updates)",
   "main": "src/main.js",
   "license": "MIT",
   "scripts": {

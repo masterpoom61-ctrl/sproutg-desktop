@@ -35,7 +35,7 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTheme(s.theme); });
 // Ported SproutG UI from FarmA LegacyIndex.html. Keep this below core/api.js so
 // the compatibility API exists before old UI code calls google.script.run.
 
-  const APP_VERSION = '0.4.5.5';
+  const APP_VERSION = '2.0.0-beta.0';
   const PAGE_KEY = 'FarmA.page';
   const THEME_KEY = 'sproutg.theme';
 

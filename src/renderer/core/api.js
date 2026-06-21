@@ -177,7 +177,16 @@
 
   window.addEventListener('DOMContentLoaded', () => {
     const badge = document.getElementById('bridgeBadge');
-    if (badge) badge.addEventListener('click', () => window.sproutg.openBridgeLogin());
+    if (badge) {
+      badge.addEventListener('click', async () => {
+        const state = await window.sproutg.getBridgeState().catch(() => null);
+        if (state && state.status === 'ready') {
+          window.sproutg.reloadWeb();
+          return;
+        }
+        window.sproutg.openBridgeLogin();
+      });
+    }
   });
 
   window.sproutg.onBridgeState(renderBridgeState);

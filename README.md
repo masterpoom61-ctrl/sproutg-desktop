@@ -1,6 +1,13 @@
-# SproutG Desktop v1.4.0
+# SproutG Desktop v2.0.0-beta.0
 
 Electron desktop app for SproutG. The main SproutG interface is rendered locally, while Apps Script is used as a hidden bridge/API layer for Google Sheets, ScriptProperties, CacheService, LockService and SMSPool.
+
+## What Changed In v2.0.0-beta.0
+
+- Fixed Apps Script bridge transport for Web App iframe/subframe rendering.
+- Replaced the hidden detached `BrowserView` bridge with a hidden `BrowserWindow`.
+- Bridge API messages are now broadcast into nested frames, which fixes stuck O1/MCC searches when desktop waits forever for `BRIDGE_READY`.
+- The topbar labels were cleaned up to avoid broken glyphs in the local shell.
 
 ## What Changed In v1.4.0
 
@@ -33,10 +40,10 @@ The release workflow is still triggered by tags matching `v*.*.*`.
 
 ```bash
 git add .
-git commit -m "Release SproutG Desktop v1.4.0"
-git tag v1.4.0
+git commit -m "Release SproutG Desktop v2.0.0-beta.0"
+git tag v2.0.0-beta.0
 git push origin main
-git push origin v1.4.0
+git push origin v2.0.0-beta.0
 ```
 
 GitHub Actions runs `npm run dist:win:publish`. `electron-builder` publishes the installer and `latest.yml` to GitHub Releases.

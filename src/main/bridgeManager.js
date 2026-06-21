@@ -1,4 +1,4 @@
-const { BrowserView, ipcMain } = require('electron');
+const { BrowserWindow, ipcMain } = require('electron');
 const EventEmitter = require('events');
 const path = require('path');
 const { isReadAction } = require('../shared/actions');
@@ -12,7 +12,7 @@ class BridgeManager extends EventEmitter {
     this.getSession = getSession;
     this.partition = partition;
     this.appDir = appDir;
-    this.view = null;
+    this.window = null;
     this.url = null;
     this.ready = false;
     this.pending = new Map();
@@ -50,22 +50,28 @@ class BridgeManager extends EventEmitter {
       return;
     }
 
-    if (this.view) {
-      try { this.view.webContents.destroy(); } catch (e) {}
-      this.view = null;
+    if (this.window) {
+      try { this.window.destroy(); } catch (e) {}
+      this.window = null;
     }
 
-    this.view = new BrowserView({
+    this.window = new BrowserWindow({
+      show: false,
+      width: 420,
+      height: 320,
+      skipTaskbar: true,
+      title: 'SproutG API Bridge',
       webPreferences: {
         partition: this.partition,
         preload: path.join(this.appDir, 'bridgePreload.js'),
         contextIsolation: true,
         sandbox: true,
-        nodeIntegration: false
+        nodeIntegration: false,
+        nodeIntegrationInSubFrames: true
       }
     });
 
-    const wc = this.view.webContents;
+    const wc = this.window.webContents;
     wc.on('did-start-loading', () => this.setState({ status: 'connecting', message: 'Connecting to Apps Script bridge', error: null }));
     wc.on('did-finish-load', () => {
       clearTimeout(this.readyTimer);
@@ -92,6 +98,11 @@ class BridgeManager extends EventEmitter {
       this.ready = false;
       this.setState({ status: 'disconnected', message: 'Bridge webContents destroyed' });
     });
+    this.window.on('closed', () => {
+      this.window = null;
+      this.ready = false;
+      this.setState({ status: 'disconnected', message: 'Bridge window closed' });
+    });
 
     this.setState({ status: 'connecting', message: 'Connecting to Apps Script bridge', error: null, bridgeVersion: null });
     wc.loadURL(this.url).catch((err) => {
@@ -102,10 +113,10 @@ class BridgeManager extends EventEmitter {
   }
 
   reload() {
-    if (this.view && !this.view.webContents.isDestroyed()) {
+    if (this.window && !this.window.webContents.isDestroyed()) {
       this.ready = false;
       this.setState({ status: 'reconnecting', message: 'Reloading bridge', error: null });
-      this.view.webContents.reloadIgnoringCache();
+      this.window.webContents.reloadIgnoringCache();
       return;
     }
     if (this.url) this.load(this.url);
@@ -121,8 +132,8 @@ class BridgeManager extends EventEmitter {
   }
 
   post(message) {
-    if (!this.view || this.view.webContents.isDestroyed()) return false;
-    this.view.webContents.send('sproutg:bridge-post', message);
+    if (!this.window || this.window.webContents.isDestroyed()) return false;
+    this.window.webContents.send('sproutg:bridge-post', message);
     return true;
   }
 
@@ -196,7 +207,7 @@ class BridgeManager extends EventEmitter {
 
       if (!this.ready) {
         this.queue.push(item);
-        if (this.url && (!this.view || this.view.webContents.isDestroyed())) this.load(this.url);
+        if (this.url && (!this.window || this.window.webContents.isDestroyed())) this.load(this.url);
         return;
       }
 

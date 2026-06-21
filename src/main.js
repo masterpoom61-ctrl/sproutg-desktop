@@ -108,6 +108,7 @@ let urlWindow = null;
 let bridgeLoginWindow = null;
 let ses = null;
 let lastSettingsClosedAt = 0;
+let isQuitting = false;
 
 function getSession(){
   if (!ses) ses = session.fromPartition(PARTITION);
@@ -586,6 +587,33 @@ function loadWeb(url){
   bridgeManager.load(url);
 }
 
+function destroyAuxiliaryWindows(){
+  for (const win of [settingsWindow, statsWindow, urlWindow, bridgeLoginWindow]) {
+    try {
+      if (win && !win.isDestroyed()) win.destroy();
+    } catch(e) {}
+  }
+  settingsWindow = null;
+  statsWindow = null;
+  urlWindow = null;
+  bridgeLoginWindow = null;
+  try { if (bridgeManager) bridgeManager.destroy(); } catch(e) {}
+}
+
+function shutdownApp(){
+  if (isQuitting) return;
+  isQuitting = true;
+  destroyAuxiliaryWindows();
+  try { flushGoogleSession(); } catch(e) {}
+  try {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.destroy();
+  } catch(e) {}
+  setTimeout(() => {
+    try { app.exit(0); } catch(e) {}
+  }, 1200);
+  app.quit();
+}
+
 function positionSettingsWindow(){
   if (!mainWindow || !settingsWindow || settingsWindow.isDestroyed()) return;
   const b = mainWindow.getBounds();
@@ -929,10 +957,14 @@ function createMainWindow(){
   mainWindow.on('resize', () => { if (!mainWindow.isMaximized()) lastNormal = mainWindow.getBounds(); scheduleSave(); });
   mainWindow.on('maximize', scheduleSave);
   mainWindow.on('unmaximize', scheduleSave);
-  mainWindow.on('close', () => {
+  mainWindow.on('close', (event) => {
     const isMax = mainWindow.isMaximized();
     const bounds = isMax ? lastNormal : mainWindow.getBounds();
     store.set('window', { bounds, isMaximized: isMax });
+    if (!isQuitting) {
+      event.preventDefault();
+      shutdownApp();
+    }
   });
 
   const url = getWebUrl();
@@ -967,8 +999,12 @@ app.whenReady().then(() => {
   scheduleBootUpdateNoticeCheck();
 });
 
-app.on('will-quit', () => globalShortcut.unregisterAll());
-app.on('before-quit', () => { flushGoogleSession(); });
+app.on('will-quit', () => {
+  isQuitting = true;
+  globalShortcut.unregisterAll();
+  destroyAuxiliaryWindows();
+});
+app.on('before-quit', () => { isQuitting = true; flushGoogleSession(); });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 
 /* IPC */
@@ -1020,7 +1056,7 @@ ipcMain.on('sproutg:window-control', (_e, action) => {
   if (!mainWindow) return;
   if (action === 'minimize') return mainWindow.minimize();
   if (action === 'maximize-toggle') return mainWindow.isMaximized() ? mainWindow.unmaximize() : mainWindow.maximize();
-  if (action === 'close') return mainWindow.close();
+  if (action === 'close') return shutdownApp();
 });
 
 ipcMain.on('sproutg:web-message', (_e, msg) => {

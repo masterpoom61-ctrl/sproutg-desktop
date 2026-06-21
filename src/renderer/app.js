@@ -8,7 +8,8 @@ function lockBtn(key, ms=220){
   return true;
 }
 
-$('btnCompany').addEventListener('click', () => setActivePage('COMPANY', { persist:true, hideSelector:true }));
+$('btnHome').addEventListener('click', () => showHomeScreen());
+$('btnCompany').addEventListener('click', () => setActivePage('COMPANY', { persist:false, hideSelector:true }));
 $('btnStats').addEventListener('click', () => { if (!lockBtn('stats')) return; window.sproutg.openStats(); });
 $('btnSettings').addEventListener('click', () => { if (!lockBtn('settings')) return; window.sproutg.openSettings(); });
 $('btnMin').addEventListener('click', () => window.sproutg.windowControl('minimize'));
@@ -39,7 +40,7 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
   setTopbarTheme(s.theme || 'dark-classic');
 })();
 
-  const APP_VERSION = '2.0.1-beta.0';
+  const APP_VERSION = '2.0.1-beta.1';
   const PAGE_KEY = 'FarmA.page';
   const THEME_KEY = 'sproutg.theme';
   const THEMES = ['dark-classic', 'light-classic', 'dark-ios', 'light-oldmoney'];
@@ -522,6 +523,18 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
     setActivePage(page, { persist:true, hideSelector:true });
   }
 
+  function showHomeScreen(){
+    activePage = '';
+    try{ localStorage.removeItem(PAGE_KEY); }catch(e){}
+    document.querySelectorAll('.pageRoot.active').forEach((page)=>page.classList.remove('active'));
+    const selector = document.getElementById('pageSelector');
+    if(selector) selector.classList.remove('hidden');
+    document.documentElement.style.setProperty('--app-header-h', '0px');
+    requestAnimationFrame(updateSideSyncButtons);
+    requestAnimationFrame(updateO1TopButton);
+    requestAnimationFrame(updateMccTopButton);
+  }
+
   function setActivePage(page, opts = {}){
     const next = (page === 'MCC') ? 'MCC' : (page === 'COMPANY' ? 'COMPANY' : 'O1');
     activePage = next;
@@ -562,11 +575,10 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
 
   function initPageSelection(){
     const saved = localStorage.getItem(PAGE_KEY);
-    if(saved === 'O1' || saved === 'MCC' || saved === 'COMPANY'){
+    if(saved === 'O1' || saved === 'MCC'){
       setActivePage(saved, { persist:false, hideSelector:true });
     } else {
-      const selector = document.getElementById('pageSelector');
-      if(selector) selector.classList.remove('hidden');
+      showHomeScreen();
     }
   }
 

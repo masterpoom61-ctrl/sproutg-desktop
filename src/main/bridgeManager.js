@@ -15,6 +15,7 @@ class BridgeManager extends EventEmitter {
     this.window = null;
     this.url = null;
     this.ready = false;
+    this.destroyed = false;
     this.pending = new Map();
     this.queue = [];
     this.seq = 0;
@@ -41,6 +42,7 @@ class BridgeManager extends EventEmitter {
   }
 
   load(url) {
+    if (this.destroyed) return;
     this.url = url || null;
     this.ready = false;
     this.rejectAllPending('Переподключение к Google Таблице', 'BRIDGE_RECONNECT');
@@ -113,6 +115,7 @@ class BridgeManager extends EventEmitter {
   }
 
   reload() {
+    if (this.destroyed) return;
     if (this.window && !this.window.webContents.isDestroyed()) {
       this.ready = false;
       this.setState({ status: 'reconnecting', message: 'Перезагрузка моста Google Таблицы', error: null });
@@ -123,8 +126,10 @@ class BridgeManager extends EventEmitter {
   }
 
   scheduleReconnect() {
+    if (this.destroyed) return;
     clearTimeout(this.reconnectTimer);
     this.reconnectTimer = setTimeout(() => {
+      if (this.destroyed) return;
       if (!this.url) return;
       this.setState({ status: 'reconnecting', message: 'Повторное подключение к Google Таблице', error: null });
       this.load(this.url);
@@ -132,6 +137,7 @@ class BridgeManager extends EventEmitter {
   }
 
   post(message) {
+    if (this.destroyed) return false;
     if (!this.window || this.window.webContents.isDestroyed()) return false;
     this.window.webContents.send('sproutg:bridge-post', message);
     return true;
@@ -277,6 +283,19 @@ class BridgeManager extends EventEmitter {
       item.reject(Object.assign(new Error(message), { code }));
     }
     this.pending.clear();
+  }
+
+  destroy() {
+    this.destroyed = true;
+    this.ready = false;
+    clearTimeout(this.readyTimer);
+    clearTimeout(this.reconnectTimer);
+    this.rejectAllPending('Приложение закрывается', 'APP_QUIT');
+    this.queue = [];
+    if (this.window && !this.window.isDestroyed()) {
+      try { this.window.destroy(); } catch (e) {}
+    }
+    this.window = null;
   }
 }
 

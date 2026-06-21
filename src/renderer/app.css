@@ -3,12 +3,18 @@
   --topbar-fg:#e9edf5;
   --border:rgba(255,255,255,0.10);
   --btn:rgba(255,255,255,0.08);
+  --control-hover:rgba(255,255,255,0.14);
+  --control-active:rgba(255,255,255,0.20);
+  --control-glow:0 8px 22px rgba(0,0,0,.22);
 }
 html[data-theme="light"],html[data-theme="light-classic"],html[data-theme="light-oldmoney"]{
   --topbar-bg:#ffffff;
   --topbar-fg:#0b1220;
   --border:rgba(0,0,0,0.12);
   --btn:rgba(0,0,0,0.06);
+  --control-hover:rgba(0,0,0,0.10);
+  --control-active:rgba(0,0,0,0.14);
+  --control-glow:0 8px 20px rgba(31,41,55,.14);
 }
 *{box-sizing:border-box;}
 body{margin:0;height:100vh;overflow:hidden;background:transparent;font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;font-synthesis:none;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;}
@@ -33,26 +39,38 @@ body{margin:0;height:100vh;overflow:hidden;background:transparent;font-family:ui
   height:28px;padding:0 10px;border-radius:10px;border:1px solid var(--border);
   background:var(--btn);color:var(--topbar-fg);font-size:12px;cursor:pointer;
   display:inline-flex;align-items:center;justify-content:center;gap:6px;
+  transition:background .16s ease,border-color .16s ease,box-shadow .16s ease,transform .12s ease,color .16s ease;
 }
-.tbbtn:hover{background:var(--btn);}
+.tbbtn:hover{background:var(--control-hover);border-color:var(--line-strong,var(--border));box-shadow:var(--control-glow);transform:translateY(-1px);}
+.tbbtn:active{background:var(--control-active);transform:translateY(0) scale(.96);}
 .tbbtnIcon{width:34px;padding:0;}
-.tbbtnIcon svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;}
+.tbbtnHome{margin-left:2px;}
+.tbbtnIcon svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;transition:transform .14s ease;}
+.tbbtn:hover svg{transform:scale(1.06);}
 .srOnly{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;}
 .winbtns{display:flex;gap:6px;}
 .winbtn{
   width:34px;height:26px;border-radius:9px;border:1px solid var(--border);
   background:transparent;color:var(--topbar-fg);cursor:pointer;font-size:14px;line-height:0;
+  transition:background .16s ease,border-color .16s ease,box-shadow .16s ease,transform .12s ease,color .16s ease;
 }
-.winbtn:hover{background:var(--btn);}
-.winbtn--close:hover{background:rgba(255,77,79,0.22);border-color:rgba(255,77,79,0.4);}
+.winbtn:hover{background:var(--control-hover);border-color:var(--line-strong,var(--border));box-shadow:var(--control-glow);transform:translateY(-1px);}
+.winbtn:active{background:var(--control-active);transform:translateY(0) scale(.96);}
+.winbtn--close:hover{background:rgba(255,77,79,0.22);border-color:rgba(255,77,79,0.55);color:#fecaca;}
 .contentShadow{position:absolute;top:38px;left:0;right:0;height:1px;background:rgba(0,0,0,0.22);pointer-events:none;}
 
 
 /* Local desktop container offsets for the ported Apps Script UI. */
 :root{--desktop-topbar-h:38px;}
 html,body{height:100%;overflow:hidden;}
-#sproutgAppRoot{position:fixed;left:0;right:0;top:var(--desktop-topbar-h);bottom:0;overflow:hidden;background:var(--bg,#0b1220);}
-.bridgeBadge{height:28px;font-size:11px;font-weight:900;padding:0 9px;border:1px solid var(--border);border-radius:999px;opacity:.9;cursor:pointer;-webkit-app-region:no-drag;display:inline-flex;align-items:center;gap:6px;white-space:nowrap;background:var(--btn);}
+#sproutgAppRoot{position:fixed;left:0;right:0;top:var(--desktop-topbar-h);bottom:0;overflow:hidden;background:
+  radial-gradient(1100px 720px at 12% -8%, var(--bg-grad-1), transparent 58%),
+  radial-gradient(980px 760px at 92% 8%, var(--bg-grad-2), transparent 60%),
+  linear-gradient(165deg, var(--bg), var(--bg-grad-3, var(--bg)) 58%, var(--bg));
+}
+.bridgeBadge{height:28px;font-size:11px;font-weight:900;padding:0 9px;border:1px solid var(--border);border-radius:999px;opacity:.9;cursor:pointer;-webkit-app-region:no-drag;display:inline-flex;align-items:center;gap:6px;white-space:nowrap;background:var(--btn);transition:background .16s ease,border-color .16s ease,box-shadow .16s ease,transform .12s ease,color .16s ease;}
+.bridgeBadge:hover{background:var(--control-hover);box-shadow:var(--control-glow);transform:translateY(-1px);}
+.bridgeBadge:active{transform:translateY(0) scale(.98);}
 .bridgeBadge__label{opacity:.78;}
 .bridgeBadge__mark{min-width:14px;display:inline-flex;align-items:center;justify-content:center;font-weight:950;}
 .bridgeBadge__spinner{width:13px;height:13px;border-radius:50%;border:2px solid currentColor;border-right-color:transparent;animation:apiSpin .75s linear infinite;}
@@ -64,6 +82,7 @@ html,body{height:100%;overflow:hidden;}
       --bg:#0b1220;
       --bg-grad-1:rgba(72,99,255,.25);
       --bg-grad-2:rgba(0,255,204,.12);
+      --bg-grad-3:#101827;
       --text:rgba(255,255,255,.92);
       --muted:rgba(255,255,255,.62);
       --shadow:0 10px 30px rgba(0,0,0,.35);
@@ -119,6 +138,7 @@ html,body{height:100%;overflow:hidden;}
       --bg:#edf2fb;
       --bg-grad-1:rgba(94,122,255,.15);
       --bg-grad-2:rgba(33,186,184,.10);
+      --bg-grad-3:#f8fbff;
       --text:#1f2937;
       --muted:#5f6f87;
       --shadow:0 8px 24px rgba(31,41,55,.12);
@@ -1279,8 +1299,9 @@ html,body{height:100%;overflow:hidden;}
 
 :root[data-theme="dark-ios"]{
   --bg:#050713;
-  --bg-grad-1:rgba(36,99,235,.30);
-  --bg-grad-2:rgba(168,85,247,.18);
+  --bg-grad-1:rgba(54,122,255,.42);
+  --bg-grad-2:rgba(168,85,247,.26);
+  --bg-grad-3:#0b1024;
   --topbar-bg:rgba(10,14,28,.66);
   --surface:rgba(255,255,255,.075);
   --surface-alt:rgba(255,255,255,.055);
@@ -1300,8 +1321,9 @@ html,body{height:100%;overflow:hidden;}
 
 :root[data-theme="light-oldmoney"]{
   --bg:#eef5ed;
-  --bg-grad-1:rgba(35,95,72,.15);
-  --bg-grad-2:rgba(169,145,92,.10);
+  --bg-grad-1:rgba(35,95,72,.18);
+  --bg-grad-2:rgba(185,158,97,.15);
+  --bg-grad-3:#f8fbf2;
   --text:#1f3529;
   --muted:#5d7165;
   --topbar-bg:rgba(247,251,245,.95);
@@ -1327,6 +1349,9 @@ html,body{height:100%;overflow:hidden;}
 
 :root[data-theme="light-classic"]{
   --bg:#edf3fb;
+  --bg-grad-1:rgba(99,156,255,.16);
+  --bg-grad-2:rgba(45,198,214,.10);
+  --bg-grad-3:#fbfdff;
   --topbar-bg:#ffffff;
   --topbar-fg:#172033;
   --btn:#f2f6fb;

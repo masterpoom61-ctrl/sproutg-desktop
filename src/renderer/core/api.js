@@ -189,30 +189,36 @@
     const badge = document.getElementById('bridgeBadge');
     if (!badge) return;
     const status = state?.status || 'idle';
-    const labels = {
-      idle: 'Таблица: ждём',
-      connecting: 'Таблица: вход',
-      reconnecting: 'Таблица: повтор',
-      ready: 'Таблица: ок',
-      'login-required': 'Таблица: вход',
-      timeout: 'Таблица: ждём',
-      error: 'Таблица: сбой',
-      disconnected: 'Таблица: нет',
-      'missing-url': 'Таблица: URL'
+    const marks = {
+      idle: '...',
+      connecting: '',
+      reconnecting: '',
+      ready: '✓',
+      'login-required': '!',
+      timeout: '',
+      error: '!',
+      disconnected: '×',
+      'missing-url': 'URL'
     };
     const details = {
       idle: 'Подключение к Google Таблице ещё не началось.',
       connecting: 'Подключаемся к сервису Google Таблицы.',
-      reconnecting: 'Переподключаем bridge к Google Таблице.',
+      reconnecting: 'Переподключаемся к Google Таблице.',
       ready: 'Подключение к Google Таблице активно.',
       'login-required': 'Нужен вход в Google. Нажмите, чтобы открыть окно авторизации.',
       timeout: 'Google Таблица отвечает медленно. Запрос будет повторён.',
       error: 'Ошибка подключения к Google Таблице.',
-      disconnected: 'Bridge отключён. Нажмите, чтобы переподключиться.',
+      disconnected: 'Подключение отключено. Нажмите, чтобы переподключиться.',
       'missing-url': 'Не задан URL подключения к Google Таблице.'
     };
     badge.dataset.status = status;
-    badge.textContent = labels[status] || 'Таблица: ...';
+    badge.innerHTML = '<span class="bridgeBadge__label">Статус:</span><span class="bridgeBadge__mark" aria-hidden="true"></span>';
+    const mark = badge.querySelector('.bridgeBadge__mark');
+    if (mark) {
+      const busy = status === 'connecting' || status === 'reconnecting' || status === 'timeout';
+      mark.classList.toggle('bridgeBadge__spinner', busy);
+      mark.textContent = busy ? '' : (marks[status] || '...');
+    }
     badge.title = state?.error || details[status] || state?.message || 'Статус подключения к Google Таблице';
   }
 

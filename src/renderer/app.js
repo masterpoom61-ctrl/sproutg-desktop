@@ -15,10 +15,15 @@ $('btnMin').addEventListener('click', () => window.sproutg.windowControl('minimi
 $('btnMax').addEventListener('click', () => window.sproutg.windowControl('maximize-toggle'));
 $('btnClose').addEventListener('click', () => window.sproutg.windowControl('close'));
 
+let __themeSwitchTimer = null;
 function setTopbarTheme(theme){
   const aliases = { dark:'dark-classic', light:'light-classic' };
   const normalized = aliases[theme] || theme || 'dark-classic';
+  if (document.documentElement.getAttribute('data-theme') === normalized) return;
+  document.documentElement.classList.add('theme-switching');
   document.documentElement.setAttribute('data-theme', normalized);
+  clearTimeout(__themeSwitchTimer);
+  __themeSwitchTimer = setTimeout(() => document.documentElement.classList.remove('theme-switching'), 140);
 }
 
 window.sproutg.onThemeColors((p) => {
@@ -34,10 +39,7 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
   setTopbarTheme(s.theme || 'dark-classic');
 })();
 
-// Ported SproutG UI from FarmA LegacyIndex.html. Keep this below core/api.js so
-// the compatibility API exists before old UI code calls google.script.run.
-
-  const APP_VERSION = '2.0.0-beta.1';
+  const APP_VERSION = '2.0.1-beta.0';
   const PAGE_KEY = 'FarmA.page';
   const THEME_KEY = 'sproutg.theme';
   const THEMES = ['dark-classic', 'light-classic', 'dark-ios', 'light-oldmoney'];
@@ -296,10 +298,9 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
     if(mccProfile?.profileName) await copyText(mccProfile.profileName);
   });
   document.getElementById('pageSwitchMcc').addEventListener('change', (e)=>setActivePage(e.target.value));
-  document.getElementById('pageSwitchSettings').addEventListener('change', (e)=>setActivePage(e.target.value));
-  document.getElementById('pageSwitchCompany').addEventListener('change', (e)=>setActivePage(e.target.value));
-  document.getElementById('companyAddBtn').addEventListener('click', ()=>openCompanyForm());
-  document.getElementById('companySubmitBtn').addEventListener('click', ()=>submitCompanyForm());
+  document.getElementById('pageSwitchCompany')?.addEventListener('change', (e)=>setActivePage(e.target.value));
+  document.getElementById('companyAddBtn')?.addEventListener('click', ()=>openCompanyForm());
+  document.getElementById('companySubmitBtn')?.addEventListener('click', ()=>submitCompanyForm());
   document.getElementById('mccProfileTabsSelect')?.addEventListener('change', (e)=>{
     const key = String(e.target.value || '').trim();
     const entry = mccProfileTabMap.get(key);
@@ -326,7 +327,7 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
   function getActiveScrollContainer(){
     const activeRoot = document.querySelector('.pageRoot.active');
     if(!activeRoot) return null;
-    return activeRoot.querySelector('#mainScrollO1, #mainScrollMcc, #mainScrollSettings, #mainScrollCompany');
+    return activeRoot.querySelector('#mainScrollO1, #mainScrollMcc, #mainScrollCompany');
   }
 
   function getVisibleScrollerByIds(ids){
@@ -495,7 +496,6 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
 
   function getActiveHeaderWrapper(){
     if(activePage === 'MCC') return document.getElementById('fixedHeaderMcc');
-    if(activePage === 'SETTINGS') return document.getElementById('fixedHeaderSettings');
     if(activePage === 'COMPANY') return document.getElementById('fixedHeaderCompany');
     return document.getElementById('fixedHeaderO1');
   }
@@ -512,11 +512,9 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
     const observer = new ResizeObserver(()=>requestAnimationFrame(updateAppHeaderHeight));
     const o1 = document.getElementById('fixedHeaderO1');
     const mcc = document.getElementById('fixedHeaderMcc');
-    const settings = document.getElementById('fixedHeaderSettings');
     const company = document.getElementById('fixedHeaderCompany');
     if(o1) observer.observe(o1);
     if(mcc) observer.observe(mcc);
-    if(settings) observer.observe(settings);
     if(company) observer.observe(company);
   }
 
@@ -525,16 +523,14 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
   }
 
   function setActivePage(page, opts = {}){
-    const next = (page === 'MCC') ? 'MCC' : (page === 'SETTINGS' ? 'SETTINGS' : (page === 'COMPANY' ? 'COMPANY' : 'O1'));
+    const next = (page === 'MCC') ? 'MCC' : (page === 'COMPANY' ? 'COMPANY' : 'O1');
     activePage = next;
 
     const o1 = document.getElementById('pageO1');
     const mcc = document.getElementById('pageMcc');
-    const settings = document.getElementById('pageSettings');
     const company = document.getElementById('pageCompany');
     if(o1) o1.classList.toggle('active', next === 'O1');
     if(mcc) mcc.classList.toggle('active', next === 'MCC');
-    if(settings) settings.classList.toggle('active', next === 'SETTINGS');
     if(company) company.classList.toggle('active', next === 'COMPANY');
 
     updatePageSwitchers(next);
@@ -558,11 +554,9 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
   function updatePageSwitchers(page){
     const swO1 = document.getElementById('pageSwitchO1');
     const swMcc = document.getElementById('pageSwitchMcc');
-    const swSettings = document.getElementById('pageSwitchSettings');
     const swCompany = document.getElementById('pageSwitchCompany');
     if(swO1) swO1.value = page;
     if(swMcc) swMcc.value = page;
-    if(swSettings) swSettings.value = page;
     if(swCompany) swCompany.value = page;
   }
 
@@ -607,7 +601,7 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
   }
 
   function applyPanelCollapseStates(page){
-    if(page === 'SETTINGS' || page === 'COMPANY') return;
+    if(page === 'COMPANY') return;
     const root = page === 'MCC' ? document.getElementById('pageMcc') : document.getElementById('pageO1');
     if(!root) return;
     root.querySelectorAll('.panelCollapsible[data-panel-key]').forEach((panel)=>{
@@ -6242,7 +6236,14 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
   function setTheme(theme, opts = {}){
     const nextRaw = THEME_ALIASES[String(theme || '')] || String(theme || '');
     const next = THEMES.includes(nextRaw) ? nextRaw : 'dark-classic';
+    if(document.documentElement.getAttribute('data-theme') === next){
+      updateThemeButtons();
+      return;
+    }
+    document.documentElement.classList.add('theme-switching');
     document.documentElement.setAttribute('data-theme', next);
+    clearTimeout(__themeSwitchTimer);
+    __themeSwitchTimer = setTimeout(() => document.documentElement.classList.remove('theme-switching'), 140);
     if(opts.persist !== false){
       try{ localStorage.setItem(THEME_KEY, next); }catch(e){}
     }

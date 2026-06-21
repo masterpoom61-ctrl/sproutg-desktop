@@ -43,7 +43,7 @@ class BridgeManager extends EventEmitter {
   load(url) {
     this.url = url || null;
     this.ready = false;
-    this.rejectAllPending('Bridge reconnecting', 'BRIDGE_RECONNECT');
+    this.rejectAllPending('Переподключение к Google Таблице', 'BRIDGE_RECONNECT');
 
     if (!this.url) {
       this.setState({ status: 'missing-url', message: 'Не задан URL Apps Script', error: null, bridgeVersion: null });
@@ -60,7 +60,7 @@ class BridgeManager extends EventEmitter {
       width: 420,
       height: 320,
       skipTaskbar: true,
-      title: 'SproutG API Bridge',
+      title: 'SproutG.Web',
       webPreferences: {
         partition: this.partition,
         preload: path.join(this.appDir, 'bridgePreload.js'),

@@ -3,7 +3,7 @@ const $ = (id) => document.getElementById(id);
 const THEMES = {
   'dark-classic': 'Dark Classic',
   'light-classic': 'Light Classic',
-  'dark-ios': 'Dark iOS',
+  'dark-ios': 'Dark IOS',
   'light-oldmoney': 'Light OldMoney'
 };
 const THEME_ALIASES = { dark: 'dark-classic', light: 'light-classic' };

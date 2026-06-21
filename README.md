@@ -1,12 +1,23 @@
-# SproutG Desktop v2.0.0-beta.1
+# SproutG v2.0.1-beta.0
 
-Electron desktop app for SproutG. The main SproutG interface is rendered locally, while Apps Script is used as a hidden bridge/API layer for Google Sheets, ScriptProperties, CacheService, LockService and SMSPool.
+Electron desktop app for SproutG. The main SproutG interface is rendered locally, while Apps Script is used as `SproutG.Web`: a hidden bridge/API layer for Google Sheets, ScriptProperties, CacheService, LockService and SMSPool.
+
+## What Changed In v2.0.1-beta.0
+
+- Fixed broken Russian glyphs in the local renderer and settings UI.
+- Reworked the topbar into compact icon buttons for companies, statistics and settings.
+- Changed the Google Sheets badge to compact Russian `Статус:` with a check mark or loading spinner.
+- Improved Light Classic, Dark IOS and Light OldMoney contrast; Light OldMoney now uses a greener palette.
+- Added theme-switch guards to prevent flicker when themes are changed quickly.
+- Fixed the settings button so clicking it while the settings window is open closes the window instead of reopening it.
+- Removed the obsolete embedded settings page from the main renderer.
+- Synchronized desktop `SproutG` and Apps Script `SproutG.Web` versions.
 
 ## What Changed In v2.0.0-beta.1
 
 - Russian topbar and Google Sheet connection status.
 - `Компании` moved to the topbar; internal page switchers now keep only O1/MCC.
-- Added four theme ids: Dark Classic, Light Classic, Dark iOS, Light OldMoney.
+- Added four theme ids: Dark Classic, Light Classic, Dark IOS, Light OldMoney.
 - Moved UI/bridge reload into Settings.
 - Added visible sync/loading indicator for bridge requests.
 - Startup update check is notification-only and runs at most once per Windows boot.
@@ -50,10 +61,10 @@ The release workflow is still triggered by tags matching `v*.*.*`.
 
 ```bash
 git add .
-git commit -m "Release SproutG Desktop v2.0.0-beta.1"
-git tag v2.0.0-beta.1
+git commit -m "Release SproutG v2.0.1-beta.0"
+git tag v2.0.1-beta.0
 git push origin main
-git push origin v2.0.0-beta.1
+git push origin v2.0.1-beta.0
 ```
 
 GitHub Actions runs `npm run dist:win:publish`. `electron-builder` publishes the installer and `latest.yml` to GitHub Releases.

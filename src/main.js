@@ -107,6 +107,7 @@ let statsWindow = null;
 let urlWindow = null;
 let bridgeLoginWindow = null;
 let ses = null;
+let lastSettingsClosedAt = 0;
 
 function getSession(){
   if (!ses) ses = session.fromPartition(PARTITION);
@@ -122,7 +123,7 @@ let updaterConfigured = false;
 let updaterCheckInFlight = false;
 let updateState = {
   status: 'idle',
-  message: 'РћР±РЅРѕРІР»РµРЅРёСЏ РµС‰Рµ РЅРµ РїСЂРѕРІРµСЂСЏР»РёСЃСЊ',
+  message: 'Обновления еще не проверялись',
   version: app.getVersion(),
   availableVersion: null,
   downloaded: false,
@@ -177,8 +178,8 @@ function sendDesktopNotice(payload){
 
 function notifyUpdateAvailable(version){
   const clean = String(version || '').replace(/^v/i, '');
-  const title = 'Р”РѕСЃС‚СѓРїРЅРѕ РѕР±РЅРѕРІР»РµРЅРёРµ SproutG';
-  const body = clean ? `РќРѕРІР°СЏ РІРµСЂСЃРёСЏ v${clean}. РЈСЃС‚Р°РЅРѕРІРёС‚СЊ РјРѕР¶РЅРѕ РІ РќР°СЃС‚СЂРѕР№РєР°С….` : 'РќРѕРІР°СЏ РІРµСЂСЃРёСЏ РґРѕСЃС‚СѓРїРЅР° РІ РќР°СЃС‚СЂРѕР№РєР°С….';
+  const title = 'Доступно обновление SproutG';
+  const body = clean ? `Новая версия v${clean}. Установить можно в Настройках.` : 'Новая версия доступна в Настройках.';
   sendDesktopNotice({ type:'update', title, body });
   try {
     if (Notification.isSupported()) new Notification({ title, body, silent: false }).show();
@@ -207,7 +208,7 @@ function configureAutoUpdater(){
   const cfg = getUpdatesConfig();
 
   if (!cfg.enabled) {
-    setUpdateState({ status: 'disabled', message: 'РћР±РЅРѕРІР»РµРЅРёСЏ РѕС‚РєР»СЋС‡РµРЅС‹ РІ РєРѕРЅС„РёРіРµ', error: null });
+    setUpdateState({ status: 'disabled', message: 'Обновления отключены в конфиге', error: null });
     return false;
   }
 
@@ -308,21 +309,21 @@ async function downloadUpdate(){
   if (!app.isPackaged) return checkForUpdates(true);
   if (!configureAutoUpdater()) return updateState;
   try {
-    setUpdateState({ status: 'downloading', message: 'РќР°С‡РёРЅР°СЋ СЃРєР°С‡РёРІР°РЅРёРµ РѕР±РЅРѕРІР»РµРЅРёСЏвЂ¦', error: null });
+    setUpdateState({ status: 'downloading', message: 'Начинаю скачивание обновления…', error: null });
     await autoUpdater.downloadUpdate();
   } catch (e) {
-    setUpdateState({ status: 'error', message: 'РќРµ СѓРґР°Р»РѕСЃСЊ СЃРєР°С‡Р°С‚СЊ РѕР±РЅРѕРІР»РµРЅРёРµ', error: e?.message || String(e), progress: null });
+    setUpdateState({ status: 'error', message: 'Не удалось скачать обновление', error: e?.message || String(e), progress: null });
   }
   return updateState;
 }
 
 function installDownloadedUpdate(){
-  if (!app.isPackaged) return setUpdateState({ status: 'dev', message: 'РЈСЃС‚Р°РЅРѕРІРєР° РѕР±РЅРѕРІР»РµРЅРёР№ РґРѕСЃС‚СѓРїРЅР° С‚РѕР»СЊРєРѕ РІ СѓСЃС‚Р°РЅРѕРІР»РµРЅРЅРѕР№ СЃР±РѕСЂРєРµ Windows' });
-  if (!updateState.downloaded) return setUpdateState({ status: updateState.status || 'idle', message: 'РЎРЅР°С‡Р°Р»Р° СЃРєР°С‡Р°Р№ РѕР±РЅРѕРІР»РµРЅРёРµ' });
+  if (!app.isPackaged) return setUpdateState({ status: 'dev', message: 'Установка обновлений доступна только в установленной сборке Windows' });
+  if (!updateState.downloaded) return setUpdateState({ status: updateState.status || 'idle', message: 'Сначала скачай обновление' });
   try {
     autoUpdater.quitAndInstall(false, true);
   } catch (e) {
-    return setUpdateState({ status: 'error', message: 'РќРµ СѓРґР°Р»РѕСЃСЊ СѓСЃС‚Р°РЅРѕРІРёС‚СЊ РѕР±РЅРѕРІР»РµРЅРёРµ', error: e?.message || String(e) });
+    return setUpdateState({ status: 'error', message: 'Не удалось установить обновление', error: e?.message || String(e) });
   }
   return updateState;
 }
@@ -419,37 +420,37 @@ function classifyWork(payload, valueRaw){
   const vRaw = normalizeValue(valueRaw);
   const v = normalizeText(vRaw);
   const actionText = normalizeText(payload?.action || payload?.event || payload?.kind || '');
-  const isAppealAction = actionText.includes('Р°РїРµР»') && (actionText.includes('РіРѕС‚РѕРІ') || actionText.includes('done') || actionText.includes('complete'));
+  const isAppealAction = actionText.includes('апел') && (actionText.includes('готов') || actionText.includes('done') || actionText.includes('complete'));
 
   const plus = vRaw.trim() === '+';
-  const isSuccess = v === 'СѓСЃРїРµС€РЅРѕ';
-  const isReject  = v === 'РѕС‚РєР°Р·';
-  const isNumC = /РЅРѕРјРµСЂ\s*[СЃc]\s*(1|2)/i.test(vRaw);
-  const isMini = grp.includes('РјРёРЅРё');
-  const isAppeal = grp.includes('Р°РїРµР»');
-  const isAccMcc = (pageN === 'MCC' && grp.includes('Р°РєРєР°СѓРЅС‚') && grp.includes('mcc'));
+  const isSuccess = v === 'успешно';
+  const isReject  = v === 'отказ';
+  const isNumC = /номер\s*[сc]\s*(1|2)/i.test(vRaw);
+  const isMini = grp.includes('мини');
+  const isAppeal = grp.includes('апел');
+  const isAccMcc = (pageN === 'MCC' && grp.includes('аккаунт') && grp.includes('mcc'));
 
   if (pageN === 'O1'){
-    if (grp.includes('Р°РєРєР°СѓРЅС‚') && isNumC) return { type: 'РђРєРєР°СѓРЅС‚ (O1)', points: 60, clicks: 1 };
-    if (grp.includes('ads') && grp.includes('РІРёРґРµРѕ') && plus) return { type: 'Ads Р’РёРґРµРѕ (O1)', points: 25, clicks: 1 };
-    if (grp.includes('РїР»Р°С‚РµР¶') && plus) return { type: 'РџР»Р°С‚РµР¶РєР° (O1)', points: 50, clicks: 1 };
-    if (grp.includes('СЂРµС‡РµРє') && plus) return { type: 'Р РµС‡РµРє (O1)', points: 10, clicks: 1 };
-    if ((grp === 'СЂРє' || grp.includes(' СЂРє') || grp.includes('СЂРє ')) && plus) return { type: 'Р Рљ (O1)', points: 20, clicks: 1 };
-    if (grp.includes('РІРµСЂРёС„') && (isSuccess || isReject)) return { type: 'Р’РµСЂРёС„РёРєР°С†РёРё (O1+MCC)', points: (isSuccess ? 50 : 10), clicks: 1 };
-    if ((isAppeal && plus) || isAppealAction) return { type: 'РђРїРµР»Р»СЏС†РёРё O1', points: 25, clicks: 1 };
-    if (isMini && plus) return { type: 'РњРёРЅРё (O1+MCC)', points: 25, clicks: 1 };
+    if (grp.includes('аккаунт') && isNumC) return { type: 'Аккаунт (O1)', points: 60, clicks: 1 };
+    if (grp.includes('ads') && grp.includes('видео') && plus) return { type: 'Ads Видео (O1)', points: 25, clicks: 1 };
+    if (grp.includes('платеж') && plus) return { type: 'Платежка (O1)', points: 50, clicks: 1 };
+    if (grp.includes('речек') && plus) return { type: 'Речек (O1)', points: 10, clicks: 1 };
+    if ((grp === 'рк' || grp.includes(' рк') || grp.includes('рк ')) && plus) return { type: 'РК (O1)', points: 20, clicks: 1 };
+    if (grp.includes('вериф') && (isSuccess || isReject)) return { type: 'Верификации (O1+MCC)', points: (isSuccess ? 50 : 10), clicks: 1 };
+    if ((isAppeal && plus) || isAppealAction) return { type: 'Апелляции O1', points: 25, clicks: 1 };
+    if (isMini && plus) return { type: 'Мини (O1+MCC)', points: 25, clicks: 1 };
   }
 
   if (pageN === 'MCC'){
     if (isAccMcc){
-      if (plus) return { type: 'РђРєРєР°СѓРЅС‚ MCC (MCC)', points: 100, clicks: 1 };
-      if (v === 'РІС‹С€РµР»') return { type: 'РђРєРєР°СѓРЅС‚ MCC (MCC)', points: 50, clicks: 1 };
-      if (v.replace(/\s+/g,'') === 'РІС‹С€РµР»/РЅРµРІС‹С€РµР»' || v === 'РІС‹С€РµР»/РЅРµ РІС‹С€РµР»' || v === 'РЅРµ РІС‹С€РµР»') return { type: 'РђРєРєР°СѓРЅС‚ MCC (MCC)', points: 25, clicks: 1 };
+      if (plus) return { type: 'Аккаунт MCC (MCC)', points: 100, clicks: 1 };
+      if (v === 'вышел') return { type: 'Аккаунт MCC (MCC)', points: 50, clicks: 1 };
+      if (v.replace(/\s+/g,'') === 'вышел/невышел' || v === 'вышел/не вышел' || v === 'не вышел') return { type: 'Аккаунт MCC (MCC)', points: 25, clicks: 1 };
     }
-    if (grp.includes('СЂРµС‡РµРє') && plus) return { type: 'Р РµС‡РµРє (MCC)', points: 10, clicks: 1 };
-    if (grp.includes('РІРµСЂРёС„') && (isSuccess || isReject)) return { type: 'Р’РµСЂРёС„РёРєР°С†РёРё (O1+MCC)', points: (isSuccess ? 50 : 10), clicks: 1 };
-    if ((isAppeal && plus) || isAppealAction) return { type: 'РђРїРµР»Р»СЏС†РёРё MCC', points: 25, clicks: 1 };
-    if (isMini && plus) return { type: 'РњРёРЅРё (O1+MCC)', points: 25, clicks: 1 };
+    if (grp.includes('речек') && plus) return { type: 'Речек (MCC)', points: 10, clicks: 1 };
+    if (grp.includes('вериф') && (isSuccess || isReject)) return { type: 'Верификации (O1+MCC)', points: (isSuccess ? 50 : 10), clicks: 1 };
+    if ((isAppeal && plus) || isAppealAction) return { type: 'Апелляции MCC', points: 25, clicks: 1 };
+    if (isMini && plus) return { type: 'Мини (O1+MCC)', points: 25, clicks: 1 };
   }
 
   return null;
@@ -484,14 +485,14 @@ function applyEventWithAntiCheat(payload){
   let deltaPoints = newScore.points - oldScore.points;
   let deltaClicks = newScore.clicks - oldScore.clicks;
 
-  // Exception: MCC Account MCC + -> Р’С‹С€РµР» should NOT subtract 100
+  // Exception: MCC Account MCC + -> Вышел should NOT subtract 100
   try{
     const pageN = String(payload.page || '').toUpperCase();
     const grp = normalizeText(payload.group);
     const oldV = normalizeValue(prevValue);
     const newVn = normalizeText(newValue);
-    const isAccMcc = (pageN === 'MCC' && grp.includes('Р°РєРєР°СѓРЅС‚') && grp.includes('mcc'));
-    if (isAccMcc && oldV.trim() === '+' && newVn === 'РІС‹С€РµР»'){
+    const isAccMcc = (pageN === 'MCC' && grp.includes('аккаунт') && grp.includes('mcc'));
+    if (isAccMcc && oldV.trim() === '+' && newVn === 'вышел'){
       deltaPoints = newScore.points;
       deltaClicks = newScore.clicks;
     }
@@ -499,7 +500,7 @@ function applyEventWithAntiCheat(payload){
 
   
 // Work-clicks: count not only new completions, but also upgrades/downgrades between scoring states.
-// This fixes cases like "РћС‚РєР°Р· -> РЈСЃРїРµС€РЅРѕ" where points change but clicks stayed 0.
+// This fixes cases like "Отказ -> Успешно" where points change but clicks stayed 0.
 if (deltaClicks === 0 && deltaPoints !== 0) {
   const ns = newScore || {};
   const os = oldScore || {};
@@ -594,23 +595,25 @@ function positionSettingsWindow(){
 
 function closeSettingsWindow(){
   if (!settingsWindow || settingsWindow.isDestroyed()) return false;
+  lastSettingsClosedAt = Date.now();
   try { settingsWindow.close(); return true; } catch(e) { return false; }
 }
 
 function openSettingsWindow(){
   if (!mainWindow) return;
+  if (Date.now() - lastSettingsClosedAt < 260) return;
 
   if (settingsWindow && !settingsWindow.isDestroyed()) {
-  if (settingsWindow.isVisible()) {
-    closeSettingsWindow();
+    if (settingsWindow.isVisible()) {
+      closeSettingsWindow();
+      return;
+    }
+    positionSettingsWindow();
+    settingsWindow.show();
+    settingsWindow.focus();
+    settingsWindow.webContents.send('sproutg:apply-settings', getSettings());
     return;
   }
-  positionSettingsWindow();
-  settingsWindow.show();
-  settingsWindow.focus();
-  settingsWindow.webContents.send('sproutg:apply-settings', getSettings());
-  return;
-}
 
   settingsWindow = new BrowserWindow({
     parent: mainWindow,
@@ -638,7 +641,7 @@ function openSettingsWindow(){
 
   settingsWindow.loadFile(path.join(__dirname, 'settings', 'index.html'));
 
-  settingsWindow.on('closed', () => { settingsWindow = null; });
+  settingsWindow.on('closed', () => { lastSettingsClosedAt = Date.now(); settingsWindow = null; });
   try { settingsWindow.webContents.setVisualZoomLevelLimits(1, 1); settingsWindow.webContents.setZoomFactor(1); } catch(e) {}
   settingsWindow.webContents.on('before-input-event', (event, input) => {
     const isZoomKey = (input.key === '+' || input.key === '-' || input.key === '=' || input.key === '0');
@@ -815,7 +818,7 @@ function openBridgeLoginWindow(){
     height: 720,
     minWidth: 720,
     minHeight: 520,
-    title: 'SproutG Bridge Login',
+    title: 'Вход в Google Таблицу',
     backgroundColor: '#0f1115',
     autoHideMenuBar: true,
     webPreferences: {

@@ -25,6 +25,7 @@ const workChips = $('workChips');
 const workOneTitle = $('workOneTitle');
 const workTabs = $('workTabs');
 const monthSelect = $('monthSelect');
+const monthTabs = $('monthTabs');
 
 let __lastPoints = null;
 let __retryTimer = null;
@@ -278,6 +279,16 @@ const WORK_COLORS = {
 };
 function getWorkColors(){
   const p = themePalette();
+  const palette = [
+    [p.a, 0.64], [p.b, 0.62], [p.c, 0.60], [p.d, 0.60],
+    [p.a, 0.52], [p.b, 0.56], [p.c, 0.54], [p.d, 0.54],
+    [p.a, 0.48], [p.b, 0.48], [p.c, 0.46]
+  ];
+  return WORK_TYPES.reduce((acc, type, index) => {
+    const [color, alpha] = palette[index % palette.length];
+    acc[type] = [hexToRgba(color, alpha), hexToRgba(color, 0.08)];
+    return acc;
+  }, {});
   return {
     'РђРєРєР°СѓРЅС‚ (O1)': [hexToRgba(p.a,0.62), hexToRgba(p.a,0.08)],
     'Ads Р’РёРґРµРѕ (O1)': [hexToRgba(p.b,0.62), hexToRgba(p.b,0.08)],
@@ -357,6 +368,10 @@ function renderWorkTable(workDays){
 
   const now = new Date();
   const todayKey = toDateKey(now);
+  const selected = selectedMonthKey || monthKeyFromDate(now);
+  const selectedParts = selected.split('-').map(Number);
+  const selectedYear = selectedParts[0] || now.getFullYear();
+  const selectedMonth0 = selectedParts[1] ? selectedParts[1] - 1 : now.getMonth();
 
   const w0 = startOfWeekMonday(now);
   const weekKeys = [];
@@ -366,8 +381,8 @@ function renderWorkTable(workDays){
     weekKeys.push(toDateKey(d));
   }
 
-  const y = now.getFullYear();
-  const m0 = now.getMonth();
+  const y = selectedYear;
+  const m0 = selectedMonth0;
   const dim = daysInMonth(y,m0);
   const monthKeys = [];
   for (let day=1; day<=dim; day++){
@@ -405,6 +420,31 @@ function setCanvasTooltipData(canvas, data){
   canvas.__ttData = data;
 }
 
+function slotTime(slot){
+  const minutes = Math.max(0, Math.min(71, Number(slot) || 0)) * 20;
+  return `${pad2(Math.floor(minutes / 60))}:${pad2(minutes % 60)}`;
+}
+
+function activitySummary(dayData, type){
+  const slots = dayData?.slots || {};
+  const rows = Object.entries(slots).map(([slot, info]) => {
+    const total = type ? Number(info?.byType?.[type] || 0) : Number(info?.total || 0);
+    return { slot: Number(slot), total };
+  }).filter((row) => row.total > 0).sort((a, b) => a.slot - b.slot);
+  if (!rows.length) return '';
+  const first = rows[0].slot;
+  const last = rows[rows.length - 1].slot;
+  const peak = rows.reduce((best, row) => row.total > best.total ? row : best, rows[0]);
+  return `Активность ${slotTime(first)}–${slotTime(last + 1)}, пик ${slotTime(peak.slot)} (${peak.total})`;
+}
+
+function tooltipActivityLine(data, index, type){
+  const key = data?.dayKeys?.[index];
+  if(!key) return '';
+  const summary = activitySummary(data?.workDays?.[key], type);
+  return summary ? `<div class="tt-note">${summary}</div>` : '';
+}
+
 function ensureAreaTooltip(canvas, tooltipEl, kind){
   if (!canvas || !tooltipEl) return;
   if (canvas.dataset.ttBound === '1') return;
@@ -435,6 +475,7 @@ function ensureAreaTooltip(canvas, tooltipEl, kind){
       const col = colors?.[t]?.[0] || 'rgba(56,189,248,0.9)';
       let inner = `<div class="tt-title">${labels[i]}</div>`;
       inner += `<div class="tt-row"><div class="tt-name"><span class="tt-dot" style="border-color:${col};"></span>${labelForType(t)}</div><div class="tt-val">${v}</div></div>`;
+      inner += tooltipActivityLine(data, i, t);
       tooltipEl.innerHTML = inner;
       tooltipEl.style.display = 'block';
       return;
@@ -462,6 +503,7 @@ function ensureAreaTooltip(canvas, tooltipEl, kind){
     if (rows.length > top.length){
       inner += `<div class="tt-row"><div class="tt-name" style="color:var(--muted);">ещё…</div><div class="tt-val" style="color:var(--muted);">+${rows.length - top.length}</div></div>`;
     }
+    inner += tooltipActivityLine(data, i, null);
     tooltipEl.innerHTML = inner;
     tooltipEl.style.display = 'block';
   };
@@ -495,6 +537,7 @@ function ensureBarsTooltip(canvas, tooltipEl){
 
     let inner = `<div class="tt-title">${labels[i]}</div>`;
     inner += `<div class="tt-row"><div class="tt-name"><span class="tt-dot" style="border-color:${dotColor};"></span>${data.name || 'Значение'}</div><div class="tt-val">${v}</div></div>`;
+    inner += tooltipActivityLine(data, i, null);
     tooltipEl.innerHTML = inner;
     tooltipEl.style.display = 'block';
   };
@@ -503,10 +546,10 @@ function ensureBarsTooltip(canvas, tooltipEl){
   canvas.addEventListener('mouseleave', () => { tooltipEl.style.display = 'none'; });
 }
 
-function bindWorkAllTooltip(labels, seriesMap){
+function bindWorkAllTooltip(labels, seriesMap, dayKeys, workDays){
   // legacy wrapper: keep API, but store data so tooltip works for week+month without re-binding
   try{
-    setCanvasTooltipData(workAllCanvas, { labels, seriesMap, colors: getWorkColors() });
+    setCanvasTooltipData(workAllCanvas, { labels, seriesMap, colors: getWorkColors(), dayKeys, workDays });
     ensureAreaTooltip(workAllCanvas, workAllTooltip, 'stack');
   }catch(e){}
 }
@@ -523,8 +566,10 @@ function renderWork(data){
   let keys = [];
 
   if (currentWorkRange === 'month'){
-    const y = now.getFullYear();
-    const m0 = now.getMonth();
+    const selected = selectedMonthKey || monthKeyFromDate(now);
+    const selectedParts = selected.split('-').map(Number);
+    const y = selectedParts[0] || now.getFullYear();
+    const m0 = selectedParts[1] ? selectedParts[1] - 1 : now.getMonth();
     const dim = daysInMonth(y,m0);
     for (let day=1; day<=dim; day++){
       const d = new Date(y,m0,day);
@@ -550,13 +595,13 @@ function renderWork(data){
 
   const colors = getWorkColors();
   const okAll = drawAreaSeries(workAllCanvas, labels, allSeries, colors);
-  try{ bindWorkAllTooltip(labels, allSeries); }catch(e){}
+  try{ bindWorkAllTooltip(labels, allSeries, keys, workDays); }catch(e){}
 
   const oneSeries = {};
   oneSeries[currentWorkType] = allSeries[currentWorkType] || keys.map(()=>0);
   workOneTitle.textContent = labelForType(currentWorkType);
   const okOne = drawAreaSeries(workOneCanvas, labels, oneSeries, colors);
-  try{ setCanvasTooltipData(workOneCanvas, { labels, seriesMap: oneSeries, colors, singleType: currentWorkType }); ensureAreaTooltip(workOneCanvas, workOneTooltip, 'single'); }catch(e){}
+  try{ setCanvasTooltipData(workOneCanvas, { labels, seriesMap: oneSeries, colors, singleType: currentWorkType, dayKeys: keys, workDays }); ensureAreaTooltip(workOneCanvas, workOneTooltip, 'single'); }catch(e){}
 
   if (okAll === false || okOne === false) return false;
   // summary table
@@ -581,15 +626,17 @@ function render(points){
   const weekLabels = ['Пн','Вт','Ср','Чт','Пт','Сб','Вс'];
   const weekValues = [];
   const weekKeys = [];
+  const weekTooltipLabels = [];
   for (let i=0;i<7;i++){
     const d = new Date(w0);
     d.setDate(w0.getDate()+i);
     const k = toDateKey(d);
     weekKeys.push(k);
     weekValues.push(days[k]?.total || 0);
+    weekTooltipLabels.push(`${weekLabels[i]} ${k.split('-').reverse().join('.')}`);
   }
   const okWeek = drawBars(weekCanvas, weekLabels, weekValues, {showMax:true});
-  try{ setCanvasTooltipData(weekCanvas, { labels: weekLabels, values: weekValues, name: 'Поинты', dotColor: (document.documentElement.getAttribute('data-theme')==='light'?'rgba(56,189,248,0.85)':'rgba(56,189,248,0.9)') }); ensureBarsTooltip(weekCanvas, weekTooltip); }catch(e){}
+  try{ setCanvasTooltipData(weekCanvas, { labels: weekTooltipLabels, values: weekValues, name: 'Поинты', dayKeys: weekKeys, workDays: points?.workDays || {}, dotColor: (document.documentElement.getAttribute('data-theme')==='light'?'rgba(56,189,248,0.85)':'rgba(56,189,248,0.9)') }); ensureBarsTooltip(weekCanvas, weekTooltip); }catch(e){}
 
   if (!okWeek) { scheduleRetry(); return; }
   weekLegend.textContent = `${weekKeys[0].split('-').reverse().join('.')} — ${weekKeys[6].split('-').reverse().join('.')}`;
@@ -604,11 +651,13 @@ function render(points){
   let monthMax = 0;
   let monthMaxKey = null;
   const monthValues = [];
+  const monthKeys = [];
 
   for (let day=1; day<=dim; day++){
     const d = new Date(y, m0, day);
     const k = toDateKey(d);
     const v = days[k]?.total || 0;
+    monthKeys.push(k);
     monthValues.push(v);
     monthSum += v;
     if (v > monthMax) { monthMax = v; monthMaxKey = k; }
@@ -638,6 +687,7 @@ for (const [k,obj] of Object.entries(days || {})){
 
   const labels = monthValues.map((_,i)=> (i%5===0 ? String(i+1) : ''));
   const okMonth = drawBars(monthCanvas, labels, monthValues, {showMax:false});
+  try{ setCanvasTooltipData(monthCanvas, { labels: monthKeys.map(k=>k.split('-').reverse().join('.')), values: monthValues, name: 'Поинты', dayKeys: monthKeys, workDays: points?.workDays || {}, dotColor: themePalette().a }); ensureBarsTooltip(monthCanvas, monthTooltip); }catch(e){}
   if (!okMonth) { scheduleRetry(); return; }
   monthLegend.textContent = `Дни 1–${dim}`;
 
@@ -668,7 +718,7 @@ function monthLabel(monthKey){
 }
 
 function ensureMonthSelect(days){
-  if(!monthSelect) return;
+  if(!monthSelect && !monthTabs) return;
   const nowKey = monthKeyFromDate(new Date());
   const keys = new Set([nowKey]);
   for(const k of Object.keys(days || {})){
@@ -677,22 +727,49 @@ function ensureMonthSelect(days){
   }
   const sorted = Array.from(keys).sort().reverse();
   if(!selectedMonthKey || !keys.has(selectedMonthKey)) selectedMonthKey = nowKey;
-  const currentValue = monthSelect.value;
-  monthSelect.innerHTML = '';
-  for(const key of sorted){
-    const opt = document.createElement('option');
-    opt.value = key;
-    opt.textContent = monthLabel(key);
-    monthSelect.appendChild(opt);
+  const currentValue = monthSelect ? monthSelect.value : selectedMonthKey;
+  if(monthSelect){
+    monthSelect.innerHTML = '';
+    for(const key of sorted){
+      const opt = document.createElement('option');
+      opt.value = key;
+      opt.textContent = monthLabel(key);
+      monthSelect.appendChild(opt);
+    }
+    monthSelect.value = keys.has(currentValue) ? currentValue : selectedMonthKey;
+    selectedMonthKey = monthSelect.value;
+    if(monthSelect.dataset.bound !== '1'){
+      monthSelect.dataset.bound = '1';
+      monthSelect.addEventListener('change', ()=>{
+        selectedMonthKey = monthSelect.value || nowKey;
+        renderMonthTabs(sorted);
+        if(window.__lastStatsData) render(window.__lastStatsData);
+      });
+    }
   }
-  monthSelect.value = keys.has(currentValue) ? currentValue : selectedMonthKey;
-  selectedMonthKey = monthSelect.value;
-  if(monthSelect.dataset.bound !== '1'){
-    monthSelect.dataset.bound = '1';
-    monthSelect.addEventListener('change', ()=>{
-      selectedMonthKey = monthSelect.value || nowKey;
+  renderMonthTabs(sorted);
+}
+
+function renderMonthTabs(sortedKeys){
+  if(!monthTabs) return;
+  const keys = Array.isArray(sortedKeys) ? sortedKeys : [];
+  monthTabs.innerHTML = '';
+  for(const key of keys){
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'monthTab' + (key === selectedMonthKey ? ' is-active' : '');
+    btn.textContent = monthLabel(key);
+    btn.dataset.month = key;
+    btn.setAttribute('role', 'tab');
+    btn.setAttribute('aria-selected', key === selectedMonthKey ? 'true' : 'false');
+    btn.addEventListener('click', ()=>{
+      if(selectedMonthKey === key) return;
+      selectedMonthKey = key;
+      if(monthSelect) monthSelect.value = key;
+      renderMonthTabs(keys);
       if(window.__lastStatsData) render(window.__lastStatsData);
     });
+    monthTabs.appendChild(btn);
   }
 }
 

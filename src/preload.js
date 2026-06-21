@@ -5,6 +5,7 @@ contextBridge.exposeInMainWorld('sproutg', {
   setSetting: (partial) => ipcRenderer.invoke('sproutg:set-setting', partial),
   openSettings: () => ipcRenderer.invoke('sproutg:open-settings'),
   openStats: () => ipcRenderer.invoke('sproutg:open-stats'),
+  openCompany: () => ipcRenderer.invoke('sproutg:open-company'),
   openBridgeLogin: () => ipcRenderer.invoke('sproutg:open-bridge-login'),
   reloadWeb: () => ipcRenderer.invoke('sproutg:reload-web'),
   windowControl: (action) => ipcRenderer.send('sproutg:window-control', action),

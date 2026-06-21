@@ -104,6 +104,7 @@ let mainWindow = null;
 let bridgeManager = null;
 let settingsWindow = null;
 let statsWindow = null;
+let companyWindow = null;
 let urlWindow = null;
 let bridgeLoginWindow = null;
 let ses = null;
@@ -536,6 +537,7 @@ function addPoints(payload){
 
   if (!days[k]) days[k] = { total: 0, byKey: {} };
   if (!workDays[k]) workDays[k] = { total: 0, byType: {} };
+  if (!workDays[k].slots) workDays[k].slots = {};
 
   days[k].total = Number(days[k].total || 0) + Number(res.deltaPoints || 0);
 
@@ -546,6 +548,11 @@ function addPoints(payload){
   const t = res.newScore?.type;
   if (t){
     workDays[k].byType[t] = Number(workDays[k].byType[t] || 0) + Number(res.deltaClicks || 0);
+    const eventDate = new Date(Number(payload?.ts) || Date.now());
+    const slot = Math.max(0, Math.min(71, Math.floor(((eventDate.getHours() * 60) + eventDate.getMinutes()) / 20)));
+    if (!workDays[k].slots[slot]) workDays[k].slots[slot] = { total: 0, byType: {} };
+    workDays[k].slots[slot].total = Number(workDays[k].slots[slot].total || 0) + Number(res.deltaClicks || 0);
+    workDays[k].slots[slot].byType[t] = Number(workDays[k].slots[slot].byType[t] || 0) + Number(res.deltaClicks || 0);
   }
 
   points.days = days;
@@ -576,6 +583,8 @@ function applySettings(next){
   }
   if (mainWindow) mainWindow.webContents.send('sproutg:apply-settings', next);
   if (settingsWindow) settingsWindow.webContents.send('sproutg:apply-settings', next);
+  if (statsWindow) statsWindow.webContents.send('sproutg:apply-settings', next);
+  if (companyWindow) companyWindow.webContents.send('sproutg:apply-settings', next);
 }
 
 
@@ -597,13 +606,14 @@ function loadWeb(url){
 }
 
 function destroyAuxiliaryWindows(){
-  for (const win of [settingsWindow, statsWindow, urlWindow, bridgeLoginWindow]) {
+  for (const win of [settingsWindow, statsWindow, companyWindow, urlWindow, bridgeLoginWindow]) {
     try {
       if (win && !win.isDestroyed()) win.destroy();
     } catch(e) {}
   }
   settingsWindow = null;
   statsWindow = null;
+  companyWindow = null;
   urlWindow = null;
   bridgeLoginWindow = null;
   try { if (bridgeManager) bridgeManager.destroy(); } catch(e) {}
@@ -796,6 +806,76 @@ function positionStatsWindow(){
   const b = mainWindow.getBounds();
   const sw = statsWindow.getBounds().width;
   statsWindow.setPosition(Math.round(b.x + b.width - sw - 12), Math.round(b.y + TOPBAR_HEIGHT + 6), false);
+}
+
+function positionCompanyWindow(){
+  if (!mainWindow || !companyWindow || companyWindow.isDestroyed()) return;
+  const b = mainWindow.getBounds();
+  const cw = companyWindow.getBounds().width;
+  companyWindow.setPosition(Math.round(b.x + b.width - cw - 12), Math.round(b.y + TOPBAR_HEIGHT + 6), false);
+}
+
+function closeCompanyWindow(){
+  if (!companyWindow || companyWindow.isDestroyed()) return false;
+  try { companyWindow.close(); return true; } catch(e) { return false; }
+}
+
+function openCompanyWindow(){
+  if (!mainWindow) return;
+
+  if (companyWindow && !companyWindow.isDestroyed()) {
+    if (companyWindow.isVisible()) {
+      closeCompanyWindow();
+      return;
+    }
+    positionCompanyWindow();
+    companyWindow.show();
+    companyWindow.focus();
+    companyWindow.webContents.send('sproutg:apply-settings', getSettings());
+    return;
+  }
+
+  companyWindow = new BrowserWindow({
+    parent: mainWindow,
+    modal: false,
+    show: false,
+    width: 420,
+    height: 470,
+    resizable: false,
+    movable: true,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    frame: false,
+    transparent: true,
+    backgroundColor: '#00000000',
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    webPreferences: {
+      preload: path.join(__dirname, 'company', 'preload.js'),
+      contextIsolation: true,
+      sandbox: true,
+      nodeIntegration: false
+    }
+  });
+
+  companyWindow.loadFile(path.join(__dirname, 'company', 'index.html'));
+  companyWindow.on('closed', () => { companyWindow = null; });
+  try { companyWindow.webContents.setVisualZoomLevelLimits(1, 1); companyWindow.webContents.setZoomFactor(1); } catch(e) {}
+  companyWindow.webContents.on('before-input-event', (event, input) => {
+    const isZoomKey = (input.key === '+' || input.key === '-' || input.key === '=' || input.key === '0');
+    if ((input.control || input.meta) && isZoomKey) event.preventDefault();
+  });
+  companyWindow.once('ready-to-show', () => {
+    positionCompanyWindow();
+    companyWindow.show();
+    companyWindow.focus();
+    companyWindow.webContents.send('sproutg:apply-settings', getSettings());
+  });
+  companyWindow.on('blur', () => closeCompanyWindow());
+
+  mainWindow.on('move', positionCompanyWindow);
+  mainWindow.on('resize', positionCompanyWindow);
 }
 
 
@@ -1028,6 +1108,7 @@ ipcMain.handle('sproutg:zoom', (_e, dir) => zoom(dir));
 ipcMain.handle('sproutg:toggle-aot', () => toggleAOT());
 ipcMain.handle('sproutg:reload-web', () => { reloadWeb(); return true; });
 ipcMain.handle('sproutg:close-settings-window', () => closeSettingsWindow());
+ipcMain.handle('sproutg:close-company-window', () => closeCompanyWindow());
 
 ipcMain.handle('sproutg:clear-cache', async () => {
   const s = getSession();
@@ -1049,6 +1130,7 @@ ipcMain.handle('sproutg:logout', async () => {
 ipcMain.handle('sproutg:open-settings', () => { openSettingsWindow(); return true; });
 
 ipcMain.handle('sproutg:open-stats', () => { openStatsWindow(); return true; });
+ipcMain.handle('sproutg:open-company', () => { openCompanyWindow(); return true; });
 ipcMain.handle('sproutg:get-points', () => getPoints());
 ipcMain.handle('sproutg:open-url', (_e, firstRun) => { openUrlWindow(!!firstRun); return true; });
 ipcMain.handle('sproutg:open-bridge-login', () => openBridgeLoginWindow());

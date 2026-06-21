@@ -9,7 +9,7 @@ function lockBtn(key, ms=220){
 }
 
 $('btnHome').addEventListener('click', () => showHomeScreen());
-$('btnCompany').addEventListener('click', () => setActivePage('COMPANY', { persist:false, hideSelector:true }));
+$('btnCompany').addEventListener('click', () => window.sproutg.openCompany());
 $('btnStats').addEventListener('click', () => { if (!lockBtn('stats')) return; window.sproutg.openStats(); });
 $('btnSettings').addEventListener('click', () => { if (!lockBtn('settings')) return; window.sproutg.openSettings(); });
 $('btnMin').addEventListener('click', () => window.sproutg.windowControl('minimize'));
@@ -90,6 +90,8 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
   let filtersRefreshTimer = null;
   let sproutgScrollRestoreSeq = 0;
   let sproutgProgrammaticScrollUntil = 0;
+  let backgroundParallaxScroller = null;
+  let backgroundParallaxRaf = 0;
 
   let mccProfile = null;
   let mccEditMode = false;
@@ -110,6 +112,8 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
   const _o1RowPendingWrites = new Map();
   const _o1LocalValuesByRow = new Map();
   const _o1PendingNextByCell = new Map();
+  const _o1QueuedSingleByCell = new Map();
+  const _mccQueuedSingleByCell = new Map();
   function logSave_(scope, msg, meta){
     if(!SAVE_DEBUG && !window.SPROUTG_DEBUG) return;
     const suffix = meta ? ` ${JSON.stringify(meta)}` : '';
@@ -341,6 +345,7 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
     setupMccTopButton();
     setupPanelCollapses();
     setupSideSyncButtons();
+    setupBackgroundParallax();
     loadMccProfileTabsFromStorage();
     loadMccProfileCacheFromStorage();
     renderMccProfileTabsSelect();
@@ -555,6 +560,7 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
     if(selector) selector.classList.remove('hidden');
     document.documentElement.style.setProperty('--app-header-h', '0px');
     requestAnimationFrame(updateSideSyncButtons);
+    requestAnimationFrame(setupBackgroundParallax);
     requestAnimationFrame(updateO1TopButton);
     requestAnimationFrame(updateMccTopButton);
   }
@@ -584,6 +590,7 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
     requestAnimationFrame(updateMccTopButton);
     requestAnimationFrame(updateMccProfileTabsVisibility);
     requestAnimationFrame(updateSideSyncButtons);
+    requestAnimationFrame(setupBackgroundParallax);
     if(next === 'MCC') requestAnimationFrame(()=>{ loadMccOverview({ silent:true }); preloadMccApellIndex(); });
     if(next === 'COMPANY') requestAnimationFrame(()=>updateCompanyMeta());
   }
@@ -595,6 +602,28 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
     if(swO1) swO1.value = page;
     if(swMcc) swMcc.value = page;
     if(swCompany) swCompany.value = page;
+  }
+
+  function setupBackgroundParallax(){
+    const root = document.getElementById('sproutgAppRoot');
+    const scroller = getActiveSproutScroller_();
+    if(!root || !scroller || scroller === backgroundParallaxScroller) return;
+    if(backgroundParallaxScroller){
+      backgroundParallaxScroller.removeEventListener('scroll', onBackgroundParallaxScroll_);
+    }
+    backgroundParallaxScroller = scroller;
+    backgroundParallaxScroller.addEventListener('scroll', onBackgroundParallaxScroll_, { passive:true });
+    onBackgroundParallaxScroll_();
+  }
+
+  function onBackgroundParallaxScroll_(){
+    if(backgroundParallaxRaf) return;
+    backgroundParallaxRaf = requestAnimationFrame(()=>{
+      backgroundParallaxRaf = 0;
+      const root = document.getElementById('sproutgAppRoot');
+      if(!root || !backgroundParallaxScroller) return;
+      root.style.setProperty('--bg-parallax-y', `${Math.round(backgroundParallaxScroller.scrollTop || 0)}px`);
+    });
   }
 
   function initPageSelection(){
@@ -971,15 +1000,28 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
 
   function toggleDeleted(){
     if(!current?.row) return;
+    const prev = !!current.isDeleted;
     const next = !current.isDeleted;
-    toast('Изменение…');
+    current.isDeleted = next;
+    updateHeader();
+    refreshColors({ source:'o1', skipFilters:true });
     google.script.run.withSuccessHandler(r=>{
-      if(!r || r.ok===false){ toast(r?.error || 'Ошибка'); return; }
+      if(!r || r.ok===false){
+        current.isDeleted = prev;
+        updateHeader();
+        refreshColors({ source:'o1', skipFilters:true });
+        toast(r?.error || 'Ошибка');
+        return;
+      }
       current.isDeleted = !!r.isDeleted;
       updateHeader();
       refreshColors({ source:'o1', skipFilters:true });
-      toast('Готово');
-    }).withFailureHandler(err=>toast(String(err))).toggleProfileDeleted(current.row, next);
+    }).withFailureHandler(err=>{
+      current.isDeleted = prev;
+      updateHeader();
+      refreshColors({ source:'o1', skipFilters:true });
+      toast(String(err));
+    }).toggleProfileDeleted(current.row, next);
   }
 
   function updateHeaderNav(){
@@ -1123,15 +1165,28 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
 
   function mccToggleDeleted(){
     if(!mccProfile?.profileName) return;
+    const prev = !!mccProfile.isDeleted;
     const next = !mccProfile.isDeleted;
-    toast('Изменение…');
+    mccProfile.isDeleted = next;
+    updateMccActionButtons();
+    refreshColors({ source:'mcc', skipFilters:true });
     google.script.run.withSuccessHandler(r=>{
-      if(!r || r.ok===false){ toast(r?.error || 'Ошибка'); return; }
+      if(!r || r.ok===false){
+        mccProfile.isDeleted = prev;
+        updateMccActionButtons();
+        refreshColors({ source:'mcc', skipFilters:true });
+        toast(r?.error || 'Ошибка');
+        return;
+      }
       mccProfile.isDeleted = !!r.isDeleted;
       updateMccActionButtons();
       refreshColors({ source:'mcc', skipFilters:true });
-      toast('Готово');
-    }).withFailureHandler(err=>toast(String(err))).toggleMccProfileDeleted(mccProfile.profileName, next);
+    }).withFailureHandler(err=>{
+      mccProfile.isDeleted = prev;
+      updateMccActionButtons();
+      refreshColors({ source:'mcc', skipFilters:true });
+      toast(String(err));
+    }).toggleMccProfileDeleted(mccProfile.profileName, next);
   }
 
   function search(){
@@ -1632,6 +1687,43 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
     _saveState.set(key, { ...(cur || {}), token: cur?.token || 0, committed, pending:false, failed:false });
   }
 
+  function cancelO1QueuedJob_(job){
+    if(!job || job.started || job.canceled) return false;
+    job.canceled = true;
+    if(job.singleKey) _o1QueuedSingleByCell.delete(job.singleKey);
+    if(job.counted){
+      job.counted = false;
+      _o1PendingWrites = Math.max(0, _o1PendingWrites - job.cols.length);
+      adjustO1PendingRow_(job.row, -job.cols.length);
+      emitLocalQueue_();
+    }
+    return true;
+  }
+
+  function tryCollapseO1SingleWrite_(row, normalized, onOk){
+    const cols = Object.keys(normalized || {});
+    if(cols.length !== 1) return false;
+    const col = cols[0];
+    const key = `${row}:${col}`;
+    const prevJob = _o1QueuedSingleByCell.get(key);
+    if(!prevJob || prevJob.started || prevJob.canceled) return false;
+    const nextValue = String(normalized[col] ?? '');
+    const committed = String(prevJob.prevCommitted ?? '');
+    if(nextValue !== committed) return false;
+    if(!cancelO1QueuedJob_(prevJob)) return false;
+    const cur = _saveState.get(key) || { token: 0, committed };
+    cur.token += 1;
+    cur.pending = false;
+    cur.failed = false;
+    cur.nextValue = committed;
+    cur.committed = committed;
+    _saveState.set(key, cur);
+    rememberO1LocalValues_(row, { [col]: committed });
+    onOk?.({ ok:true, canceled:true, applied:{ [col]: committed } });
+    refreshColors({ source:'o1', skipFilters:true });
+    return true;
+  }
+
 
   function saveCellsInstant(row, updates, onOk, onFail, opts = {}){
     const normalized = Object.entries(updates || {}).reduce((acc, [col, value])=>{
@@ -1642,6 +1734,8 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
     const cols = Object.keys(normalized);
     if(!cols.length){ onFail?.('Нет данных для сохранения'); return; }
 
+    if(tryCollapseO1SingleWrite_(row, normalized, onOk)) return { page:'O1', row:Number(row), cols, canceled:true };
+
     const tokens = {};
     const writeId = ++_o1WriteSeq;
     const tabKey = opts.tabKey || getTabKey(row);
@@ -1650,7 +1744,7 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
 
     for(const c of cols){
       const key = `${row}:${c}`;
-      const st = _saveState.get(key) || { token: 0, committed: normalized[c] };
+      const st = _saveState.get(key) || { token: 0, committed: '' };
       st.token += 1;
       tokens[c] = st.token;
       st.pending = true;
@@ -1665,7 +1759,24 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
     adjustO1PendingRow_(row, cols.length);
     logSave_('O1', 'write queued', { row, cols, writeId, tabKey, profileName, pending: _o1PendingWrites });
 
+    const singleKey = cols.length === 1 ? `${row}:${cols[0]}` : '';
+    const job = {
+      page:'O1',
+      row,
+      cols,
+      writeId,
+      singleKey,
+      prevCommitted: singleKey ? String((_saveState.get(singleKey)?.committed) ?? '') : '',
+      counted:true,
+      started:false,
+      canceled:false
+    };
+    if(singleKey) _o1QueuedSingleByCell.set(singleKey, job);
+
     enqueueWrite_('O1', (resolve)=>{
+      if(job.canceled){ resolve(); return; }
+      job.started = true;
+      if(job.singleKey && _o1QueuedSingleByCell.get(job.singleKey) === job) _o1QueuedSingleByCell.delete(job.singleKey);
       let settled = false;
       const startedAt = Date.now();
       const settle = (kind, payload)=>{
@@ -1736,9 +1847,12 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
             logSave_('O1', kind === 'timeout' ? 'timeout' : 'failure', { row, cols, writeId, error, failed: _o1FailedWrites, ms: Date.now() - startedAt });
           }
         } finally {
-          _o1PendingWrites = Math.max(0, _o1PendingWrites - cols.length);
-          emitLocalQueue_();
-          adjustO1PendingRow_(row, -cols.length);
+          if(job.counted){
+            job.counted = false;
+            _o1PendingWrites = Math.max(0, _o1PendingWrites - cols.length);
+            emitLocalQueue_();
+            adjustO1PendingRow_(row, -cols.length);
+          }
           replayInactiveO1PendingNext_(ctx, normalized, activeContext);
           logSave_('O1', 'queue settle', { row, cols, writeId, pending: _o1PendingWrites, rowPending: getO1PendingCountForRow(row) });
           resolve();
@@ -1772,6 +1886,21 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
     if(!row || !col) return null;
 
     if(el && el.dataset.saving === '1'){
+      const queued = _o1QueuedSingleByCell.get(`${row}:${col}`);
+      if(queued && !queued.started && !queued.canceled && String(value ?? '') === String(queued.prevCommitted ?? '')){
+        if(field) field.value = value;
+        if('value' in el) el.value = value;
+        else el.textContent = value;
+        delete el.dataset.pendingNextValue;
+        el.dataset.saving = '0';
+        return saveCellInstant(row, col, value, (r)=>{
+          markFieldSaved(el);
+          opts.onSaved?.(r, value);
+        }, (err)=>{
+          markFieldSaveError(el);
+          opts.onFailed?.(err);
+        }, opts.saveOptions || {});
+      }
       el.dataset.pendingNextValue = String(value ?? '');
       setO1PendingNext_(row, col, value, opts.saveOptions || {});
       logSave_('O1', 'pendingNextValue detected', { row, col, value: el.dataset.pendingNextValue });
@@ -3215,12 +3344,23 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
       if(banBtn && !banBtn.dataset.bound){
         banBtn.dataset.bound='1';
         banBtn.addEventListener('click', ()=>{
-          toast('BAN…');
+          const prevActive = banBtn.classList.contains('active');
+          banBtn.classList.toggle('active', !prevActive);
+          if(!prevActive) banBtn.classList.add('banRed');
           google.script.run.withSuccessHandler(r=>{
-            if(!r || r.ok===false){ toast(r?.error || 'Ошибка BAN'); return; }
+            if(!r || r.ok===false){
+              banBtn.classList.toggle('active', prevActive);
+              if(!prevActive) banBtn.classList.remove('banRed');
+              toast(r?.error || 'Ошибка BAN');
+              return;
+            }
             scheduleFiltersRefresh('status-change');
             syncProfile();
-          }).withFailureHandler(err=>toast(String(err))).toggleBan(res.row, g.name);
+          }).withFailureHandler(err=>{
+            banBtn.classList.toggle('active', prevActive);
+            if(!prevActive) banBtn.classList.remove('banRed');
+            toast(String(err));
+          }).toggleBan(res.row, g.name);
         });
       }
 
@@ -3229,14 +3369,25 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
       if(numBtn && !numBtn.dataset.bound){
         numBtn.dataset.bound='1';
         numBtn.addEventListener('click', ()=>{
-          if(numBtn.disabled) return;
           const curOn = numBtn.classList.contains('btnNumActive');
-          numBtn.disabled = true;
           const next = !curOn;
-          toast('Номер…');
+          numBtn.classList.toggle('btnNumActive', next);
+          if(g.number){
+            g.number.active = next;
+            g.number.value = next ? 'Номер' : '';
+          }
+          refreshColors({ source:'o1', skipFilters:true });
           google.script.run.withSuccessHandler(r=>{
-            numBtn.disabled = false;
-            if(!r || r.ok===false){ toast(r?.error || 'Ошибка'); return; }
+            if(!r || r.ok===false){
+              numBtn.classList.toggle('btnNumActive', curOn);
+              if(g.number){
+                g.number.active = curOn;
+                g.number.value = curOn ? 'Номер' : '';
+              }
+              refreshColors({ source:'o1', skipFilters:true });
+              toast(r?.error || 'Ошибка');
+              return;
+            }
             numBtn.classList.toggle('btnNumActive', !!r.active);
             if(g.number){
               g.number.active = !!r.active;
@@ -3245,7 +3396,15 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
             refreshColors({ source:'o1', skipFilters:true });
             scheduleFiltersRefresh('status-change');
             toast('Готово');
-          }).withFailureHandler(err=>{ numBtn.disabled = false; toast(String(err)); }).setGroupNumber(res.row, g.name, next);
+          }).withFailureHandler(err=>{
+            numBtn.classList.toggle('btnNumActive', curOn);
+            if(g.number){
+              g.number.active = curOn;
+              g.number.value = curOn ? 'Номер' : '';
+            }
+            refreshColors({ source:'o1', skipFilters:true });
+            toast(String(err));
+          }).setGroupNumber(res.row, g.name, next);
         });
       }
 
@@ -3346,9 +3505,10 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
           };
 
           const saveDropdownValue = (newVal)=>{
-            const oldValue = String(sel.dataset.prevValue ?? f.value ?? '');
+            const oldValue = String(f.value ?? sel.dataset.uiValue ?? sel.dataset.prevValue ?? '');
             if(oldValue === newVal) return;
             f.value = newVal;
+            sel.dataset.uiValue = newVal;
             if(newVal === '+') sel.value = '';
             applySelectColor(sel, f.col, newVal === '+' ? '+' : sel.value);
             syncPlusUi(newVal);
@@ -3378,6 +3538,7 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
 
                 if(['BA','BJ','BX','CG'].includes(col)) syncProfile();
                 sel.dataset.prevValue = finalValue;
+                sel.dataset.uiValue = finalValue;
                 if(finalValue === '+') sel.value = '';
                 syncPlusUi(finalValue);
                 sproutgEmitStatusEvent('O1', g.name || 'O1', finalValue, f.col, res.row, oldValue);
@@ -3385,6 +3546,7 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
               onFailed: (err)=>{
                 toast(err || 'Ошибка');
                 f.value = newVal;
+                sel.dataset.uiValue = newVal;
                 sel.value = newVal === '+' ? '' : newVal;
                 applySelectColor(sel, f.col, newVal);
                 syncPlusUi(newVal);
@@ -3411,7 +3573,10 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
             plusBtn.className = 'btn statusPlusBtn';
             plusBtn.textContent = '+';
             plusBtn.title = '+';
-            plusBtn.addEventListener('click', ()=>saveDropdownValue('+'));
+            plusBtn.addEventListener('click', ()=>{
+              const activeValue = String(f.value ?? sel.dataset.uiValue ?? sel.dataset.prevValue ?? '').trim();
+              saveDropdownValue(activeValue === '+' ? '' : '+');
+            });
             syncPlusUi(curRaw);
             split.appendChild(plusBtn);
             split.appendChild(sel);
@@ -4599,18 +4764,40 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
 
   function mccToggleAccountDeleted(rowObj, btn){
     if(!rowObj?.row) return;
+    const prev = !!rowObj.isDeleted;
     const next = !rowObj.isDeleted;
-    toast('Изменение…');
+    rowObj.isDeleted = next;
+    if(btn){
+      btn.classList.toggle('banRed', rowObj.isDeleted);
+      btn.classList.toggle('active', rowObj.isDeleted);
+    }
+    refreshColors({ source:'mcc', skipFilters:true });
     google.script.run.withSuccessHandler(r=>{
-      if(!r || r.ok===false){ toast(r?.error || 'Ошибка'); return; }
+      if(!r || r.ok===false){
+        rowObj.isDeleted = prev;
+        if(btn){
+          btn.classList.toggle('banRed', rowObj.isDeleted);
+          btn.classList.toggle('active', rowObj.isDeleted);
+        }
+        refreshColors({ source:'mcc', skipFilters:true });
+        toast(r?.error || 'Ошибка');
+        return;
+      }
       rowObj.isDeleted = !!r.isDeleted;
       if(btn){
         btn.classList.toggle('banRed', rowObj.isDeleted);
         btn.classList.toggle('active', rowObj.isDeleted);
       }
       refreshColors({ source:'mcc', skipFilters:true });
-      toast('Готово');
-    }).withFailureHandler(err=>toast(String(err))).toggleMccAccountDeleted(rowObj.row, next);
+    }).withFailureHandler(err=>{
+      rowObj.isDeleted = prev;
+      if(btn){
+        btn.classList.toggle('banRed', rowObj.isDeleted);
+        btn.classList.toggle('active', rowObj.isDeleted);
+      }
+      refreshColors({ source:'mcc', skipFilters:true });
+      toast(String(err));
+    }).toggleMccAccountDeleted(rowObj.row, next);
   }
 
 
@@ -4629,6 +4816,39 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
     cacheMccProfile(mccProfile);
   }
 
+  function cancelMccQueuedJob_(job){
+    if(!job || job.started || job.canceled) return false;
+    job.canceled = true;
+    if(job.singleKey) _mccQueuedSingleByCell.delete(job.singleKey);
+    if(job.counted){
+      job.counted = false;
+      _mccPendingWrites = Math.max(0, _mccPendingWrites - job.cols.length);
+      emitLocalQueue_();
+    }
+    return true;
+  }
+
+  function tryCollapseMccSingleWrite_(row, normalized, onOk){
+    const cols = Object.keys(normalized || {});
+    if(cols.length !== 1) return false;
+    const col = cols[0];
+    const key = `mcc:${row}:${col}`;
+    const prevJob = _mccQueuedSingleByCell.get(key);
+    if(!prevJob || prevJob.started || prevJob.canceled) return false;
+    const nextValue = String(normalized[col] ?? '');
+    const committed = String(prevJob.prevCommitted ?? '');
+    if(nextValue !== committed) return false;
+    if(!cancelMccQueuedJob_(prevJob)) return false;
+    const cur = _mccSaveState.get(key) || { token: 0, committed };
+    cur.token += 1;
+    cur.committed = committed;
+    _mccSaveState.set(key, cur);
+    applyMccSavedValues_(row, { [col]: committed });
+    onOk?.({ ok:true, canceled:true, applied:{ [col]: committed } });
+    refreshColors({ source:'mcc', skipFilters:true });
+    return true;
+  }
+
   function saveMccCellsInstant(row, updates, onOk, onFail){
     const normalized = Object.entries(updates || {}).reduce((acc, [col, value])=>{
       const c = String(col || '').toUpperCase().trim();
@@ -4638,16 +4858,35 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
     const cols = Object.keys(normalized);
     if(!cols.length){ onFail?.('Нет данных для сохранения'); return; }
 
+    if(tryCollapseMccSingleWrite_(row, normalized, onOk)) return;
+
     _mccPendingWrites += cols.length;
     emitLocalQueue_();
     logSave_('MCC', 'queued updateMccCells', { row, cols, pending: _mccPendingWrites });
+    const singleKey = cols.length === 1 ? `mcc:${row}:${cols[0]}` : '';
+    const job = {
+      row,
+      cols,
+      singleKey,
+      prevCommitted: singleKey ? String((_mccSaveState.get(singleKey)?.committed) ?? '') : '',
+      counted:true,
+      started:false,
+      canceled:false
+    };
+    if(singleKey) _mccQueuedSingleByCell.set(singleKey, job);
     enqueueWrite_('MCC', (resolve)=>{
+      if(job.canceled){ resolve(); return; }
+      job.started = true;
+      if(job.singleKey && _mccQueuedSingleByCell.get(job.singleKey) === job) _mccQueuedSingleByCell.delete(job.singleKey);
       google.script.run
       .withSuccessHandler((r)=>{
         if(!r || r.ok === false){
           onFail?.(r?.error || 'Ошибка');
-          _mccPendingWrites = Math.max(0, _mccPendingWrites - cols.length);
-          emitLocalQueue_();
+          if(job.counted){
+            job.counted = false;
+            _mccPendingWrites = Math.max(0, _mccPendingWrites - cols.length);
+            emitLocalQueue_();
+          }
           logSave_('MCC', 'failed updateMccCells', { row, cols, pending: _mccPendingWrites, error: r?.error || 'Ошибка' });
           resolve();
           return;
@@ -4668,15 +4907,21 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
         }
         updateMccTabsColors();
         refreshColors({ source:'mcc', skipFilters:true });
-        _mccPendingWrites = Math.max(0, _mccPendingWrites - cols.length);
-        emitLocalQueue_();
+        if(job.counted){
+          job.counted = false;
+          _mccPendingWrites = Math.max(0, _mccPendingWrites - cols.length);
+          emitLocalQueue_();
+        }
         logSave_('MCC', 'confirmed updateMccCells', { row, cols, pending: _mccPendingWrites });
         resolve();
       })
       .withFailureHandler((err)=>{
         onFail?.(String(err));
-        _mccPendingWrites = Math.max(0, _mccPendingWrites - cols.length);
-        emitLocalQueue_();
+        if(job.counted){
+          job.counted = false;
+          _mccPendingWrites = Math.max(0, _mccPendingWrites - cols.length);
+          emitLocalQueue_();
+        }
         logSave_('MCC', 'transport error updateMccCells', { row, cols, pending: _mccPendingWrites, error: String(err) });
         resolve();
       })
@@ -4834,21 +5079,26 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
     }
     sel.value = String(value ?? '');
     sel.dataset.prevValue = String(value ?? '');
+    sel.dataset.uiValue = String(value ?? '');
+    const saveKey = `mcc:${rowObj.row}:${col}`;
+    if(!_mccSaveState.has(saveKey)) _mccSaveState.set(saveKey, { token: 0, committed: String(value ?? '') });
     applySheetCellColorHint(sel, rowObj?.bgMap?.[col]);
 
     sel.addEventListener('change', ()=>{
-      const oldValue = String(sel.dataset.prevValue ?? rowObj.values[col] ?? '');
+      const oldValue = String(rowObj.values[col] ?? sel.dataset.uiValue ?? sel.dataset.prevValue ?? '');
       const next = String(sel.value ?? '');
       if(oldValue === next) return;
       rowObj.values[col] = next;
+      sel.dataset.uiValue = next;
       updateMccTabsColors();
+      onChange?.(next);
       toast('Сохранение…');
       saveMccCellInstant(rowObj.row, col, next, ()=>{
         toast('Сохранено');
         sel.dataset.prevValue = next;
+        sel.dataset.uiValue = next;
         sproutgEmitStatusEvent('MCC', meta.group || rowObj.groupName || 'MCC', next, meta.col || col, rowObj.row, oldValue);
       }, (err)=>toast(err||'Ошибка'));
-      onChange?.(next);
     });
 
     return sel;
@@ -4869,20 +5119,23 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
       onChange?.(next);
     }, meta);
     sel.dataset.prevValue = String(value ?? '');
+    sel.dataset.uiValue = String(value ?? '');
     plusBtn.classList.toggle('is-active', String(value ?? '').trim() === '+');
 
     plusBtn.addEventListener('click', ()=>{
-      const oldValue = String(sel.dataset.prevValue ?? rowObj.values[col] ?? '');
-      if(oldValue === '+') return;
-      rowObj.values[col] = '+';
-      sel.value = '';
-      sel.dataset.prevValue = '+';
-      plusBtn.classList.add('is-active');
+      const oldValue = String(rowObj.values[col] ?? sel.dataset.uiValue ?? sel.dataset.prevValue ?? '');
+      const nextValue = oldValue === '+' ? '' : '+';
+      rowObj.values[col] = nextValue;
+      sel.value = nextValue === '+' ? '' : nextValue;
+      sel.dataset.uiValue = nextValue;
+      plusBtn.classList.toggle('is-active', nextValue === '+');
       updateMccTabsColors();
-      saveMccCellInstant(rowObj.row, col, '+', ()=>{
-        sproutgEmitStatusEvent('MCC', meta.group || rowObj.groupName || 'MCC', '+', meta.col || col, rowObj.row, oldValue);
+      onChange?.(nextValue);
+      saveMccCellInstant(rowObj.row, col, nextValue, ()=>{
+        sel.dataset.prevValue = nextValue;
+        sel.dataset.uiValue = nextValue;
+        sproutgEmitStatusEvent('MCC', meta.group || rowObj.groupName || 'MCC', nextValue, meta.col || col, rowObj.row, oldValue);
       }, (err)=>toast(err||'Ошибка'));
-      onChange?.('+');
     });
 
     wrap.appendChild(plusBtn);

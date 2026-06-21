@@ -1,23 +1,27 @@
 :root{
-  --bg:#0f1115; --panel:#151922; --border:rgba(255,255,255,0.10);
+  --bg:#0f1115; --panel:rgba(18,25,40,0.78); --border:rgba(255,255,255,0.13);
   --text:#e9edf5; --muted:rgba(233,237,245,0.70);
-  --btn:rgba(255,255,255,0.08); --btnH:rgba(255,255,255,0.12);
+  --btn:rgba(255,255,255,0.09); --btnH:rgba(255,255,255,0.14);
   --danger:#ff4d4f; --radius:14px;
+  --glassTop:rgba(255,255,255,0.09);
 }
 html[data-theme="light"],html[data-theme="light-classic"],html[data-theme="light-oldmoney"]{
-  --bg:#f6f7fb; --panel:#ffffff; --border:rgba(0,0,0,0.12);
+  --bg:#f6f7fb; --panel:rgba(255,255,255,0.80); --border:rgba(80,103,134,0.24);
   --text:#0b1220; --muted:rgba(11,18,32,0.62);
-  --btn:rgba(0,0,0,0.06); --btnH:rgba(0,0,0,0.10);
+  --btn:rgba(80,103,134,0.08); --btnH:rgba(80,103,134,0.13);
+  --glassTop:rgba(255,255,255,0.46);
 }
 html[data-theme="dark-ios"]{
-  --bg:#050713; --panel:rgba(18,24,42,0.82); --border:rgba(255,255,255,0.14);
+  --bg:#050713; --panel:rgba(13,18,38,0.76); --border:rgba(210,226,255,0.16);
   --text:#f4f7fb; --muted:rgba(244,247,251,0.68);
   --btn:rgba(255,255,255,0.09); --btnH:rgba(255,255,255,0.16);
+  --glassTop:rgba(255,255,255,0.10);
 }
 html[data-theme="light-oldmoney"]{
-  --bg:#f4efe4; --panel:rgba(255,252,244,0.94); --border:rgba(98,78,48,0.22);
+  --bg:#f4efe4; --panel:rgba(252,255,249,0.80); --border:rgba(45,91,69,0.24);
   --text:#2d261c; --muted:#6f604b;
   --btn:rgba(104,84,52,0.08); --btnH:rgba(104,84,52,0.14);
+  --glassTop:rgba(255,255,255,0.40);
 }
 *{box-sizing:border-box;}
 body{margin:0;background:transparent;color:var(--text);font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial;overflow:hidden;}
@@ -29,10 +33,13 @@ body{margin:0;background:transparent;color:var(--text);font-family:ui-sans-serif
   padding:12px;
   display:flex;
   flex-direction:column;
-  background:var(--panel);
+  background:
+    linear-gradient(135deg, var(--glassTop), rgba(255,255,255,0.02)),
+    var(--panel);
   border:1px solid var(--border);
   border-radius:18px;
   box-shadow:0 18px 55px rgba(0,0,0,0.35);
+  backdrop-filter:blur(30px) saturate(1.25);
   overflow:hidden;
 }
 .header{margin-bottom:10px;}
@@ -124,4 +131,4 @@ body{margin:0;background:transparent;color:var(--text);font-family:ui-sans-serif
 .progress{height:7px;margin-top:8px;border:1px solid var(--border);border-radius:999px;overflow:hidden;background:var(--btn);}
 .progressBar{height:100%;width:0%;background:var(--text);opacity:.65;transition:width .18s ease;}
 .btn:disabled{opacity:.45;cursor:not-allowed;}
-html[data-theme="dark-ios"] .card{backdrop-filter:blur(24px) saturate(1.25);}
+html[data-theme="dark-ios"] .card{backdrop-filter:blur(32px) saturate(1.28);}

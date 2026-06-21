@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="ru" data-theme="dark-classic">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self';">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Компании</title>
+  <link rel="stylesheet" href="./company.css" />
+</head>
+<body>
+  <div class="companyShell">
+    <div class="card" id="companyCard">
+      <div class="dragbar" title="Перетащи окно мышью"></div>
+      <div class="header">
+        <div class="title">Компании</div>
+      </div>
+
+      <div class="formGrid" id="companyFormGrid"></div>
+
+      <div class="footer">
+        <button class="btn btnPrimary" id="companySubmitBtn" type="button">Готово</button>
+      </div>
+
+      <div id="companyErr" class="err"></div>
+    </div>
+  </div>
+
+  <script src="./company.js"></script>
+</body>
+</html>

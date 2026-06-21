@@ -30,6 +30,7 @@
     getApellDataIndex: { action: 'apell.index', payload: ([options]) => (options || {}) },
     getPassLookupForFios: { action: 'pass.lookupFios', payload: ([fios]) => ({ fios }) },
     getCompanyFormMeta: { action: 'company.formMeta', payload: () => ({}) },
+    checkCompanyDuplicate: { action: 'company.checkDuplicate', payload: ([value]) => ({ value }) },
     addCompanyRow: { action: 'company.addRow', payload: ([values]) => ({ values }) },
 
     smspoolOrderO1: { action: 'smspool.orderO1', payload: () => ({}) },
@@ -42,12 +43,14 @@
   const readCache = new Map();
   let lastVersion = '';
   let pendingRequests = 0;
+  let localQueuePending = 0;
+  let savedTimer = null;
 
   const READ_ACTIONS = new Set([
     'meta.config', 'dropdown.maps',
     'o1.profileByName', 'o1.profileByRow', 'o1.profilesByRows', 'o1.appealRow', 'o1.lists', 'o1.workLists', 'o1.groupDateList', 'o1.cleanupList',
     'mcc.profile', 'mcc.overview', 'mcc.lists', 'mcc.stageList', 'mcc.workList', 'mcc.verificationPools',
-    'apell.index', 'pass.lookupFios', 'company.formMeta',
+    'apell.index', 'pass.lookupFios', 'company.formMeta', 'company.checkDuplicate',
     'smspool.checkO1', 'smspool.stateO1', 'smspool.balanceO1'
   ]);
 
@@ -60,8 +63,38 @@
   }
 
   function setLoading(delta) {
+    const wasBusy = Math.max(pendingRequests, localQueuePending) > 0;
     pendingRequests = Math.max(0, pendingRequests + delta);
-    document.documentElement.classList.toggle('api-busy', pendingRequests > 0);
+    const totalPending = Math.max(0, pendingRequests, localQueuePending);
+    const isBusy = totalPending > 0;
+    document.documentElement.classList.toggle('api-busy', isBusy);
+    const count = document.getElementById('apiPendingCount');
+    if (count) {
+      count.textContent = totalPending > 1 ? String(totalPending) : '';
+      count.style.display = totalPending > 1 ? '' : 'none';
+    }
+    if (isBusy) {
+      clearTimeout(savedTimer);
+      document.documentElement.classList.remove('api-saved');
+    } else if (wasBusy) {
+      document.documentElement.classList.add('api-saved');
+      clearTimeout(savedTimer);
+      savedTimer = setTimeout(() => document.documentElement.classList.remove('api-saved'), 850);
+    }
+  }
+
+  window.addEventListener('sproutg-local-queue', (event) => {
+    localQueuePending = Math.max(0, Number(event?.detail?.pending || 0));
+    setLoading(0);
+  });
+
+  function isPriorityRead(action) {
+    return READ_ACTIONS.has(action) && /^(o1\.profile|mcc\.profile|company\.formMeta|o1\.lists|mcc\.lists)/.test(String(action || ''));
+  }
+
+  function emitPriority(action, active) {
+    if (!isPriorityRead(action)) return;
+    window.dispatchEvent(new CustomEvent(active ? 'sproutg-api-priority-start' : 'sproutg-api-priority-end', { detail: { action } }));
   }
 
   async function callApi(action, payload = {}, opts = {}) {
@@ -69,6 +102,7 @@
     const key = useCache ? cacheKey(action, payload) : '';
     if (useCache && readCache.has(key)) return readCache.get(key);
 
+    emitPriority(action, true);
     setLoading(1);
     try {
       const res = await window.sproutg.apiCall(action, payload, opts);
@@ -79,6 +113,7 @@
       return res;
     } finally {
       setLoading(-1);
+      emitPriority(action, false);
     }
   }
 
@@ -161,6 +196,7 @@
     getPassLookupForFios: (fios) => callApi('pass.lookupFios', { fios }),
     getMccVerificationDropdownPools: () => callApi('mcc.verificationPools', {}),
     getCompanyFormMeta: () => callApi('company.formMeta', {}),
+    checkCompanyDuplicate: (value) => callApi('company.checkDuplicate', { value }),
     addCompanyRow: (values) => callApi('company.addRow', { values }, { cache: false }),
     smsPoolOrderO1: () => callApi('smspool.orderO1', {}, { cache: false }),
     smsPoolCheckO1: (orderId) => callApi('smspool.checkO1', { orderId }, { cache: false }),

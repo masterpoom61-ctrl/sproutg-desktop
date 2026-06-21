@@ -26,6 +26,11 @@ const btnCheckUpdate = $('btnCheckUpdate');
 const btnDownloadUpdate = $('btnDownloadUpdate');
 const btnInstallUpdate = $('btnInstallUpdate');
 const settingsCard = $('settingsCard');
+const smsPoolApiKey = $('smsPoolApiKey');
+const btnSaveSmsPoolKey = $('btnSaveSmsPoolKey');
+const smsPoolStatus = $('smsPoolStatus');
+const techDesktopVersion = $('techDesktopVersion');
+const techWebVersion = $('techWebVersion');
 
 let current = { theme: 'dark-classic', zoom: 1.0, alwaysOnTop: false };
 
@@ -116,6 +121,23 @@ async function refresh() {
   } catch (e) {
     renderUpdateState({ status: 'error', message: 'Не удалось получить статус обновлений', error: String(e?.message || e) });
   }
+  refreshTechInfo();
+}
+
+async function refreshTechInfo() {
+  try {
+    const state = await window.sproutgSettings.getUpdateState();
+    if (techDesktopVersion) techDesktopVersion.textContent = formatVersion(state?.version);
+  } catch (e) {
+    if (techDesktopVersion) techDesktopVersion.textContent = '—';
+  }
+  try {
+    const meta = await window.sproutgSettings.apiCall('meta.config', {}, { timeoutMs: 12000 });
+    const webVersion = meta?.data?.appVersion || meta?.appVersion || '';
+    if (techWebVersion) techWebVersion.textContent = formatVersion(webVersion);
+  } catch (e) {
+    if (techWebVersion) techWebVersion.textContent = '—';
+  }
 }
 
 btnAOT.addEventListener('click', async () => {
@@ -163,6 +185,22 @@ btnLogout.addEventListener('click', async () => {
 
 btnChangeUrl.addEventListener('click', () => window.sproutgSettings.openUrl());
 
+btnSaveSmsPoolKey?.addEventListener('click', async () => {
+  const key = String(smsPoolApiKey?.value || '').trim();
+  btnSaveSmsPoolKey.disabled = true;
+  if (smsPoolStatus) smsPoolStatus.textContent = 'Сохранение...';
+  try {
+    const res = await window.sproutgSettings.apiCall('smspool.setApiKey', { key }, { cache: false, timeoutMs: 15000 });
+    if (!res || res.ok === false) throw new Error(res?.error || 'Ошибка сохранения');
+    if (smsPoolApiKey) smsPoolApiKey.value = '';
+    if (smsPoolStatus) smsPoolStatus.textContent = key ? 'SMSPool API key сохранен.' : 'SMSPool API key очищен.';
+  } catch (e) {
+    if (smsPoolStatus) smsPoolStatus.textContent = String(e?.message || e);
+  } finally {
+    btnSaveSmsPoolKey.disabled = false;
+  }
+});
+
 btnCheckUpdate.addEventListener('click', async () => {
   btnCheckUpdate.disabled = true;
   try { renderUpdateState(await window.sproutgSettings.checkForUpdates()); }
@@ -201,3 +239,4 @@ document.addEventListener('keydown', (event) => {
 });
 
 refresh();
+

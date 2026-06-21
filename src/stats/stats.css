@@ -24,6 +24,56 @@ html[data-theme="light"]{
   --muted2:rgba(11,18,32,0.48);
   --shadow:0 16px 45px rgba(0,0,0,0.18);
 }
+html[data-theme="dark-classic"]{
+  --panel:rgba(18,25,40,0.88);
+  --border:rgba(255,255,255,0.12);
+  --tooltipBorder:rgba(255,255,255,0.14);
+  --text:#edf5ff;
+  --muted:rgba(237,245,255,0.72);
+  --muted2:rgba(237,245,255,0.56);
+  --chartA:#38bdf8;
+  --chartB:#22c55e;
+  --chartC:#f59e0b;
+  --chartD:#f43f5e;
+}
+html[data-theme="dark-ios"]{
+  --panel:rgba(12,16,34,0.84);
+  --border:rgba(210,226,255,0.14);
+  --tooltipBorder:rgba(210,226,255,0.16);
+  --text:#f7fbff;
+  --muted:rgba(234,242,255,0.74);
+  --muted2:rgba(234,242,255,0.56);
+  --chartA:#6ea8ff;
+  --chartB:#a78bfa;
+  --chartC:#34d399;
+  --chartD:#fb7185;
+}
+html[data-theme="light-classic"]{
+  --tooltipBg:rgba(255,255,255,0.94);
+  --tooltipBorder:rgba(80,103,134,0.24);
+  --panel:rgba(255,255,255,0.90);
+  --border:rgba(80,103,134,0.22);
+  --text:#172033;
+  --muted:#52657f;
+  --muted2:#6d7d94;
+  --chartA:#2563eb;
+  --chartB:#0891b2;
+  --chartC:#16a34a;
+  --chartD:#e11d48;
+}
+html[data-theme="light-oldmoney"]{
+  --tooltipBg:rgba(252,255,249,0.94);
+  --tooltipBorder:rgba(45,91,69,0.24);
+  --panel:rgba(252,255,249,0.90);
+  --border:rgba(45,91,69,0.22);
+  --text:#1f3529;
+  --muted:#5d7165;
+  --muted2:#718577;
+  --chartA:#2a674e;
+  --chartB:#8a6f2d;
+  --chartC:#287a69;
+  --chartD:#9f3a3a;
+}
 
 *{box-sizing:border-box;}
 body{
@@ -47,6 +97,22 @@ body{
 .header{margin-bottom:10px;}
 .title{font-weight:900;font-size:14px;}
 .subtitle{margin-top:6px;font-size:11px;color:var(--muted);line-height:1.35;}
+.monthbar{margin:-2px 0 10px;}
+.monthbar select{
+  width:100%;
+  border:1px solid var(--tooltipBorder);
+  background:rgba(255,255,255,0.06);
+  color:var(--text);
+  border-radius:12px;
+  padding:8px 10px;
+  font-size:12px;
+  font-weight:900;
+  outline:none;
+}
+html[data-theme="light-classic"] .monthbar select,
+html[data-theme="light-oldmoney"] .monthbar select{
+  background:rgba(255,255,255,0.62);
+}
 .grid{
   display:grid;
   grid-template-columns: repeat(4, 1fr);

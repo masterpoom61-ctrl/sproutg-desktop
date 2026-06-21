@@ -1,6 +1,12 @@
-# SproutG v2.0.1-beta.1
+# SproutG v2.0.2
 
 Electron desktop app for SproutG. The main SproutG interface is rendered locally, while Apps Script is used as `SproutG.Web`: a hidden bridge/API layer for Google Sheets, ScriptProperties, CacheService, LockService and SMSPool.
+
+## What Changed In v2.0.2
+
+- Removed beta version suffixes and updated SproutG/SproutG.Web to `v2.0.2`.
+- Moved Home next to Companies and removed the visible `Просмотр` version text from the main UI.
+- Added themed statistics history, updated June 2026 point rules, stronger glass panels, split `+` status controls, SMSPool key settings, company duplicate checks and priority reads over queued saves.
 
 ## What Changed In v2.0.1-beta.1
 
@@ -70,10 +76,10 @@ The release workflow is still triggered by tags matching `v*.*.*`.
 
 ```bash
 git add .
-git commit -m "Release SproutG v2.0.1-beta.1"
-git tag v2.0.1-beta.1
+git commit -m "Release SproutG v2.0.2"
+git tag v2.0.2
 git push origin main
-git push origin v2.0.1-beta.1
+git push origin v2.0.2
 ```
 
 GitHub Actions runs `npm run dist:win:publish`. `electron-builder` publishes the installer and `latest.yml` to GitHub Releases.

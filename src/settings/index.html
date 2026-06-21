@@ -12,7 +12,6 @@
     <div class="card" id="settingsCard">
       <div class="header">
         <div class="title">Настройки</div>
-        <div class="subtitle">F9 — поверх окон, Ctrl+R — перезагрузка UI, Ctrl+/- — масштаб</div>
       </div>
 
       <div class="scrollableContent" id="scrollableContent">
@@ -50,6 +49,16 @@
 
         <div class="divider"></div>
 
+        <div class="block">
+          <div class="label label-strong">SMSPool</div>
+          <div class="row">
+            <input class="input" id="smsPoolApiKey" type="password" placeholder="SMSPool API key" autocomplete="off" />
+            <button class="btn" id="btnSaveSmsPoolKey">Сохранить</button>
+          </div>
+          <div class="hint compact" id="smsPoolStatus">Ключ хранится в ScriptProperties SproutG.Web.</div>
+        </div>
+
+        <div class="divider"></div>
         <div class="updateBox">
           <div class="updateTop">
             <div>
@@ -83,6 +92,11 @@
           <div class="row">
             <button class="btn btn-wide" id="btnChangeUrl">Изменить URL Apps Script</button>
           </div>
+          <div class="techInfo" id="techInfo">
+            <div>SproutG: <b id="techDesktopVersion">—</b></div>
+            <div>SproutG.Web: <b id="techWebVersion">—</b></div>
+            <div>Electron UI, local renderer, Apps Script bridge/API, Google Sheets, CacheService, LockService, ScriptProperties. 2026.</div>
+          </div>
           <div class="hint">Выход из Google удаляет cookies. Обычная очистка кеша cookies не трогает.</div>
         </details>
       </div>
@@ -92,3 +106,4 @@
   <script src="./settings.js"></script>
 </body>
 </html>
+

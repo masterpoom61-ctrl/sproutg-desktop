@@ -40,7 +40,7 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
   setTopbarTheme(s.theme || 'dark-classic');
 })();
 
-  const APP_VERSION = '2.0.1-beta.1';
+  const APP_VERSION = '2.0.2';
   const PAGE_KEY = 'FarmA.page';
   const THEME_KEY = 'sproutg.theme';
   const THEMES = ['dark-classic', 'light-classic', 'dark-ios', 'light-oldmoney'];
@@ -84,6 +84,8 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
   };
 
   let activePage = '';
+  let companyDuplicateTimer = null;
+  let companyDuplicateState = { value: '', duplicate: false, checking: false };
   const sproutgReq = { profile: 0, filter: 0, work: 0, mcc: 0 };
   let filtersRefreshTimer = null;
   let sproutgScrollRestoreSeq = 0;
@@ -94,6 +96,7 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
   let mccActiveAccount = '';
   const _mccSaveState = new Map();
   const SAVE_DEBUG = false;
+  let _sproutgPriorityReads = 0;
   let _o1WriteQueue = Promise.resolve();
   let _mccWriteQueue = Promise.resolve();
   let _o1PendingWrites = 0;
@@ -112,9 +115,30 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
     const suffix = meta ? ` ${JSON.stringify(meta)}` : '';
     console.info(`[SproutG:${scope}] ${msg}${suffix}`);
   }
+  function emitLocalQueue_(){
+    window.dispatchEvent(new CustomEvent('sproutg-local-queue', {
+      detail: { pending: Math.max(0, _o1PendingWrites + _mccPendingWrites) }
+    }));
+  }
+  window.addEventListener('sproutg-api-priority-start', ()=>{ _sproutgPriorityReads += 1; });
+  window.addEventListener('sproutg-api-priority-end', ()=>{ _sproutgPriorityReads = Math.max(0, _sproutgPriorityReads - 1); });
+  function waitForPriorityReads_(){
+    if(_sproutgPriorityReads <= 0) return Promise.resolve();
+    return new Promise((resolve)=>{
+      const started = Date.now();
+      const check = ()=>{
+        if(_sproutgPriorityReads <= 0 || Date.now() - started > 8000){
+          resolve();
+          return;
+        }
+        setTimeout(check, 60);
+      };
+      check();
+    });
+  }
   function enqueueWrite_(scope, run){
     const base = scope === 'MCC' ? _mccWriteQueue : _o1WriteQueue;
-    const next = base.then(()=>new Promise(run), ()=>new Promise(run));
+    const next = base.then(()=>waitForPriorityReads_().then(()=>new Promise(run)), ()=>waitForPriorityReads_().then(()=>new Promise(run)));
     if(scope === 'MCC') _mccWriteQueue = next.catch(()=>{});
     else _o1WriteQueue = next.catch(()=>{});
     return next;
@@ -266,9 +290,9 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
   // BAN color rules
   const BAN_RED_VALUES = new Set(['Бан почты','Обход системы','Деловая практика','Мультиаккаутинг']);
   const BAN_YELLOW_VALUES = new Set(['Подозрительные платежи','Не оплаченный баланс','Будущие платежи']);
-  const O1_WORK_GROUPS = ['Ads Видео', 'Платежка', 'Речек', 'РК'];
-  const O1_GROUP_DATE_COL = { 'Ads Видео':'AQ', 'Платежка':'BC', 'Речек':'BQ', 'РК':'BZ' };
-  const O1_GROUP_DONE_COL = { 'Ads Видео':'AZ', 'Платежка':'BI', 'Речек':'BW', 'РК':'CF' };
+  const O1_WORK_GROUPS = ['Ads Видео', 'Платежка', 'Речек'];
+  const O1_GROUP_DATE_COL = { 'Ads Видео':'AQ', 'Платежка':'BC', 'Речек':'BQ' };
+  const O1_GROUP_DONE_COL = { 'Ads Видео':'AZ', 'Платежка':'BI', 'Речек':'BW' };
   const MCC_LABEL_OVERRIDES = {
     G:'Карта',
     H:'БИН',
@@ -660,7 +684,12 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
 
   function toast(msg){
     const t=document.getElementById('toast');
-    t.textContent=msg;
+    const text = String(msg || '');
+    const isLoading = /загруз|синхрон|сохранение|loading|sync/i.test(text);
+    const isSaved = /сохранено|готово|saved/i.test(text);
+    t.classList.toggle('toastIcon', isLoading || isSaved);
+    t.classList.toggle('toastLoading', isLoading);
+    t.textContent=(isLoading || isSaved) ? '' : text;
     t.classList.add('show');
     setTimeout(()=>t.classList.remove('show'), 900);
   }
@@ -914,10 +943,7 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
     }
 
     const meta=document.getElementById('fhMeta');
-    const parts=[];
-    parts.push(`v${APP_VERSION}`);
-    parts.push(editMode ? 'Редактирование' : 'Просмотр');
-    meta.textContent = parts.join(' • ');
+    meta.textContent = '';
 
     const btnEdit=document.getElementById('btnEdit');
     btnEdit.disabled = !current;
@@ -1371,7 +1397,7 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
       : (mode === 'review') ? ['На рассмотрении']
       : (mode === 'nospend') ? ['Без расхода']
       : (mode === 'cleanup') ? ['Очистка профилей']
-      : ['Ads Видео','Платежка','Речек','РК'];
+      : ['Ads Видео','Платежка','Речек'];
 
     const frag=document.createDocumentFragment();
 
@@ -1635,6 +1661,7 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
 
     rememberO1LocalValues_(row, normalized);
     _o1PendingWrites += cols.length;
+    emitLocalQueue_();
     adjustO1PendingRow_(row, cols.length);
     logSave_('O1', 'write queued', { row, cols, writeId, tabKey, profileName, pending: _o1PendingWrites });
 
@@ -1710,6 +1737,7 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
           }
         } finally {
           _o1PendingWrites = Math.max(0, _o1PendingWrites - cols.length);
+          emitLocalQueue_();
           adjustO1PendingRow_(row, -cols.length);
           replayInactiveO1PendingNext_(ctx, normalized, activeContext);
           logSave_('O1', 'queue settle', { row, cols, writeId, pending: _o1PendingWrites, rowPending: getO1PendingCountForRow(row) });
@@ -3284,10 +3312,12 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
           optEmpty.value=''; optEmpty.textContent='';
           sel.appendChild(optEmpty);
 
-          const options = (f.options || []).map(x => String(x ?? '').trim()).filter(x => x.length);
+          const rawOptions = (f.options || []).map(x => String(x ?? '').trim()).filter(x => x.length);
+          const shouldSplitPlus = g.name !== 'Аккаунт' && rawOptions.some(v => v === '+');
+          const options = shouldSplitPlus ? rawOptions.filter(v => v !== '+') : rawOptions;
           const normSet = new Set(options.map(normOpt));
 
-          if(curRaw && !normSet.has(curNorm)){
+          if(curRaw && !(shouldSplitPlus && curRaw === '+') && !normSet.has(curNorm)){
             const o=document.createElement('option');
             o.value=curRaw;
             o.textContent=curRaw + ' (в таблице)';
@@ -3302,18 +3332,26 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
             if(normOpt(v) === curNorm) o.selected=true;
             sel.appendChild(o);
           }
-          if(curRaw && !sel.value) sel.value = curRaw;
+          if(curRaw === '+' && shouldSplitPlus) sel.value = '';
+          else if(curRaw && !sel.value) sel.value = curRaw;
           sel.dataset.prevValue = curRaw;
 
           applySelectColor(sel, f.col, sel.value);
           applySheetCellColorHint(sel, f.bg);
 
-          const onPick = ()=>{
+          let plusBtn = null;
+          const syncPlusUi = (value)=>{
+            if(!plusBtn) return;
+            plusBtn.classList.toggle('is-active', String(value || '').trim() === '+');
+          };
+
+          const saveDropdownValue = (newVal)=>{
             const oldValue = String(sel.dataset.prevValue ?? f.value ?? '');
-            const newVal = String(sel.value ?? '');
             if(oldValue === newVal) return;
             f.value = newVal;
-            applySelectColor(sel, f.col, newVal);
+            if(newVal === '+') sel.value = '';
+            applySelectColor(sel, f.col, newVal === '+' ? '+' : sel.value);
+            syncPlusUi(newVal);
 
             if(isVerificationGroupName(g.name) && col==='BO'){
               applyVerificationCardColor(card, fieldMap);
@@ -3340,13 +3378,16 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
 
                 if(['BA','BJ','BX','CG'].includes(col)) syncProfile();
                 sel.dataset.prevValue = finalValue;
+                if(finalValue === '+') sel.value = '';
+                syncPlusUi(finalValue);
                 sproutgEmitStatusEvent('O1', g.name || 'O1', finalValue, f.col, res.row, oldValue);
               },
               onFailed: (err)=>{
                 toast(err || 'Ошибка');
                 f.value = newVal;
-                sel.value = newVal;
+                sel.value = newVal === '+' ? '' : newVal;
                 applySelectColor(sel, f.col, newVal);
+                syncPlusUi(newVal);
 
                 if(isVerificationGroupName(g.name) && col==='BO'){
                   applyVerificationCardColor(card, fieldMap);
@@ -3356,12 +3397,28 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
               }
             });
           };
+          const onPick = ()=>saveDropdownValue(String(sel.value ?? ''));
 
           sel.addEventListener('input', onPick);
           sel.addEventListener('change', onPick);
 
           row.appendChild(label);
-          row.appendChild(sel);
+          if(shouldSplitPlus){
+            const split = document.createElement('div');
+            split.className = 'statusSplit';
+            plusBtn = document.createElement('button');
+            plusBtn.type = 'button';
+            plusBtn.className = 'btn statusPlusBtn';
+            plusBtn.textContent = '+';
+            plusBtn.title = '+';
+            plusBtn.addEventListener('click', ()=>saveDropdownValue('+'));
+            syncPlusUi(curRaw);
+            split.appendChild(plusBtn);
+            split.appendChild(sel);
+            row.appendChild(split);
+          } else {
+            row.appendChild(sel);
+          }
           row.appendChild(actions);
           fieldsWrap.appendChild(row);
 
@@ -4265,8 +4322,7 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
 
   function updateMccHeader(){
     const meta = document.getElementById('mccMeta');
-    const parts = [`v${APP_VERSION}`, mccEditMode ? 'Редактирование' : 'Просмотр'];
-    meta.textContent = parts.join(' • ');
+    meta.textContent = '';
 
     const btnEdit = document.getElementById('mccBtnEdit');
     btnEdit.disabled = !mccProfile;
@@ -4583,6 +4639,7 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
     if(!cols.length){ onFail?.('Нет данных для сохранения'); return; }
 
     _mccPendingWrites += cols.length;
+    emitLocalQueue_();
     logSave_('MCC', 'queued updateMccCells', { row, cols, pending: _mccPendingWrites });
     enqueueWrite_('MCC', (resolve)=>{
       google.script.run
@@ -4590,6 +4647,7 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
         if(!r || r.ok === false){
           onFail?.(r?.error || 'Ошибка');
           _mccPendingWrites = Math.max(0, _mccPendingWrites - cols.length);
+          emitLocalQueue_();
           logSave_('MCC', 'failed updateMccCells', { row, cols, pending: _mccPendingWrites, error: r?.error || 'Ошибка' });
           resolve();
           return;
@@ -4611,12 +4669,14 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
         updateMccTabsColors();
         refreshColors({ source:'mcc', skipFilters:true });
         _mccPendingWrites = Math.max(0, _mccPendingWrites - cols.length);
+        emitLocalQueue_();
         logSave_('MCC', 'confirmed updateMccCells', { row, cols, pending: _mccPendingWrites });
         resolve();
       })
       .withFailureHandler((err)=>{
         onFail?.(String(err));
         _mccPendingWrites = Math.max(0, _mccPendingWrites - cols.length);
+        emitLocalQueue_();
         logSave_('MCC', 'transport error updateMccCells', { row, cols, pending: _mccPendingWrites, error: String(err) });
         resolve();
       })
@@ -4792,6 +4852,42 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
     });
 
     return sel;
+  }
+
+  function mccBuildPlusSelectControl(rowObj, col, value, options, onChange, meta = {}){
+    const wrap = document.createElement('div');
+    wrap.className = 'statusSplit';
+    const plusBtn = document.createElement('button');
+    plusBtn.type = 'button';
+    plusBtn.className = 'btn statusPlusBtn';
+    plusBtn.textContent = '+';
+    plusBtn.title = '+';
+
+    const opts = (Array.isArray(options) ? options : []).filter(opt => String(opt ?? '').trim() !== '+');
+    const sel = mccBuildSelect(rowObj, col, value === '+' ? '' : value, opts, (next)=>{
+      plusBtn.classList.toggle('is-active', false);
+      onChange?.(next);
+    }, meta);
+    sel.dataset.prevValue = String(value ?? '');
+    plusBtn.classList.toggle('is-active', String(value ?? '').trim() === '+');
+
+    plusBtn.addEventListener('click', ()=>{
+      const oldValue = String(sel.dataset.prevValue ?? rowObj.values[col] ?? '');
+      if(oldValue === '+') return;
+      rowObj.values[col] = '+';
+      sel.value = '';
+      sel.dataset.prevValue = '+';
+      plusBtn.classList.add('is-active');
+      updateMccTabsColors();
+      saveMccCellInstant(rowObj.row, col, '+', ()=>{
+        sproutgEmitStatusEvent('MCC', meta.group || rowObj.groupName || 'MCC', '+', meta.col || col, rowObj.row, oldValue);
+      }, (err)=>toast(err||'Ошибка'));
+      onChange?.('+');
+    });
+
+    wrap.appendChild(plusBtn);
+    wrap.appendChild(sel);
+    return { wrap, select: sel, plusBtn };
   }
 
 
@@ -5543,35 +5639,6 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
       rRow.appendChild(document.createElement('div')).className='actions';
       fieldsWrap.appendChild(rRow);
 
-      const lmRow = document.createElement('div');
-      lmRow.className = 'field';
-      const lmLabel = document.createElement('div');
-      lmLabel.className = 'label';
-      lmLabel.textContent = mccGetLabel('L/M');
-      const lmGrid = document.createElement('div');
-      lmGrid.className = 'mccInlineGrid2';
-      if(mccEditMode){
-        lmGrid.appendChild(mccBuildInput(rowObj, 'L', rowObj.values.L));
-        lmGrid.appendChild(mccBuildInput(rowObj, 'M', rowObj.values.M));
-      } else {
-        lmGrid.appendChild(mccBuildButton(rowObj.values.L, 'L'));
-        lmGrid.appendChild(mccBuildButton(rowObj.values.M, 'M'));
-      }
-      lmRow.appendChild(lmLabel);
-      lmRow.appendChild(lmGrid);
-      lmRow.appendChild(document.createElement('div')).className='actions';
-      fieldsWrap.appendChild(lmRow);
-
-      const qRow = document.createElement('div');
-      qRow.className = 'field';
-      const qLabel = document.createElement('div');
-      qLabel.className = 'label';
-      qLabel.textContent = mccGetLabel('Q');
-      qRow.appendChild(qLabel);
-      qRow.appendChild(mccEditMode ? mccBuildInput(rowObj, 'Q', rowObj.values.Q) : mccBuildButton(rowObj.values.Q, 'Q'));
-      qRow.appendChild(document.createElement('div')).className='actions';
-      fieldsWrap.appendChild(qRow);
-
       const nRow = document.createElement('div');
       nRow.className = 'field';
       const nLabel = document.createElement('div');
@@ -5579,13 +5646,14 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
       nLabel.textContent = mccGetLabel('N');
       rowObj.groupName = 'Аккаунт MCC';
       const nValue = rowObj.values.N ?? '';
-      const nSelect = mccBuildSelect(rowObj, 'N', nValue, mccProfile.dropdowns?.N, (next)=>{
+      const nStatus = mccBuildPlusSelectControl(rowObj, 'N', nValue, mccProfile.dropdowns?.N, (next)=>{
         applyMccSelectColor(nSelect, 'N', next);
         setMccGroupColor(card, next, rowObj.values.O);
       }, { group:'Аккаунт MCC' });
+      const nSelect = nStatus.select;
       applyMccSelectColor(nSelect, 'N', nValue);
       nRow.appendChild(nLabel);
-      nRow.appendChild(nSelect);
+      nRow.appendChild(nStatus.wrap);
       nRow.appendChild(document.createElement('div')).className='actions';
       fieldsWrap.appendChild(nRow);
 
@@ -5801,9 +5869,10 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
 
       rowObj.groupName = 'Речек';
       const zValue = rowObj.values.Z ?? '';
-      const zSelect = mccBuildSelect(rowObj, 'Z', zValue, mccProfile.dropdowns?.Z, (next)=>applyMccSelectColor(zSelect, 'Z', next), { group:'Речек' });
+      const zStatus = mccBuildPlusSelectControl(rowObj, 'Z', zValue, mccProfile.dropdowns?.Z, (next)=>applyMccSelectColor(zSelect, 'Z', next), { group:'Речек' });
+      const zSelect = zStatus.select;
       applyMccSelectColor(zSelect, 'Z', zValue);
-      grid.appendChild(mccWrapFieldLabel('Z', zSelect));
+      grid.appendChild(mccWrapFieldLabel('Z', zStatus.wrap));
 
       row.appendChild(label);
       row.appendChild(grid);
@@ -6272,13 +6341,13 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
     const saved = (localStorage.getItem(THEME_KEY) || '').trim();
     setTheme(THEME_ALIASES[saved] || saved || 'dark-classic', { persist:false });
     const meta = document.getElementById('settingsMeta');
-    if(meta) meta.textContent = `v${APP_VERSION} • Настройки`;
+    if(meta) meta.textContent = '';
     updateCompanyMeta();
   }
 
   function updateCompanyMeta(){
     const meta = document.getElementById('companyMeta');
-    if(meta) meta.textContent = `v${APP_VERSION} • Компании`;
+    if(meta) meta.textContent = '';
   }
 
   function setCompanyError(msg){
@@ -6294,6 +6363,9 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
     const clean = (Array.isArray(values) ? values : []).map(v=>String(v || '').trim());
     if(clean.length !== 6) return { ok:false, error:'Нужно заполнить 6 полей' };
     if(clean.some(v=>!v)) return { ok:false, error:'Все 6 полей обязательны' };
+    if(companyDuplicateState.duplicate && companyDuplicateState.value === clean[0].toLowerCase()){
+      return { ok:false, error:'Компания с таким значением в колонке A уже существует' };
+    }
     if(!/^EE\d{9}$/.test(clean[4])) return { ok:false, error:'Колонка E: формат EE + 9 цифр' };
     if(!/^\d{9}$/.test(clean[5])) return { ok:false, error:'Колонка F: ровно 9 цифр' };
     return { ok:true, values: clean };
@@ -6331,11 +6403,42 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
       inp.type = 'text';
       inp.className = 'value';
       inp.dataset.companyCol = String.fromCharCode(65+i);
+      if(i === 0){
+        inp.addEventListener('input', ()=>scheduleCompanyDuplicateCheck(inp));
+      }
       row.appendChild(l);
       row.appendChild(inp);
       row.appendChild(document.createElement('div')).className = 'actions';
       grid.appendChild(row);
     }
+  }
+
+  function scheduleCompanyDuplicateCheck(inp){
+    clearTimeout(companyDuplicateTimer);
+    const value = String(inp?.value || '').trim();
+    companyDuplicateState = { value: value.toLowerCase(), duplicate: false, checking: !!value };
+    setCompanyError('');
+    const submit = document.getElementById('companySubmitBtn');
+    if(submit) submit.disabled = false;
+    if(!value) return;
+    companyDuplicateTimer = setTimeout(()=>{
+      const expected = String(inp.value || '').trim();
+      if(!expected) return;
+      google.script.run.withSuccessHandler((res)=>{
+        const currentValue = String(inp.value || '').trim().toLowerCase();
+        if(currentValue !== expected.toLowerCase()) return;
+        if(!res || res.ok === false){
+          setCompanyError(res?.error || 'Ошибка проверки компании');
+          return;
+        }
+        companyDuplicateState = { value: currentValue, duplicate: !!res.duplicate, checking: false };
+        if(res.duplicate){
+          setCompanyError(`Компания уже есть в колонке A${res.row ? `, строка ${res.row}` : ''}`);
+          const btn = document.getElementById('companySubmitBtn');
+          if(btn) btn.disabled = true;
+        }
+      }).withFailureHandler((err)=>setCompanyError(String(err))).checkCompanyDuplicate(expected);
+    }, 260);
   }
 
   function submitCompanyForm(){
@@ -6447,3 +6550,5 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
   }
 
   initPageSelection();
+
+

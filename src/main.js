@@ -414,6 +414,11 @@ function makeStateKey(payload){
   return page + '|' + group + '|' + col + '|' + row + '|' + action + '|' + profile + '|' + dateRef;
 }
 
+function useV202Rules(payload){
+  const key = dateKeyFromTs(payload?.ts || Date.now());
+  return key >= '2026-06-01';
+}
+
 function classifyWork(payload, valueRaw){
   const pageN = String(payload?.page || '').toUpperCase();
   const group = payload?.group;
@@ -430,6 +435,10 @@ function classifyWork(payload, valueRaw){
   const isMini = grp.includes('мини');
   const isAppeal = grp.includes('апел');
   const isAccMcc = (pageN === 'MCC' && grp.includes('аккаунт') && grp.includes('mcc'));
+  const v202 = useV202Rules(payload);
+  const verificationSuccessPoints = v202 ? 40 : 50;
+  const verificationRejectPoints = v202 ? 0 : 10;
+  const mccPlusPoints = v202 ? 80 : 100;
 
   if (pageN === 'O1'){
     if (grp.includes('аккаунт') && isNumC) return { type: 'Аккаунт (O1)', points: 60, clicks: 1 };
@@ -437,19 +446,19 @@ function classifyWork(payload, valueRaw){
     if (grp.includes('платеж') && plus) return { type: 'Платежка (O1)', points: 50, clicks: 1 };
     if (grp.includes('речек') && plus) return { type: 'Речек (O1)', points: 10, clicks: 1 };
     if ((grp === 'рк' || grp.includes(' рк') || grp.includes('рк ')) && plus) return { type: 'РК (O1)', points: 20, clicks: 1 };
-    if (grp.includes('вериф') && (isSuccess || isReject)) return { type: 'Верификации (O1+MCC)', points: (isSuccess ? 50 : 10), clicks: 1 };
+    if (grp.includes('вериф') && (isSuccess || isReject)) return { type: 'Верификации (O1+MCC)', points: (isSuccess ? verificationSuccessPoints : verificationRejectPoints), clicks: isSuccess ? 1 : (v202 ? 0 : 1) };
     if ((isAppeal && plus) || isAppealAction) return { type: 'Апелляции O1', points: 25, clicks: 1 };
     if (isMini && plus) return { type: 'Мини (O1+MCC)', points: 25, clicks: 1 };
   }
 
   if (pageN === 'MCC'){
     if (isAccMcc){
-      if (plus) return { type: 'Аккаунт MCC (MCC)', points: 100, clicks: 1 };
+      if (plus) return { type: 'Аккаунт MCC (MCC)', points: mccPlusPoints, clicks: 1 };
       if (v === 'вышел') return { type: 'Аккаунт MCC (MCC)', points: 50, clicks: 1 };
       if (v.replace(/\s+/g,'') === 'вышел/невышел' || v === 'вышел/не вышел' || v === 'не вышел') return { type: 'Аккаунт MCC (MCC)', points: 25, clicks: 1 };
     }
     if (grp.includes('речек') && plus) return { type: 'Речек (MCC)', points: 10, clicks: 1 };
-    if (grp.includes('вериф') && (isSuccess || isReject)) return { type: 'Верификации (O1+MCC)', points: (isSuccess ? 50 : 10), clicks: 1 };
+    if (grp.includes('вериф') && (isSuccess || isReject)) return { type: 'Верификации (O1+MCC)', points: (isSuccess ? verificationSuccessPoints : verificationRejectPoints), clicks: isSuccess ? 1 : (v202 ? 0 : 1) };
     if ((isAppeal && plus) || isAppealAction) return { type: 'Апелляции MCC', points: 25, clicks: 1 };
     if (isMini && plus) return { type: 'Мини (O1+MCC)', points: 25, clicks: 1 };
   }

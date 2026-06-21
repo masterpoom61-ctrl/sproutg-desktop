@@ -24,6 +24,7 @@ const workTable = $('workTable');
 const workChips = $('workChips');
 const workOneTitle = $('workOneTitle');
 const workTabs = $('workTabs');
+const monthSelect = $('monthSelect');
 
 let __lastPoints = null;
 let __retryTimer = null;
@@ -205,9 +206,9 @@ function drawBars(canvas, labels, values, opts={}){
     const y = baseY - barH;
 
     const grad = ctx.createLinearGradient(0, y, 0, baseY);
-    const isLight = document.documentElement.getAttribute('data-theme') === 'light';
-    grad.addColorStop(0, isLight ? 'rgba(56,189,248,0.55)' : 'rgba(56,189,248,0.45)');
-    grad.addColorStop(1, isLight ? 'rgba(99,102,241,0.35)' : 'rgba(99,102,241,0.25)');
+    const p = themePalette();
+    grad.addColorStop(0, hexToRgba(p.a, 0.62));
+    grad.addColorStop(1, hexToRgba(p.b, 0.26));
 
     ctx.fillStyle = grad;
     roundRect(ctx, x, y, barW, barH, 10);
@@ -275,9 +276,26 @@ const WORK_COLORS = {
   'Апелляции O1': ['rgba(34,197,94,0.55)','rgba(34,197,94,0.08)'],
   'Апелляции MCC': ['rgba(132,204,22,0.55)','rgba(132,204,22,0.08)'],
 };
+function getWorkColors(){
+  const p = themePalette();
+  return {
+    'РђРєРєР°СѓРЅС‚ (O1)': [hexToRgba(p.a,0.62), hexToRgba(p.a,0.08)],
+    'Ads Р’РёРґРµРѕ (O1)': [hexToRgba(p.b,0.62), hexToRgba(p.b,0.08)],
+    'РџР»Р°С‚РµР¶РєР° (O1)': [hexToRgba(p.c,0.62), hexToRgba(p.c,0.08)],
+    'Р РµС‡РµРє (O1)': [hexToRgba(p.d,0.62), hexToRgba(p.d,0.08)],
+    'Р Рљ (O1)': [hexToRgba(p.d,0.56), hexToRgba(p.d,0.08)],
+    'РђРєРєР°СѓРЅС‚ MCC (MCC)': [hexToRgba(p.a,0.56), hexToRgba(p.a,0.08)],
+    'Р РµС‡РµРє (MCC)': [hexToRgba(p.b,0.56), hexToRgba(p.b,0.08)],
+    'Р’РµСЂРёС„РёРєР°С†РёРё (O1+MCC)': [hexToRgba(p.c,0.56), hexToRgba(p.c,0.08)],
+    'РђРїРµР»Р»СЏС†РёРё O1': [hexToRgba(p.a,0.50), hexToRgba(p.a,0.08)],
+    'РђРїРµР»Р»СЏС†РёРё MCC': [hexToRgba(p.b,0.50), hexToRgba(p.b,0.08)],
+    'РњРёРЅРё (O1+MCC)': [hexToRgba(p.c,0.50), hexToRgba(p.c,0.08)]
+  };
+}
 
 let currentWorkRange = 'week';
 let currentWorkType = WORK_TYPES[0];
+let selectedMonthKey = '';
 
 function setActive(el, cls){
   for (const b of el.parentElement.querySelectorAll('.'+cls)) b.classList.remove('is-active');
@@ -488,7 +506,7 @@ function ensureBarsTooltip(canvas, tooltipEl){
 function bindWorkAllTooltip(labels, seriesMap){
   // legacy wrapper: keep API, but store data so tooltip works for week+month without re-binding
   try{
-    setCanvasTooltipData(workAllCanvas, { labels, seriesMap, colors: WORK_COLORS });
+    setCanvasTooltipData(workAllCanvas, { labels, seriesMap, colors: getWorkColors() });
     ensureAreaTooltip(workAllCanvas, workAllTooltip, 'stack');
   }catch(e){}
 }
@@ -530,14 +548,15 @@ function renderWork(data){
     allSeries[t] = keys.map(k => Number(workDays[k]?.byType?.[t] || 0));
   }
 
-  const okAll = drawAreaSeries(workAllCanvas, labels, allSeries, WORK_COLORS);
+  const colors = getWorkColors();
+  const okAll = drawAreaSeries(workAllCanvas, labels, allSeries, colors);
   try{ bindWorkAllTooltip(labels, allSeries); }catch(e){}
 
   const oneSeries = {};
   oneSeries[currentWorkType] = allSeries[currentWorkType] || keys.map(()=>0);
   workOneTitle.textContent = labelForType(currentWorkType);
-  const okOne = drawAreaSeries(workOneCanvas, labels, oneSeries, WORK_COLORS);
-  try{ setCanvasTooltipData(workOneCanvas, { labels, seriesMap: oneSeries, colors: WORK_COLORS, singleType: currentWorkType }); ensureAreaTooltip(workOneCanvas, workOneTooltip, 'single'); }catch(e){}
+  const okOne = drawAreaSeries(workOneCanvas, labels, oneSeries, colors);
+  try{ setCanvasTooltipData(workOneCanvas, { labels, seriesMap: oneSeries, colors, singleType: currentWorkType }); ensureAreaTooltip(workOneCanvas, workOneTooltip, 'single'); }catch(e){}
 
   if (okAll === false || okOne === false) return false;
   // summary table
@@ -550,6 +569,7 @@ function renderWork(data){
 function render(points){
   __lastPoints = points;
   const days = points?.days || {};
+  ensureMonthSelect(days);
   const now = new Date();
   const todayKey = toDateKey(now);
   const today = days[todayKey]?.total || 0;
@@ -574,8 +594,10 @@ function render(points){
   if (!okWeek) { scheduleRetry(); return; }
   weekLegend.textContent = `${weekKeys[0].split('-').reverse().join('.')} — ${weekKeys[6].split('-').reverse().join('.')}`;
 
-  const y = now.getFullYear();
-  const m0 = now.getMonth();
+  const selected = String(selectedMonthKey || monthKeyFromDate(now));
+  const selectedParts = selected.split('-').map(Number);
+  const y = selectedParts[0] || now.getFullYear();
+  const m0 = selectedParts[1] ? selectedParts[1] - 1 : now.getMonth();
   const dim = daysInMonth(y, m0);
 
   let monthSum = 0;
@@ -609,7 +631,7 @@ for (const [k,obj] of Object.entries(days || {})){
   elMonthRecord.textContent = String(recordMax);
   elMonthRecordHint.textContent = recordKey ? recordKey.split('-').reverse().join('.') : '—';
 
-  const elapsedDays = now.getDate();
+  const elapsedDays = monthKeyFromDate(now) === selected ? now.getDate() : dim;
   const avg = elapsedDays ? Math.round(monthSum / elapsedDays) : 0;
   elMonthAvg.textContent = String(avg);
   elMonthAvgHint.textContent = `за ${elapsedDays} дн.`;
@@ -628,8 +650,66 @@ for (const [k,obj] of Object.entries(days || {})){
 }
 
 function setTheme(theme){
-  const lightThemes = new Set(['light', 'light-classic', 'light-oldmoney']);
-  document.documentElement.setAttribute('data-theme', lightThemes.has(theme) ? 'light' : 'dark');
+  const aliases = { dark:'dark-classic', light:'light-classic' };
+  const next = aliases[theme] || theme || 'dark-classic';
+  const allowed = new Set(['dark-classic', 'light-classic', 'dark-ios', 'light-oldmoney']);
+  document.documentElement.setAttribute('data-theme', allowed.has(next) ? next : 'dark-classic');
+  if (__lastPoints) render(__lastPoints);
+}
+
+function monthKeyFromDate(d){
+  return `${d.getFullYear()}-${pad2(d.getMonth()+1)}`;
+}
+
+function monthLabel(monthKey){
+  const [y, m] = String(monthKey || '').split('-').map(Number);
+  if(!y || !m) return String(monthKey || '');
+  return new Date(y, m - 1, 1).toLocaleDateString('ru-RU', { month:'long', year:'numeric' });
+}
+
+function ensureMonthSelect(days){
+  if(!monthSelect) return;
+  const nowKey = monthKeyFromDate(new Date());
+  const keys = new Set([nowKey]);
+  for(const k of Object.keys(days || {})){
+    const m = String(k || '').slice(0, 7);
+    if(/^\d{4}-\d{2}$/.test(m)) keys.add(m);
+  }
+  const sorted = Array.from(keys).sort().reverse();
+  if(!selectedMonthKey || !keys.has(selectedMonthKey)) selectedMonthKey = nowKey;
+  const currentValue = monthSelect.value;
+  monthSelect.innerHTML = '';
+  for(const key of sorted){
+    const opt = document.createElement('option');
+    opt.value = key;
+    opt.textContent = monthLabel(key);
+    monthSelect.appendChild(opt);
+  }
+  monthSelect.value = keys.has(currentValue) ? currentValue : selectedMonthKey;
+  selectedMonthKey = monthSelect.value;
+  if(monthSelect.dataset.bound !== '1'){
+    monthSelect.dataset.bound = '1';
+    monthSelect.addEventListener('change', ()=>{
+      selectedMonthKey = monthSelect.value || nowKey;
+      if(window.__lastStatsData) render(window.__lastStatsData);
+    });
+  }
+}
+
+function themePalette(){
+  const a = getCssVar('--chartA') || '#38bdf8';
+  const b = getCssVar('--chartB') || '#22c55e';
+  const c = getCssVar('--chartC') || '#f59e0b';
+  const d = getCssVar('--chartD') || '#f43f5e';
+  return { a, b, c, d };
+}
+
+function hexToRgba(hex, alpha){
+  const raw = String(hex || '').trim();
+  const m = raw.match(/^#?([0-9a-f]{6})$/i);
+  if(!m) return raw;
+  const n = parseInt(m[1], 16);
+  return `rgba(${(n>>16)&255},${(n>>8)&255},${n&255},${alpha})`;
 }
 
 window.sproutgStats.onApplySettings((s) => { if (s?.theme) setTheme(s.theme); });

@@ -12,10 +12,6 @@
     <div class="drag topbar__left">
       <img class="appicon" src="../../assets/icon.png" alt="SproutG" />
       <div class="apptitle">SproutG</div>
-      <button class="tbbtn tbbtnIcon tbbtnHome" id="btnHome" title="Домой: выбор O1 или MCC" aria-label="Домой">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 11.5 12 4l8.5 7.5"/><path d="M5.5 10.5V20h13v-9.5"/><path d="M9.5 20v-5h5v5"/></svg>
-        <span class="srOnly">Домой</span>
-      </button>
       <div class="bridgeBadge" id="bridgeBadge" title="Статус подключения к Google Таблице">
         <span class="bridgeBadge__label">Статус:</span>
         <span class="bridgeBadge__mark" aria-hidden="true">...</span>
@@ -23,6 +19,10 @@
     </div>
     <div class="drag topbar__center"></div>
     <div class="topbar__right">
+      <button class="tbbtn tbbtnIcon tbbtnHome" id="btnHome" title="Домой: выбор O1 или MCC" aria-label="Домой">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 11.5 12 4l8.5 7.5"/><path d="M5.5 10.5V20h13v-9.5"/><path d="M9.5 20v-5h5v5"/></svg>
+        <span class="srOnly">Домой</span>
+      </button>
       <button class="tbbtn tbbtnIcon" id="btnCompany" title="Компании" aria-label="Компании">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 21V6.5A2.5 2.5 0 0 1 6.5 4h7A2.5 2.5 0 0 1 16 6.5V21"/><path d="M16 9h1.5A2.5 2.5 0 0 1 20 11.5V21"/><path d="M8 8h4M8 12h4M8 16h4M3 21h18"/></svg>
         <span class="srOnly">Компании</span>
@@ -128,7 +128,6 @@
                   <option value="Аккаунт">Аккаунт</option>
                   <option value="Платежка">Платежка</option>
                   <option value="Речек">Речек</option>
-                  <option value="РК">РК</option>
                 </select>
 
                 <input id="fltDate" type="date" class="w220"/>
@@ -185,12 +184,11 @@
         <div class="fhTop">
           <div class="fhMeta" id="mccMeta"></div>
 
-          <div id="mccProfileTabsWrap" class="mccHeaderSelectWrap">
-            <select id="mccProfileTabsSelect" class="mccProfileTabsSelect" aria-label="MCC вкладки профилей"></select>
-          </div>
-
           <div class="fhRight">
             <div class="profilePill" id="mccProfilePill" title="Копировать название профиля">—</div>
+            <div id="mccProfileTabsWrap" class="mccHeaderSelectWrap">
+              <select id="mccProfileTabsSelect" class="mccProfileTabsSelect" aria-label="MCC вкладки профилей"></select>
+            </div>
             <button id="mccBtnEdit" class="btn btnPrimary" onclick="toggleMccEdit()" disabled>Редактировать</button>
           </div>
         </div>
@@ -340,7 +338,8 @@
   </main>
   <div class="apiLoading" id="apiLoading" aria-live="polite">
     <span class="apiSpinner"></span>
-    <span>Синхронизация</span>
+    <span class="apiSavedIcon">✓</span>
+    <span class="apiCount" id="apiPendingCount">0</span>
   </div>
   <script src="./core/api.js"></script>
   <script src="./app.js"></script>

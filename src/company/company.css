@@ -1,6 +1,6 @@
 :root{
   --bg:rgba(12,18,32,0.72);
-  --panel:rgba(17,24,39,0.74);
+  --panel:rgba(17,24,39,0.91);
   --panel2:rgba(255,255,255,0.07);
   --border:rgba(255,255,255,0.14);
   --text:#edf5ff;
@@ -11,20 +11,24 @@
   --accentBorder:rgba(34,197,94,0.44);
   --danger:#ff8ca1;
   --shadow:0 18px 55px rgba(0,0,0,0.36);
+  --glassTop:rgba(255,255,255,0.12);
+  --glassFog:rgba(8,13,24,0.44);
 }
 html[data-theme="dark-ios"]{
   --bg:rgba(7,10,24,0.68);
-  --panel:rgba(13,18,38,0.72);
+  --panel:rgba(13,18,38,0.90);
   --panel2:rgba(255,255,255,0.08);
   --border:rgba(210,226,255,0.16);
   --text:#f7fbff;
   --muted:rgba(234,242,255,0.72);
   --btn:rgba(255,255,255,0.09);
   --btnH:rgba(255,255,255,0.16);
+  --glassTop:rgba(255,255,255,0.13);
+  --glassFog:rgba(5,8,19,0.46);
 }
 html[data-theme="light-classic"],html[data-theme="light"]{
   --bg:rgba(248,251,255,0.70);
-  --panel:rgba(255,255,255,0.78);
+  --panel:rgba(255,255,255,0.93);
   --panel2:rgba(80,103,134,0.10);
   --border:rgba(80,103,134,0.26);
   --text:#172033;
@@ -34,10 +38,12 @@ html[data-theme="light-classic"],html[data-theme="light"]{
   --accent:rgba(22,163,74,0.14);
   --accentBorder:rgba(22,163,74,0.34);
   --shadow:0 18px 42px rgba(39,55,77,0.16);
+  --glassTop:rgba(255,255,255,0.58);
+  --glassFog:rgba(255,255,255,0.52);
 }
 html[data-theme="light-oldmoney"]{
   --bg:rgba(247,251,245,0.70);
-  --panel:rgba(252,255,249,0.78);
+  --panel:rgba(252,255,249,0.93);
   --panel2:rgba(45,91,69,0.10);
   --border:rgba(45,91,69,0.24);
   --text:#1f3529;
@@ -47,6 +53,8 @@ html[data-theme="light-oldmoney"]{
   --accent:rgba(42,103,78,0.14);
   --accentBorder:rgba(42,103,78,0.34);
   --shadow:0 18px 42px rgba(31,67,50,0.14);
+  --glassTop:rgba(255,255,255,0.52);
+  --glassFog:rgba(252,255,249,0.48);
 }
 *{box-sizing:border-box;}
 body{
@@ -66,10 +74,11 @@ body{
   border:1px solid var(--border);
   border-radius:18px;
   background:
-    linear-gradient(135deg, rgba(255,255,255,0.08), rgba(255,255,255,0.02)),
+    linear-gradient(135deg, var(--glassTop), var(--glassFog)),
     var(--panel);
   box-shadow:var(--shadow);
-  backdrop-filter:blur(30px) saturate(1.25);
+  -webkit-backdrop-filter:blur(36px) saturate(1.14);
+  backdrop-filter:blur(36px) saturate(1.14);
   overflow:hidden;
 }
 .dragbar{

@@ -65,22 +65,36 @@ body{margin:0;height:100vh;overflow:hidden;background:transparent;font-family:ui
 html,body{height:100%;overflow:hidden;}
 #sproutgAppRoot{
   position:fixed;left:0;right:0;top:var(--desktop-topbar-h);bottom:0;overflow:hidden;
-  background:linear-gradient(165deg, var(--bg), var(--bg-grad-3, var(--bg)) 62%, var(--bg));
+  background:
+    linear-gradient(155deg, var(--bg), var(--bg-grad-3, var(--bg)) 58%, var(--bg));
   isolation:isolate;
 }
 #sproutgAppRoot::before{
   content:"";
   position:absolute;
-  inset:-42%;
+  inset:-18% -12% -26%;
+  z-index:-2;
+  pointer-events:none;
+  background:
+    radial-gradient(1500px 1120px at 3% -8%, var(--bg-grad-1), transparent 68%),
+    radial-gradient(1700px 1180px at 112% 12%, var(--bg-grad-2), transparent 70%),
+    radial-gradient(1500px 980px at 45% 118%, var(--bg-grad-4, transparent), transparent 72%),
+    linear-gradient(126deg, transparent 6%, var(--bg-grad-5, transparent) 48%, transparent 84%);
+  opacity:var(--bg-far-opacity,.9);
+  contain:paint;
+}
+#sproutgAppRoot::after{
+  content:"";
+  position:absolute;
+  inset:0;
   z-index:-1;
   pointer-events:none;
   background:
-    radial-gradient(1700px 980px at 8% 2%, var(--bg-grad-1), transparent 62%),
-    radial-gradient(1500px 1100px at 96% 18%, var(--bg-grad-2), transparent 64%),
-    radial-gradient(1300px 920px at 48% 102%, var(--bg-grad-4, transparent), transparent 66%);
-  transform:translate3d(0, calc(var(--bg-parallax-y, 0px) * -0.12), 0);
-  transition:transform .08s linear;
-  will-change:transform;
+    linear-gradient(rgba(255,255,255,.018) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,.014) 1px, transparent 1px);
+  background-size:72px 72px;
+  opacity:var(--bg-grid-opacity,.28);
+  contain:paint;
 }
 .bridgeBadge{height:28px;font-size:11px;font-weight:900;padding:0 9px;border:1px solid var(--border);border-radius:999px;opacity:.9;cursor:pointer;-webkit-app-region:no-drag;display:inline-flex;align-items:center;gap:6px;white-space:nowrap;background:var(--btn);transition:background .16s ease,border-color .16s ease,box-shadow .16s ease,transform .12s ease,color .16s ease;}
 .bridgeBadge:hover{background:var(--control-hover);box-shadow:var(--control-glow);transform:translateY(-1px);}
@@ -98,6 +112,9 @@ html,body{height:100%;overflow:hidden;}
       --bg-grad-2:rgba(0,255,204,.16);
       --bg-grad-3:#101827;
       --bg-grad-4:rgba(244,114,182,.10);
+      --bg-grad-5:rgba(125,92,255,.10);
+      --bg-far-opacity:.86;
+      --bg-grid-opacity:.30;
       --text:rgba(255,255,255,.92);
       --muted:rgba(255,255,255,.62);
       --shadow:0 10px 30px rgba(0,0,0,.35);
@@ -158,6 +175,9 @@ html,body{height:100%;overflow:hidden;}
       --bg-grad-2:rgba(33,186,184,.14);
       --bg-grad-3:#f8fbff;
       --bg-grad-4:rgba(245,158,11,.08);
+      --bg-grad-5:rgba(111,157,232,.10);
+      --bg-far-opacity:.72;
+      --bg-grid-opacity:.18;
       --text:#1f2937;
       --muted:#5f6f87;
       --shadow:0 8px 24px rgba(31,41,55,.12);
@@ -1415,6 +1435,9 @@ html,body{height:100%;overflow:hidden;}
   --bg-grad-2:rgba(168,85,247,.30);
   --bg-grad-3:#0b1024;
   --bg-grad-4:rgba(52,211,153,.10);
+  --bg-grad-5:rgba(43,214,255,.12);
+  --bg-far-opacity:.88;
+  --bg-grid-opacity:.30;
   --topbar-bg:rgba(10,14,28,.66);
   --surface:rgba(255,255,255,.075);
   --surface-alt:rgba(255,255,255,.09);
@@ -1442,6 +1465,9 @@ html,body{height:100%;overflow:hidden;}
   --bg-grad-2:rgba(185,158,97,.18);
   --bg-grad-3:#f8fbf2;
   --bg-grad-4:rgba(72,120,90,.10);
+  --bg-grad-5:rgba(196,167,99,.08);
+  --bg-far-opacity:.70;
+  --bg-grid-opacity:.16;
   --text:#1f3529;
   --muted:#5d7165;
   --topbar-bg:rgba(247,251,245,.95);
@@ -1474,6 +1500,10 @@ html,body{height:100%;overflow:hidden;}
   --bg-grad-1:rgba(99,156,255,.16);
   --bg-grad-2:rgba(45,198,214,.10);
   --bg-grad-3:#fbfdff;
+  --bg-grad-4:rgba(245,158,11,.07);
+  --bg-grad-5:rgba(99,156,255,.07);
+  --bg-far-opacity:.70;
+  --bg-grid-opacity:.16;
   --topbar-bg:#ffffff;
   --topbar-fg:#172033;
   --btn:#f2f6fb;

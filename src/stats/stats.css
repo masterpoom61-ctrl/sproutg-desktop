@@ -4,7 +4,7 @@
   --tooltipShadow: 0 10px 30px rgba(0,0,0,0.35);
 
   --bg:transparent;
-  --panel:rgba(18,25,40,0.78);
+  --panel:rgba(18,25,40,0.91);
   --panel2:rgba(255,255,255,0.07);
   --border:rgba(255,255,255,0.13);
   --text:#e9edf5;
@@ -12,24 +12,26 @@
   --muted2:rgba(233,237,245,0.55);
   --cardRadius:18px;
   --shadow:0 18px 55px rgba(0,0,0,0.35);
-  --glassTop:rgba(255,255,255,0.09);
+  --glassTop:rgba(255,255,255,0.12);
+  --glassFog:rgba(8,13,24,0.44);
 }
 html[data-theme="light"]{
   --tooltipBg: rgba(248,251,255,0.94);
   --tooltipBorder: rgba(80,103,134,0.24);
   --tooltipShadow: 0 12px 30px rgba(0,0,0,0.16);
 
-  --panel:rgba(255,255,255,0.80);
+  --panel:rgba(255,255,255,0.93);
   --panel2:rgba(80,103,134,0.09);
   --border:rgba(80,103,134,0.24);
   --text:#0b1220;
   --muted:rgba(11,18,32,0.62);
   --muted2:rgba(11,18,32,0.48);
   --shadow:0 16px 45px rgba(0,0,0,0.18);
-  --glassTop:rgba(255,255,255,0.44);
+  --glassTop:rgba(255,255,255,0.58);
+  --glassFog:rgba(255,255,255,0.52);
 }
 html[data-theme="dark-classic"]{
-  --panel:rgba(18,25,40,0.78);
+  --panel:rgba(18,25,40,0.91);
   --panel2:rgba(255,255,255,0.07);
   --border:rgba(255,255,255,0.12);
   --tooltipBorder:rgba(255,255,255,0.14);
@@ -42,7 +44,7 @@ html[data-theme="dark-classic"]{
   --chartD:#f43f5e;
 }
 html[data-theme="dark-ios"]{
-  --panel:rgba(12,16,34,0.76);
+  --panel:rgba(12,16,34,0.90);
   --panel2:rgba(255,255,255,0.08);
   --border:rgba(210,226,255,0.14);
   --tooltipBorder:rgba(210,226,255,0.16);
@@ -53,11 +55,12 @@ html[data-theme="dark-ios"]{
   --chartB:#a78bfa;
   --chartC:#34d399;
   --chartD:#fb7185;
+  --glassFog:rgba(5,8,19,0.46);
 }
 html[data-theme="light-classic"]{
   --tooltipBg:rgba(255,255,255,0.94);
   --tooltipBorder:rgba(80,103,134,0.24);
-  --panel:rgba(255,255,255,0.80);
+  --panel:rgba(255,255,255,0.93);
   --panel2:rgba(80,103,134,0.09);
   --border:rgba(80,103,134,0.22);
   --text:#172033;
@@ -67,11 +70,12 @@ html[data-theme="light-classic"]{
   --chartB:#0891b2;
   --chartC:#16a34a;
   --chartD:#e11d48;
+  --glassFog:rgba(255,255,255,0.52);
 }
 html[data-theme="light-oldmoney"]{
   --tooltipBg:rgba(252,255,249,0.94);
   --tooltipBorder:rgba(45,91,69,0.24);
-  --panel:rgba(252,255,249,0.80);
+  --panel:rgba(252,255,249,0.93);
   --panel2:rgba(45,91,69,0.09);
   --border:rgba(45,91,69,0.22);
   --text:#1f3529;
@@ -81,6 +85,7 @@ html[data-theme="light-oldmoney"]{
   --chartB:#8a6f2d;
   --chartC:#287a69;
   --chartD:#9f3a3a;
+  --glassFog:rgba(252,255,249,0.48);
 }
 
 *{box-sizing:border-box;}
@@ -95,12 +100,13 @@ body{
   width:100vw;
   height:100vh;
   background:
-    linear-gradient(135deg, var(--glassTop), rgba(255,255,255,0.02)),
+    linear-gradient(135deg, var(--glassTop), var(--glassFog)),
     var(--panel);
   border:1px solid var(--tooltipBorder);
   border-radius:var(--cardRadius);
   box-shadow:var(--shadow);
-  backdrop-filter:blur(30px) saturate(1.25);
+  -webkit-backdrop-filter:blur(36px) saturate(1.14);
+  backdrop-filter:blur(36px) saturate(1.14);
   padding:12px;
   overflow-x:hidden;
   overflow-y:auto;

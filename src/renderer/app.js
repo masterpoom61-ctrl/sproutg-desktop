@@ -40,7 +40,7 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
   setTopbarTheme(s.theme || 'dark-classic');
 })();
 
-  const APP_VERSION = '2.0.2';
+  const APP_VERSION = '2.0.4';
   const PAGE_KEY = 'FarmA.page';
   const THEME_KEY = 'sproutg.theme';
   const THEMES = ['dark-classic', 'light-classic', 'dark-ios', 'light-oldmoney'];
@@ -90,8 +90,6 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
   let filtersRefreshTimer = null;
   let sproutgScrollRestoreSeq = 0;
   let sproutgProgrammaticScrollUntil = 0;
-  let backgroundParallaxScroller = null;
-  let backgroundParallaxRaf = 0;
 
   let mccProfile = null;
   let mccEditMode = false;
@@ -345,7 +343,6 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
     setupMccTopButton();
     setupPanelCollapses();
     setupSideSyncButtons();
-    setupBackgroundParallax();
     loadMccProfileTabsFromStorage();
     loadMccProfileCacheFromStorage();
     renderMccProfileTabsSelect();
@@ -560,7 +557,6 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
     if(selector) selector.classList.remove('hidden');
     document.documentElement.style.setProperty('--app-header-h', '0px');
     requestAnimationFrame(updateSideSyncButtons);
-    requestAnimationFrame(setupBackgroundParallax);
     requestAnimationFrame(updateO1TopButton);
     requestAnimationFrame(updateMccTopButton);
   }
@@ -590,7 +586,6 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
     requestAnimationFrame(updateMccTopButton);
     requestAnimationFrame(updateMccProfileTabsVisibility);
     requestAnimationFrame(updateSideSyncButtons);
-    requestAnimationFrame(setupBackgroundParallax);
     if(next === 'MCC') requestAnimationFrame(()=>{ loadMccOverview({ silent:true }); preloadMccApellIndex(); });
     if(next === 'COMPANY') requestAnimationFrame(()=>updateCompanyMeta());
   }
@@ -602,28 +597,6 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
     if(swO1) swO1.value = page;
     if(swMcc) swMcc.value = page;
     if(swCompany) swCompany.value = page;
-  }
-
-  function setupBackgroundParallax(){
-    const root = document.getElementById('sproutgAppRoot');
-    const scroller = getActiveSproutScroller_();
-    if(!root || !scroller || scroller === backgroundParallaxScroller) return;
-    if(backgroundParallaxScroller){
-      backgroundParallaxScroller.removeEventListener('scroll', onBackgroundParallaxScroll_);
-    }
-    backgroundParallaxScroller = scroller;
-    backgroundParallaxScroller.addEventListener('scroll', onBackgroundParallaxScroll_, { passive:true });
-    onBackgroundParallaxScroll_();
-  }
-
-  function onBackgroundParallaxScroll_(){
-    if(backgroundParallaxRaf) return;
-    backgroundParallaxRaf = requestAnimationFrame(()=>{
-      backgroundParallaxRaf = 0;
-      const root = document.getElementById('sproutgAppRoot');
-      if(!root || !backgroundParallaxScroller) return;
-      root.style.setProperty('--bg-parallax-y', `${Math.round(backgroundParallaxScroller.scrollTop || 0)}px`);
-    });
   }
 
   function initPageSelection(){

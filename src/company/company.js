@@ -7,6 +7,7 @@ const card = $('companyCard');
 const grid = $('companyFormGrid');
 const submitBtn = $('companySubmitBtn');
 const errEl = $('companyErr');
+const COMPANY_LABELS = ['Компания', 'Адресс', 'Индекс', 'Город', 'EE', 'DUNS'];
 
 let duplicateTimer = null;
 let duplicateState = { value: '', duplicate: false, checking: false };
@@ -45,8 +46,8 @@ function validate(values) {
   if (duplicateState.duplicate && duplicateState.value === clean[0].toLowerCase()) {
     return { ok: false, error: 'Компания с таким значением в колонке A уже существует' };
   }
-  if (!/^EE\d{9}$/.test(clean[4])) return { ok: false, error: 'Колонка E: формат EE + 9 цифр' };
-  if (!/^\d{9}$/.test(clean[5])) return { ok: false, error: 'Колонка F: ровно 9 цифр' };
+  if (!/^EE\d{9}$/.test(clean[4])) return { ok: false, error: 'EE: формат EE + 9 цифр' };
+  if (!/^\d{9}$/.test(clean[5])) return { ok: false, error: 'DUNS: ровно 9 цифр' };
   return { ok: true, values: clean };
 }
 
@@ -88,7 +89,7 @@ function scheduleDuplicateCheck(input) {
   duplicateTimer = setTimeout(() => checkDuplicate(input), 260);
 }
 
-function renderInputs(headers) {
+function renderInputs() {
   grid.innerHTML = '';
   for (let i = 0; i < 6; i += 1) {
     const row = document.createElement('div');
@@ -96,7 +97,7 @@ function renderInputs(headers) {
 
     const label = document.createElement('div');
     label.className = 'label';
-    label.textContent = String(headers?.[i] || String.fromCharCode(65 + i));
+    label.textContent = COMPANY_LABELS[i] || String.fromCharCode(65 + i);
     label.title = label.textContent;
 
     const input = document.createElement('input');
@@ -126,14 +127,7 @@ function renderInputs(headers) {
 
 async function loadMeta() {
   setError('');
-  submitBtn.disabled = true;
-  try {
-    const res = await window.sproutgCompany.apiCall('company.formMeta', {}, { timeoutMs: 15000 });
-    if (!res || res.ok === false) throw new Error(res?.error || 'Ошибка загрузки формы');
-    renderInputs(res.headers || []);
-  } catch (error) {
-    setError(String(error?.message || error));
-  }
+  renderInputs();
 }
 
 async function submitCompany() {

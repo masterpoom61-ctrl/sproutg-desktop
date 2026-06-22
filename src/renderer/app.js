@@ -18,7 +18,7 @@ $('btnClose').addEventListener('click', () => window.sproutg.windowControl('clos
 
 let __themeSwitchTimer = null;
 function setTopbarTheme(theme){
-  const aliases = { dark:'dark-classic', light:'light-classic' };
+  const aliases = { dark:'dark-classic', light:'light-classic', 'midnight-pro':'dark-midnight-pro', forest:'dark-forest' };
   const normalized = aliases[theme] || theme || 'dark-classic';
   if (document.documentElement.getAttribute('data-theme') === normalized) return;
   document.documentElement.classList.add('theme-switching');
@@ -40,11 +40,11 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
   setTopbarTheme(s.theme || 'dark-classic');
 })();
 
-  const APP_VERSION = '2.0.5';
+  const APP_VERSION = '2.1.0';
   const PAGE_KEY = 'FarmA.page';
   const THEME_KEY = 'sproutg.theme';
-  const THEMES = ['dark-classic', 'light-classic', 'dark-ios', 'light-oldmoney'];
-  const THEME_ALIASES = { dark:'dark-classic', light:'light-classic' };
+  const THEMES = ['dark-classic', 'light-classic', 'dark-ios', 'light-ios', 'dark-oldmoney', 'light-oldmoney', 'dark-midnight-pro', 'light-midnight-pro', 'dark-forest', 'light-forest'];
+  const THEME_ALIASES = { dark:'dark-classic', light:'light-classic', 'midnight-pro':'dark-midnight-pro', forest:'dark-forest' };
 
   let current = null;
   let editMode = false;

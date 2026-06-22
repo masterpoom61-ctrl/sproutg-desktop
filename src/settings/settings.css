@@ -6,7 +6,7 @@
   --glassTop:rgba(255,255,255,0.12);
   --glassFog:rgba(8,13,24,0.44);
 }
-html[data-theme="light"],html[data-theme="light-classic"],html[data-theme="light-oldmoney"]{
+html[data-theme="light"],html[data-theme="light-classic"],html[data-theme="light-ios"],html[data-theme="light-oldmoney"],html[data-theme="light-midnight-pro"],html[data-theme="light-forest"]{
   --bg:#f6f7fb; --panel:rgba(255,255,255,0.93); --border:rgba(80,103,134,0.24);
   --text:#0b1220; --muted:rgba(11,18,32,0.62);
   --btn:rgba(80,103,134,0.08); --btnH:rgba(80,103,134,0.13);
@@ -20,12 +20,48 @@ html[data-theme="dark-ios"]{
   --glassTop:rgba(255,255,255,0.13);
   --glassFog:rgba(5,8,19,0.46);
 }
+html[data-theme="light-ios"]{
+  --bg:#f4f8ff; --panel:rgba(255,255,255,0.93); --border:rgba(78,104,138,0.24);
+  --text:#142033; --muted:#607086;
+  --btn:rgba(0,122,255,0.08); --btnH:rgba(0,122,255,0.13);
+  --glassTop:rgba(255,255,255,0.60); --glassFog:rgba(255,255,255,0.52);
+}
+html[data-theme="dark-oldmoney"]{
+  --bg:#10130f; --panel:rgba(24,30,22,0.91); --border:rgba(190,160,92,0.22);
+  --text:#efe6d0; --muted:#b5a789;
+  --btn:rgba(239,230,208,0.08); --btnH:rgba(190,160,92,0.14);
+  --glassTop:rgba(239,230,208,0.10); --glassFog:rgba(13,18,14,0.48);
+}
 html[data-theme="light-oldmoney"]{
   --bg:#f4efe4; --panel:rgba(252,255,249,0.93); --border:rgba(45,91,69,0.24);
   --text:#2d261c; --muted:#6f604b;
   --btn:rgba(104,84,52,0.08); --btnH:rgba(104,84,52,0.14);
   --glassTop:rgba(255,255,255,0.52);
   --glassFog:rgba(252,255,249,0.48);
+}
+html[data-theme="dark-midnight-pro"]{
+  --bg:#050813; --panel:rgba(12,18,34,0.92); --border:rgba(129,140,248,0.24);
+  --text:#eef5ff; --muted:#9aa8c7;
+  --btn:rgba(148,163,184,0.08); --btnH:rgba(96,165,250,0.14);
+  --glassTop:rgba(148,163,184,0.10); --glassFog:rgba(5,8,19,0.50);
+}
+html[data-theme="light-midnight-pro"]{
+  --bg:#edf3ff; --panel:rgba(255,255,255,0.94); --border:rgba(82,105,145,0.24);
+  --text:#17213a; --muted:#5f6f8a;
+  --btn:rgba(79,70,229,0.08); --btnH:rgba(79,70,229,0.13);
+  --glassTop:rgba(255,255,255,0.60); --glassFog:rgba(255,255,255,0.52);
+}
+html[data-theme="dark-forest"]{
+  --bg:#09130e; --panel:rgba(13,31,21,0.92); --border:rgba(125,158,103,0.24);
+  --text:#f0ead8; --muted:#aeb99f;
+  --btn:rgba(240,234,216,0.08); --btnH:rgba(90,140,93,0.15);
+  --glassTop:rgba(240,234,216,0.10); --glassFog:rgba(7,17,11,0.48);
+}
+html[data-theme="light-forest"]{
+  --bg:#f3f5ec; --panel:rgba(255,255,250,0.94); --border:rgba(73,116,86,0.24);
+  --text:#243628; --muted:#65735f;
+  --btn:rgba(73,116,86,0.08); --btnH:rgba(73,116,86,0.14);
+  --glassTop:rgba(255,255,250,0.58); --glassFog:rgba(255,255,250,0.50);
 }
 *{box-sizing:border-box;}
 body{margin:0;background:transparent;color:var(--text);font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial;overflow:hidden;}
@@ -46,7 +82,11 @@ body{margin:0;background:transparent;color:var(--text);font-family:ui-sans-serif
   -webkit-backdrop-filter:blur(36px) saturate(1.14);
   backdrop-filter:blur(36px) saturate(1.14);
   overflow:hidden;
+  animation:windowIn .18s cubic-bezier(.2,.9,.2,1) both;
 }
+body.sgClosing .card{animation:windowOut .14s ease-in both;pointer-events:none;}
+@keyframes windowIn{from{opacity:0;transform:translateY(-8px) scale(.965);}to{opacity:1;transform:translateY(0) scale(1);}}
+@keyframes windowOut{from{opacity:1;transform:translateY(0) scale(1);}to{opacity:0;transform:translateY(-8px) scale(.965);}}
 .header{margin-bottom:10px;}
 .title{font-weight:900;font-size:14px;}
 .subtitle{margin-top:4px;font-size:11px;color:var(--muted);}
@@ -103,9 +143,23 @@ body{margin:0;background:transparent;color:var(--text);font-family:ui-sans-serif
   font-size:12px;
   font-weight:900;
   text-align:left;
+  background:linear-gradient(135deg, var(--themeA, var(--btn)), var(--themeB, var(--btn)));
+  color:var(--themeText, var(--muted));
+  border-color:var(--themeBorder, var(--border));
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.12);
 }
-.themeOption:hover{background:var(--btnH);}
-.themeOption[data-active="true"]{color:var(--text);box-shadow:0 0 0 2px rgba(56,189,248,.18) inset;}
+.themeOption:hover{filter:brightness(1.06);}
+.themeOption[data-active="true"]{box-shadow:0 0 0 2px var(--themeRing, rgba(56,189,248,.28)) inset, 0 8px 22px rgba(0,0,0,.12);}
+.themeOption[data-theme-value="dark-classic"]{--themeA:#111827;--themeB:#23304a;--themeText:#edf5ff;--themeBorder:rgba(148,163,184,.32);--themeRing:#38bdf8;}
+.themeOption[data-theme-value="light-classic"]{--themeA:#f8fbff;--themeB:#dce9f8;--themeText:#172033;--themeBorder:rgba(80,103,134,.28);--themeRing:#2563eb;}
+.themeOption[data-theme-value="dark-ios"]{--themeA:#050713;--themeB:#1b2b62;--themeText:#f7fbff;--themeBorder:rgba(110,168,255,.38);--themeRing:#6ea8ff;}
+.themeOption[data-theme-value="light-ios"]{--themeA:#ffffff;--themeB:#dcebff;--themeText:#142033;--themeBorder:rgba(0,122,255,.30);--themeRing:#007aff;}
+.themeOption[data-theme-value="dark-oldmoney"]{--themeA:#10130f;--themeB:#2a331f;--themeText:#efe6d0;--themeBorder:rgba(190,160,92,.34);--themeRing:#bea05c;}
+.themeOption[data-theme-value="light-oldmoney"]{--themeA:#fcfff9;--themeB:#e4efe4;--themeText:#1f3529;--themeBorder:rgba(45,91,69,.28);--themeRing:#2a674e;}
+.themeOption[data-theme-value="dark-midnight-pro"]{--themeA:#050813;--themeB:#18213f;--themeText:#eef5ff;--themeBorder:rgba(129,140,248,.34);--themeRing:#818cf8;}
+.themeOption[data-theme-value="light-midnight-pro"]{--themeA:#fbfdff;--themeB:#e4ebff;--themeText:#17213a;--themeBorder:rgba(79,70,229,.28);--themeRing:#4f46e5;}
+.themeOption[data-theme-value="dark-forest"]{--themeA:#09130e;--themeB:#193623;--themeText:#f0ead8;--themeBorder:rgba(125,158,103,.32);--themeRing:#7d9e67;}
+.themeOption[data-theme-value="light-forest"]{--themeA:#fffffa;--themeB:#e7efdc;--themeText:#243628;--themeBorder:rgba(73,116,86,.28);--themeRing:#497456;}
 .divider{height:1px;background:var(--border);margin:8px 0;}
 .details summary{cursor:pointer;color:var(--muted);font-size:12px;font-weight:900;padding:6px 0;}
 .hint{margin-top:8px;font-size:11px;color:var(--muted);line-height:1.35;}

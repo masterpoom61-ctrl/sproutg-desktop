@@ -1,7 +1,7 @@
 const $ = (id) => document.getElementById(id);
 
-const THEMES = new Set(['dark-classic', 'light-classic', 'dark-ios', 'light-oldmoney']);
-const THEME_ALIASES = { dark: 'dark-classic', light: 'light-classic' };
+const THEMES = new Set(['dark-classic', 'light-classic', 'dark-ios', 'light-ios', 'dark-oldmoney', 'light-oldmoney', 'dark-midnight-pro', 'light-midnight-pro', 'dark-forest', 'light-forest']);
+const THEME_ALIASES = { dark: 'dark-classic', light: 'light-classic', 'midnight-pro': 'dark-midnight-pro', forest: 'dark-forest' };
 
 const card = $('companyCard');
 const grid = $('companyFormGrid');
@@ -11,6 +11,13 @@ const COMPANY_LABELS = ['Компания', 'Адресс', 'Индекс', 'Г�
 
 let duplicateTimer = null;
 let duplicateState = { value: '', duplicate: false, checking: false };
+let closing = false;
+
+function prepareClose() {
+  if (closing) return;
+  closing = true;
+  document.body.classList.add('sgClosing');
+}
 
 function normalizeTheme(theme) {
   const next = THEME_ALIASES[theme] || theme || 'dark-classic';
@@ -162,14 +169,19 @@ submitBtn.addEventListener('click', submitCompany);
 window.sproutgCompany.onApplySettings((settings) => {
   if (settings?.theme) setTheme(settings.theme);
 });
+window.sproutgCompany.onPrepareClose(prepareClose);
 
 document.addEventListener('pointerdown', (event) => {
   if (event.button !== 0 || !card || card.contains(event.target)) return;
+  prepareClose();
   window.sproutgCompany.closeWindow().catch(() => {});
 }, true);
 
 document.addEventListener('keydown', (event) => {
-  if (event.key === 'Escape') window.sproutgCompany.closeWindow().catch(() => {});
+  if (event.key === 'Escape') {
+    prepareClose();
+    window.sproutgCompany.closeWindow().catch(() => {});
+  }
 });
 
 (async () => {

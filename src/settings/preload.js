@@ -19,5 +19,6 @@ contextBridge.exposeInMainWorld('sproutgSettings', {
   apiCall: (action, payload, opts) => ipcRenderer.invoke('sproutg:api-call', action, payload, opts),
   closeWindow: () => ipcRenderer.invoke('sproutg:close-settings-window'),
   onApplySettings: (cb) => ipcRenderer.on('sproutg:apply-settings', (_e, s) => cb(s)),
-  onUpdateState: (cb) => ipcRenderer.on('sproutg:update-state', (_e, s) => cb(s))
+  onUpdateState: (cb) => ipcRenderer.on('sproutg:update-state', (_e, s) => cb(s)),
+  onPrepareClose: (cb) => ipcRenderer.on('sproutg:prepare-close', () => cb())
 });

@@ -26,8 +26,15 @@ const workOneTitle = $('workOneTitle');
 const workTabs = $('workTabs');
 const monthSelect = $('monthSelect');
 const monthTabs = $('monthTabs');
+const weekPrevBtn = $('weekPrevBtn');
+const weekNextBtn = $('weekNextBtn');
+const monthPrevBtn = $('monthPrevBtn');
+const monthNextBtn = $('monthNextBtn');
+const weekTitle = $('weekTitle');
+const monthTitle = $('monthTitle');
 
 let __lastPoints = null;
+let closing = false;
 let __retryTimer = null;
 let __retryCount = 0;
 function scheduleRetry(){
@@ -53,6 +60,23 @@ function startOfWeekMonday(date){
   return d;
 }
 function daysInMonth(y,m0){ return new Date(y, m0+1, 0).getDate(); }
+function dateFromKey(key){
+  const [y,m,d] = String(key || '').split('-').map(Number);
+  return new Date(y || 2000, (m || 1) - 1, d || 1);
+}
+function addDays(date, delta){
+  const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  d.setDate(d.getDate() + delta);
+  return d;
+}
+function addMonthsToKey(monthKey, delta){
+  const [y,m] = String(monthKey || monthKeyFromDate(new Date())).split('-').map(Number);
+  return monthKeyFromDate(new Date(y || new Date().getFullYear(), (m || 1) - 1 + delta, 1));
+}
+function formatDateRange(start, end){
+  return `${toDateKey(start).split('-').reverse().join('.')} — ${toDateKey(end).split('-').reverse().join('.')}`;
+}
+function isSameDateKey(a, b){ return toDateKey(a) === toDateKey(b); }
 
 function getCssVar(name){ return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
 
@@ -304,9 +328,16 @@ function getWorkColors(){
   };
 }
 
+function prepareClose(){
+  if (closing) return;
+  closing = true;
+  document.body.classList.add('sgClosing');
+}
+
 let currentWorkRange = 'week';
 let currentWorkType = WORK_TYPES[0];
 let selectedMonthKey = '';
+let selectedWeekStartKey = '';
 
 function setActive(el, cls){
   for (const b of el.parentElement.querySelectorAll('.'+cls)) b.classList.remove('is-active');
@@ -350,6 +381,79 @@ function bindWorkTabs(){
   workTabs.dataset.ready = '1';
 }
 
+function animatePeriod(kind, delta){
+  const wrap = kind === 'week' ? weekCanvas?.closest('.chartwrap') : monthCanvas?.closest('.chartwrap');
+  if(!wrap) return;
+  wrap.classList.remove('period-left', 'period-right');
+  void wrap.offsetWidth;
+  wrap.classList.add(delta < 0 ? 'period-right' : 'period-left');
+  setTimeout(() => wrap.classList.remove('period-left', 'period-right'), 240);
+}
+
+function updatePeriodControls(){
+  const now = new Date();
+  const currentWeekKey = toDateKey(startOfWeekMonday(now));
+  if(!selectedWeekStartKey) selectedWeekStartKey = currentWeekKey;
+  const weekStart = dateFromKey(selectedWeekStartKey);
+  const weekEnd = addDays(weekStart, 6);
+  if(weekTitle) {
+    weekTitle.textContent = selectedWeekStartKey === currentWeekKey ? 'Текущая неделя' : formatDateRange(weekStart, weekEnd);
+  }
+  if(weekNextBtn) weekNextBtn.disabled = selectedWeekStartKey >= currentWeekKey;
+
+  const currentMonthKey = monthKeyFromDate(now);
+  if(!selectedMonthKey) selectedMonthKey = currentMonthKey;
+  if(monthTitle) {
+    monthTitle.textContent = selectedMonthKey === currentMonthKey ? 'Текущий месяц' : monthLabel(selectedMonthKey);
+  }
+  if(monthNextBtn) monthNextBtn.disabled = selectedMonthKey >= currentMonthKey;
+}
+
+function bindPeriodNavigation(){
+  if(weekPrevBtn && weekPrevBtn.dataset.bound !== '1'){
+    weekPrevBtn.dataset.bound = '1';
+    weekPrevBtn.addEventListener('click', () => {
+      const base = selectedWeekStartKey ? dateFromKey(selectedWeekStartKey) : startOfWeekMonday(new Date());
+      selectedWeekStartKey = toDateKey(addDays(base, -7));
+      animatePeriod('week', -1);
+      if(window.__lastStatsData) render(window.__lastStatsData);
+    });
+  }
+  if(weekNextBtn && weekNextBtn.dataset.bound !== '1'){
+    weekNextBtn.dataset.bound = '1';
+    weekNextBtn.addEventListener('click', () => {
+      const nowWeek = toDateKey(startOfWeekMonday(new Date()));
+      const base = selectedWeekStartKey ? dateFromKey(selectedWeekStartKey) : startOfWeekMonday(new Date());
+      const next = toDateKey(addDays(base, 7));
+      if(next > nowWeek) return;
+      selectedWeekStartKey = next;
+      animatePeriod('week', 1);
+      if(window.__lastStatsData) render(window.__lastStatsData);
+    });
+  }
+  if(monthPrevBtn && monthPrevBtn.dataset.bound !== '1'){
+    monthPrevBtn.dataset.bound = '1';
+    monthPrevBtn.addEventListener('click', () => {
+      selectedMonthKey = addMonthsToKey(selectedMonthKey || monthKeyFromDate(new Date()), -1);
+      if(monthSelect) monthSelect.value = selectedMonthKey;
+      animatePeriod('month', -1);
+      if(window.__lastStatsData) render(window.__lastStatsData);
+    });
+  }
+  if(monthNextBtn && monthNextBtn.dataset.bound !== '1'){
+    monthNextBtn.dataset.bound = '1';
+    monthNextBtn.addEventListener('click', () => {
+      const nowKey = monthKeyFromDate(new Date());
+      const next = addMonthsToKey(selectedMonthKey || nowKey, 1);
+      if(next > nowKey) return;
+      selectedMonthKey = next;
+      if(monthSelect) monthSelect.value = selectedMonthKey;
+      animatePeriod('month', 1);
+      if(window.__lastStatsData) render(window.__lastStatsData);
+    });
+  }
+}
+
 
 
 function computeCountsForKeys(workDays, keys){
@@ -373,7 +477,7 @@ function renderWorkTable(workDays){
   const selectedYear = selectedParts[0] || now.getFullYear();
   const selectedMonth0 = selectedParts[1] ? selectedParts[1] - 1 : now.getMonth();
 
-  const w0 = startOfWeekMonday(now);
+  const w0 = selectedWeekStartKey ? dateFromKey(selectedWeekStartKey) : startOfWeekMonday(now);
   const weekKeys = [];
   for (let i=0;i<7;i++){
     const d = new Date(w0);
@@ -578,7 +682,7 @@ function renderWork(data){
       labels.push(String(day));
     }
   } else {
-    const w0 = startOfWeekMonday(now);
+    const w0 = selectedWeekStartKey ? dateFromKey(selectedWeekStartKey) : startOfWeekMonday(now);
     const weekLabels = ['Пн','Вт','Ср','Чт','Пт','Сб','Вс'];
     for (let i=0;i<7;i++){
       const d = new Date(w0);
@@ -614,7 +718,9 @@ function renderWork(data){
 function render(points){
   __lastPoints = points;
   const days = points?.days || {};
+  bindPeriodNavigation();
   ensureMonthSelect(days);
+  updatePeriodControls();
   const now = new Date();
   const todayKey = toDateKey(now);
   const today = days[todayKey]?.total || 0;
@@ -622,7 +728,8 @@ function render(points){
   elToday.textContent = String(today);
   elTodayHint.textContent = `${pad2(now.getHours())}:${pad2(now.getMinutes())} · 00:00–23:59`;
 
-  const w0 = startOfWeekMonday(now);
+  if (!selectedWeekStartKey) selectedWeekStartKey = toDateKey(startOfWeekMonday(now));
+  const w0 = dateFromKey(selectedWeekStartKey);
   const weekLabels = ['Пн','Вт','Ср','Чт','Пт','Сб','Вс'];
   const weekValues = [];
   const weekKeys = [];
@@ -700,9 +807,9 @@ for (const [k,obj] of Object.entries(days || {})){
 }
 
 function setTheme(theme){
-  const aliases = { dark:'dark-classic', light:'light-classic' };
+  const aliases = { dark:'dark-classic', light:'light-classic', 'midnight-pro':'dark-midnight-pro', forest:'dark-forest' };
   const next = aliases[theme] || theme || 'dark-classic';
-  const allowed = new Set(['dark-classic', 'light-classic', 'dark-ios', 'light-oldmoney']);
+  const allowed = new Set(['dark-classic', 'light-classic', 'dark-ios', 'light-ios', 'dark-oldmoney', 'light-oldmoney', 'dark-midnight-pro', 'light-midnight-pro', 'dark-forest', 'light-forest']);
   document.documentElement.setAttribute('data-theme', allowed.has(next) ? next : 'dark-classic');
   if (__lastPoints) render(__lastPoints);
 }
@@ -725,9 +832,10 @@ function ensureMonthSelect(days){
     const m = String(k || '').slice(0, 7);
     if(/^\d{4}-\d{2}$/.test(m)) keys.add(m);
   }
+  if(/^\d{4}-\d{2}$/.test(String(selectedMonthKey || ''))) keys.add(selectedMonthKey);
   const sorted = Array.from(keys).sort().reverse();
-  if(!selectedMonthKey || !keys.has(selectedMonthKey)) selectedMonthKey = nowKey;
-  const currentValue = monthSelect ? monthSelect.value : selectedMonthKey;
+  if(!selectedMonthKey) selectedMonthKey = nowKey;
+  const currentValue = selectedMonthKey || (monthSelect ? monthSelect.value : nowKey);
   if(monthSelect){
     monthSelect.innerHTML = '';
     for(const key of sorted){
@@ -791,6 +899,7 @@ function hexToRgba(hex, alpha){
 
 window.sproutgStats.onApplySettings((s) => { if (s?.theme) setTheme(s.theme); });
 window.sproutgStats.onPointsUpdated((data) => render(data));
+window.sproutgStats.onPrepareClose(prepareClose);
 
 (async () => {
   const s = await window.sproutgStats.getSettings();

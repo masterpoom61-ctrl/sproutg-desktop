@@ -46,7 +46,11 @@
     </div>
 
     <div class="section">
-      <div class="section__title">Текущая неделя</div>
+      <div class="sectionHead">
+        <button class="periodNav" id="weekPrevBtn" type="button" aria-label="Предыдущая неделя">‹</button>
+        <div class="section__title" id="weekTitle">Текущая неделя</div>
+        <button class="periodNav" id="weekNextBtn" type="button" aria-label="Следующая неделя">›</button>
+      </div>
       <div class="chartwrap">
         <canvas id="weekChart" height="110"></canvas>
         <div class="tooltip" id="weekTooltip" style="display:none;"></div>
@@ -55,7 +59,11 @@
     </div>
 
     <div class="section">
-      <div class="section__title">Текущий месяц</div>
+      <div class="sectionHead">
+        <button class="periodNav" id="monthPrevBtn" type="button" aria-label="Предыдущий месяц">‹</button>
+        <div class="section__title" id="monthTitle">Текущий месяц</div>
+        <button class="periodNav" id="monthNextBtn" type="button" aria-label="Следующий месяц">›</button>
+      </div>
       <div class="chartwrap">
         <canvas id="monthChart" height="90"></canvas>
         <div class="tooltip" id="monthTooltip" style="display:none;"></div>

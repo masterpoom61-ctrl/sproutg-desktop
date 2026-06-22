@@ -15,7 +15,7 @@ const MIN_HEIGHT = 560;
 const store = new Store({
   name: 'sproutg-desktop',
   defaults: {
-    ui: { statsBounds: null },
+    ui: { statsBounds: null, companyBounds: null },
     points: { days: {}, workDays: {} },
     statusState: {},
     settings: { theme: 'dark-classic', zoom: 1.0, alwaysOnTop: false },
@@ -161,7 +161,15 @@ const THEME_ALIASES = {
   'dark-classic': 'dark-classic',
   'light-classic': 'light-classic',
   'dark-ios': 'dark-ios',
-  'light-oldmoney': 'light-oldmoney'
+  'light-ios': 'light-ios',
+  'dark-oldmoney': 'dark-oldmoney',
+  'light-oldmoney': 'light-oldmoney',
+  'dark-midnight-pro': 'dark-midnight-pro',
+  'light-midnight-pro': 'light-midnight-pro',
+  'midnight-pro': 'dark-midnight-pro',
+  'dark-forest': 'dark-forest',
+  'light-forest': 'light-forest',
+  forest: 'dark-forest'
 };
 
 function normalizeTheme(theme){
@@ -370,6 +378,18 @@ function getStoredStatsBounds(){
 function setStoredStatsBounds(bounds){
   const ui = store.get('ui') || {};
   ui.statsBounds = { x: bounds.x, y: bounds.y };
+  store.set('ui', ui);
+}
+
+function getStoredCompanyBounds(){
+  const ui = store.get('ui') || {};
+  return ui.companyBounds || null;
+}
+
+function setStoredCompanyBounds(bounds){
+  if (!bounds) return;
+  const ui = store.get('ui') || {};
+  ui.companyBounds = { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height };
   store.set('ui', ui);
 }
 
@@ -643,7 +663,7 @@ function positionSettingsWindow(){
 function closeSettingsWindow(){
   if (!settingsWindow || settingsWindow.isDestroyed()) return false;
   lastSettingsClosedAt = Date.now();
-  try { settingsWindow.close(); return true; } catch(e) { return false; }
+  return closeWindowAnimated(settingsWindow);
 }
 
 function safeSend(win, channel, payload){
@@ -653,6 +673,23 @@ function safeSend(win, channel, payload){
     return true;
   } catch(e) {
     return false;
+  }
+}
+
+function closeWindowAnimated(win, delayMs = 150){
+  if (!win || win.isDestroyed()) return false;
+  try {
+    if (win.__sproutgClosing) return true;
+    win.__sproutgClosing = true;
+    safeSend(win, 'sproutg:prepare-close', {});
+    setTimeout(() => {
+      try {
+        if (win && !win.isDestroyed()) win.close();
+      } catch(e) {}
+    }, delayMs);
+    return true;
+  } catch(e) {
+    try { win.close(); return true; } catch(_) { return false; }
   }
 }
 
@@ -723,7 +760,7 @@ function openStatsWindow(){
 
   if (statsWindow && !statsWindow.isDestroyed()) {
   if (statsWindow.isVisible()) {
-    try { statsWindow.close(); } catch(e) {}
+    closeStatsWindow();
     return;
   }
   positionStatsWindow();
@@ -818,6 +855,12 @@ function positionStatsWindow(){
   statsWindow.setPosition(Math.round(b.x + b.width - sw - 12), Math.round(b.y + TOPBAR_HEIGHT + 6), false);
 }
 
+function closeStatsWindow(){
+  if (!statsWindow || statsWindow.isDestroyed()) return false;
+  try { setStoredStatsBounds(statsWindow.getBounds()); } catch(e) {}
+  return closeWindowAnimated(statsWindow);
+}
+
 function positionCompanyWindow(){
   if (!mainWindow || !companyWindow || companyWindow.isDestroyed()) return;
   const b = mainWindow.getBounds();
@@ -827,7 +870,8 @@ function positionCompanyWindow(){
 
 function closeCompanyWindow(){
   if (!companyWindow || companyWindow.isDestroyed()) return false;
-  try { companyWindow.close(); return true; } catch(e) { return false; }
+  try { setStoredCompanyBounds(companyWindow.getBounds()); } catch(e) {}
+  return closeWindowAnimated(companyWindow);
 }
 
 function openCompanyWindow(){
@@ -845,12 +889,14 @@ function openCompanyWindow(){
     return;
   }
 
-  companyWindow = new BrowserWindow({
+  const storedBounds = getStoredCompanyBounds();
+  const initialBounds = storedBounds ? clampToWorkArea(storedBounds) : null;
+  const companyWindowOptions = {
     parent: mainWindow,
     modal: false,
     show: false,
-    width: 420,
-    height: 470,
+    width: initialBounds?.width || 420,
+    height: initialBounds?.height || 470,
     minWidth: 360,
     minHeight: 430,
     resizable: true,
@@ -869,9 +915,23 @@ function openCompanyWindow(){
       sandbox: true,
       nodeIntegration: false
     }
-  });
+  };
+  if (initialBounds) {
+    companyWindowOptions.x = initialBounds.x;
+    companyWindowOptions.y = initialBounds.y;
+  }
+  companyWindow = new BrowserWindow(companyWindowOptions);
 
   companyWindow.loadFile(path.join(__dirname, 'company', 'index.html'));
+  const _saveCompanyBounds = () => {
+    if (!companyWindow || companyWindow.isDestroyed()) return;
+    try { setStoredCompanyBounds(companyWindow.getBounds()); } catch(e) {}
+  };
+  companyWindow.on('move', _saveCompanyBounds);
+  companyWindow.on('moved', _saveCompanyBounds);
+  companyWindow.on('resize', _saveCompanyBounds);
+  companyWindow.on('resized', _saveCompanyBounds);
+  companyWindow.on('close', _saveCompanyBounds);
   companyWindow.on('closed', () => { companyWindow = null; });
   try { companyWindow.webContents.setVisualZoomLevelLimits(1, 1); companyWindow.webContents.setZoomFactor(1); } catch(e) {}
   companyWindow.webContents.on('before-input-event', (event, input) => {
@@ -879,15 +939,13 @@ function openCompanyWindow(){
     if ((input.control || input.meta) && isZoomKey) event.preventDefault();
   });
   companyWindow.once('ready-to-show', () => {
-    positionCompanyWindow();
+    if (!initialBounds) positionCompanyWindow();
     companyWindow.show();
     companyWindow.focus();
     companyWindow.webContents.send('sproutg:apply-settings', getSettings());
   });
   companyWindow.on('blur', () => closeCompanyWindow());
 
-  mainWindow.on('move', positionCompanyWindow);
-  mainWindow.on('resize', positionCompanyWindow);
 }
 
 

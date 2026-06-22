@@ -4,9 +4,15 @@ const THEMES = {
   'dark-classic': 'Dark Classic',
   'light-classic': 'Light Classic',
   'dark-ios': 'Dark IOS',
-  'light-oldmoney': 'Light OldMoney'
+  'light-ios': 'Light IOS',
+  'dark-oldmoney': 'Dark OldMoney',
+  'light-oldmoney': 'Light OldMoney',
+  'dark-midnight-pro': 'Midnight Pro',
+  'light-midnight-pro': 'Light Midnight',
+  'dark-forest': 'Dark Forest',
+  'light-forest': 'Light Forest'
 };
-const THEME_ALIASES = { dark: 'dark-classic', light: 'light-classic' };
+const THEME_ALIASES = { dark: 'dark-classic', light: 'light-classic', 'midnight-pro': 'dark-midnight-pro', forest: 'dark-forest' };
 
 const btnAOT = $('btnAOT');
 const btnZoomIn = $('btnZoomIn');
@@ -33,6 +39,13 @@ const techDesktopVersion = $('techDesktopVersion');
 const techWebVersion = $('techWebVersion');
 
 let current = { theme: 'dark-classic', zoom: 1.0, alwaysOnTop: false };
+let closing = false;
+
+function prepareClose() {
+  if (closing) return;
+  closing = true;
+  document.body.classList.add('sgClosing');
+}
 
 function normalizeTheme(theme) {
   const next = THEME_ALIASES[theme] || theme || 'dark-classic';
@@ -108,6 +121,7 @@ function renderUpdateState(state = {}) {
 }
 
 function closeSettingsSoon() {
+  prepareClose();
   window.setTimeout(() => window.sproutgSettings.closeWindow().catch(() => {}), 0);
 }
 
@@ -228,6 +242,7 @@ window.sproutgSettings.onApplySettings((s) => {
 });
 
 window.sproutgSettings.onUpdateState(renderUpdateState);
+window.sproutgSettings.onPrepareClose(prepareClose);
 
 document.addEventListener('pointerdown', (event) => {
   if (event.button !== 0 || !settingsCard || settingsCard.contains(event.target)) return;

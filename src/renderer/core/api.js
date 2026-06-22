@@ -261,13 +261,18 @@
   function showNotice(payload) {
     const box = document.createElement('div');
     box.className = 'desktopNotice';
+    if (payload?.type) box.dataset.type = String(payload.type);
     box.innerHTML = `<b>${payload?.title || 'SproutG'}</b><span>${payload?.body || ''}</span>`;
     document.body.appendChild(box);
-    requestAnimationFrame(() => box.classList.add('show'));
-    setTimeout(() => {
+    const close = () => {
       box.classList.remove('show');
       setTimeout(() => box.remove(), 220);
-    }, 6500);
+    };
+    if (payload?.dismissible !== false) box.addEventListener('click', close, { once:true });
+    requestAnimationFrame(() => box.classList.add('show'));
+    setTimeout(() => {
+      close();
+    }, Math.max(1000, Number(payload?.durationMs || 6500)));
   }
 
   window.addEventListener('DOMContentLoaded', () => {

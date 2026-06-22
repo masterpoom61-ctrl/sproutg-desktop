@@ -8,7 +8,7 @@ function lockBtn(key, ms=220){
   return true;
 }
 
-$('btnHome').addEventListener('click', () => showHomeScreen());
+$('btnHome').addEventListener('click', () => toggleHomeScreen());
 $('btnCompany').addEventListener('click', () => window.sproutg.openCompany());
 $('btnStats').addEventListener('click', () => { if (!lockBtn('stats')) return; window.sproutg.openStats(); });
 $('btnSettings').addEventListener('click', () => { if (!lockBtn('settings')) return; window.sproutg.openSettings(); });
@@ -17,9 +17,14 @@ $('btnMax').addEventListener('click', () => window.sproutg.windowControl('maximi
 $('btnClose').addEventListener('click', () => window.sproutg.windowControl('close'));
 
 let __themeSwitchTimer = null;
+const DESKTOP_THEME_ALIASES = { dark:'dark-classic', light:'light-classic', 'midnight-pro':'dark-midnight-pro', forest:'dark-forest', 'cyberpunk-neon':'cyberpunk' };
+function normalizeDesktopTheme(theme){
+  return DESKTOP_THEME_ALIASES[String(theme || '')] || String(theme || '') || 'dark-classic';
+}
 function setTopbarTheme(theme){
-  const aliases = { dark:'dark-classic', light:'light-classic', 'midnight-pro':'dark-midnight-pro', forest:'dark-forest' };
-  const normalized = aliases[theme] || theme || 'dark-classic';
+  const normalized = normalizeDesktopTheme(theme);
+  document.documentElement.style.removeProperty('--topbar-bg');
+  document.documentElement.style.removeProperty('--topbar-fg');
   if (document.documentElement.getAttribute('data-theme') === normalized) return;
   document.documentElement.classList.add('theme-switching');
   document.documentElement.setAttribute('data-theme', normalized);
@@ -29,6 +34,9 @@ function setTopbarTheme(theme){
 
 window.sproutg.onThemeColors((p) => {
   if (!p) return;
+  const payloadTheme = p.theme ? normalizeDesktopTheme(p.theme) : '';
+  const currentTheme = normalizeDesktopTheme(document.documentElement.getAttribute('data-theme'));
+  if (payloadTheme && payloadTheme !== currentTheme) return;
   if (p.topbarColor) document.documentElement.style.setProperty('--topbar-bg', p.topbarColor);
   if (p.topbarTextColor) document.documentElement.style.setProperty('--topbar-fg', p.topbarTextColor);
 });
@@ -40,11 +48,12 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
   setTopbarTheme(s.theme || 'dark-classic');
 })();
 
-  const APP_VERSION = '2.1.0';
+  const APP_VERSION = '2.1.1';
   const PAGE_KEY = 'FarmA.page';
+  const HOME_RETURN_KEY = 'FarmA.homeReturnPage';
   const THEME_KEY = 'sproutg.theme';
-  const THEMES = ['dark-classic', 'light-classic', 'dark-ios', 'light-ios', 'dark-oldmoney', 'light-oldmoney', 'dark-midnight-pro', 'light-midnight-pro', 'dark-forest', 'light-forest'];
-  const THEME_ALIASES = { dark:'dark-classic', light:'light-classic', 'midnight-pro':'dark-midnight-pro', forest:'dark-forest' };
+  const THEMES = ['dark-classic', 'light-classic', 'dark-ios', 'light-ios', 'dark-oldmoney', 'light-oldmoney', 'dark-midnight-pro', 'light-midnight-pro', 'dark-forest', 'light-forest', 'cyberpunk', 'nordic-frost', 'coffee-sepia', 'retro-terminal', 'synthwave', 'vaporwave', 'dark-academia', 'light-academia', 'art-deco', 'bauhaus'];
+  const THEME_ALIASES = { dark:'dark-classic', light:'light-classic', 'midnight-pro':'dark-midnight-pro', forest:'dark-forest', 'cyberpunk-neon':'cyberpunk' };
 
   let current = null;
   let editMode = false;
@@ -84,6 +93,7 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
   };
 
   let activePage = '';
+  let homeReturnPage = '';
   let companyDuplicateTimer = null;
   let companyDuplicateState = { value: '', duplicate: false, checking: false };
   const sproutgReq = { profile: 0, filter: 0, work: 0, mcc: 0 };
@@ -549,7 +559,11 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
     setActivePage(page, { persist:true, hideSelector:true });
   }
 
-  function showHomeScreen(){
+  function showHomeScreen(opts = {}){
+    if(opts.remember && (activePage === 'O1' || activePage === 'MCC')){
+      homeReturnPage = activePage;
+      try{ localStorage.setItem(HOME_RETURN_KEY, activePage); }catch(e){}
+    }
     activePage = '';
     try{ localStorage.removeItem(PAGE_KEY); }catch(e){}
     document.querySelectorAll('.pageRoot.active').forEach((page)=>page.classList.remove('active'));
@@ -559,6 +573,16 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
     requestAnimationFrame(updateSideSyncButtons);
     requestAnimationFrame(updateO1TopButton);
     requestAnimationFrame(updateMccTopButton);
+  }
+
+  function toggleHomeScreen(){
+    if(activePage){
+      showHomeScreen({ remember:true });
+      return;
+    }
+    const saved = homeReturnPage || localStorage.getItem(HOME_RETURN_KEY) || localStorage.getItem(PAGE_KEY) || 'O1';
+    const next = (saved === 'O1' || saved === 'MCC') ? saved : 'O1';
+    setActivePage(next, { persist:true, hideSelector:true });
   }
 
   function setActivePage(page, opts = {}){

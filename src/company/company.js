@@ -1,7 +1,7 @@
 const $ = (id) => document.getElementById(id);
 
-const THEMES = new Set(['dark-classic', 'light-classic', 'dark-ios', 'light-ios', 'dark-oldmoney', 'light-oldmoney', 'dark-midnight-pro', 'light-midnight-pro', 'dark-forest', 'light-forest']);
-const THEME_ALIASES = { dark: 'dark-classic', light: 'light-classic', 'midnight-pro': 'dark-midnight-pro', forest: 'dark-forest' };
+const THEMES = new Set(['dark-classic', 'light-classic', 'dark-ios', 'light-ios', 'dark-oldmoney', 'light-oldmoney', 'dark-midnight-pro', 'light-midnight-pro', 'dark-forest', 'light-forest', 'cyberpunk', 'nordic-frost', 'coffee-sepia', 'retro-terminal', 'synthwave', 'vaporwave', 'dark-academia', 'light-academia', 'art-deco', 'bauhaus']);
+const THEME_ALIASES = { dark: 'dark-classic', light: 'light-classic', 'midnight-pro': 'dark-midnight-pro', forest: 'dark-forest', 'cyberpunk-neon': 'cyberpunk' };
 
 const card = $('companyCard');
 const grid = $('companyFormGrid');
@@ -170,12 +170,6 @@ window.sproutgCompany.onApplySettings((settings) => {
   if (settings?.theme) setTheme(settings.theme);
 });
 window.sproutgCompany.onPrepareClose(prepareClose);
-
-document.addEventListener('pointerdown', (event) => {
-  if (event.button !== 0 || !card || card.contains(event.target)) return;
-  prepareClose();
-  window.sproutgCompany.closeWindow().catch(() => {});
-}, true);
 
 document.addEventListener('keydown', (event) => {
   if (event.key === 'Escape') {

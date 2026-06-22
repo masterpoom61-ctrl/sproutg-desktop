@@ -807,9 +807,9 @@ for (const [k,obj] of Object.entries(days || {})){
 }
 
 function setTheme(theme){
-  const aliases = { dark:'dark-classic', light:'light-classic', 'midnight-pro':'dark-midnight-pro', forest:'dark-forest' };
+  const aliases = { dark:'dark-classic', light:'light-classic', 'midnight-pro':'dark-midnight-pro', forest:'dark-forest', 'cyberpunk-neon':'cyberpunk' };
   const next = aliases[theme] || theme || 'dark-classic';
-  const allowed = new Set(['dark-classic', 'light-classic', 'dark-ios', 'light-ios', 'dark-oldmoney', 'light-oldmoney', 'dark-midnight-pro', 'light-midnight-pro', 'dark-forest', 'light-forest']);
+  const allowed = new Set(['dark-classic', 'light-classic', 'dark-ios', 'light-ios', 'dark-oldmoney', 'light-oldmoney', 'dark-midnight-pro', 'light-midnight-pro', 'dark-forest', 'light-forest', 'cyberpunk', 'nordic-frost', 'coffee-sepia', 'retro-terminal', 'synthwave', 'vaporwave', 'dark-academia', 'light-academia', 'art-deco', 'bauhaus']);
   document.documentElement.setAttribute('data-theme', allowed.has(next) ? next : 'dark-classic');
   if (__lastPoints) render(__lastPoints);
 }

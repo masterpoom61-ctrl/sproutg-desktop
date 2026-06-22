@@ -10,9 +10,19 @@ const THEMES = {
   'dark-midnight-pro': 'Midnight Pro',
   'light-midnight-pro': 'Light Midnight',
   'dark-forest': 'Dark Forest',
-  'light-forest': 'Light Forest'
+  'light-forest': 'Light Forest',
+  cyberpunk: 'Cyberpunk Neon',
+  'nordic-frost': 'Nordic Frost',
+  'coffee-sepia': 'Coffee Sepia',
+  'retro-terminal': 'Retro Terminal',
+  synthwave: 'Synthwave',
+  vaporwave: 'Vaporwave',
+  'dark-academia': 'Dark Academia',
+  'light-academia': 'Light Academia',
+  'art-deco': 'Art Deco',
+  bauhaus: 'Bauhaus'
 };
-const THEME_ALIASES = { dark: 'dark-classic', light: 'light-classic', 'midnight-pro': 'dark-midnight-pro', forest: 'dark-forest' };
+const THEME_ALIASES = { dark: 'dark-classic', light: 'light-classic', 'midnight-pro': 'dark-midnight-pro', forest: 'dark-forest', 'cyberpunk-neon': 'cyberpunk' };
 
 const btnAOT = $('btnAOT');
 const btnZoomIn = $('btnZoomIn');
@@ -93,6 +103,8 @@ function renderUpdateState(state = {}) {
   const availableVersion = formatVersion(state.availableVersion);
   appVersion.textContent = `Версия: ${installedVersion}`;
   updateBadge.textContent = updateLabel(state.status);
+  updateBadge.dataset.state = state.status || 'idle';
+  updateStatus.dataset.state = state.status || 'idle';
 
   const fallback = {
     checking: 'Проверяем обновления...',

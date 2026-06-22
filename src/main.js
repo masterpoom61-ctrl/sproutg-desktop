@@ -123,6 +123,7 @@ async function flushGoogleSession(){
 const UPDATE_PLACEHOLDER_RE = /^(CHANGE_ME|YOUR_|OWNER_|REPO_|example$)/i;
 let updaterConfigured = false;
 let updaterCheckInFlight = false;
+let updateReminderTimer = null;
 let updateState = {
   status: 'idle',
   message: 'Обновления еще не проверялись',
@@ -169,7 +170,18 @@ const THEME_ALIASES = {
   'midnight-pro': 'dark-midnight-pro',
   'dark-forest': 'dark-forest',
   'light-forest': 'light-forest',
-  forest: 'dark-forest'
+  forest: 'dark-forest',
+  cyberpunk: 'cyberpunk',
+  'cyberpunk-neon': 'cyberpunk',
+  'nordic-frost': 'nordic-frost',
+  'coffee-sepia': 'coffee-sepia',
+  'retro-terminal': 'retro-terminal',
+  synthwave: 'synthwave',
+  vaporwave: 'vaporwave',
+  'dark-academia': 'dark-academia',
+  'light-academia': 'light-academia',
+  'art-deco': 'art-deco',
+  bauhaus: 'bauhaus'
 };
 
 function normalizeTheme(theme){
@@ -190,7 +202,7 @@ function notifyUpdateAvailable(version){
   const clean = String(version || '').replace(/^v/i, '');
   const title = 'Доступно обновление SproutG';
   const body = clean ? `Новая версия v${clean}. Установить можно в Настройках.` : 'Новая версия доступна в Настройках.';
-  sendDesktopNotice({ type:'update', title, body });
+  sendDesktopNotice({ type:'update', title, body, durationMs: 60000, dismissible: true });
   try {
     if (Notification.isSupported()) new Notification({ title, body, silent: false }).show();
   } catch(e) {}
@@ -253,7 +265,7 @@ autoUpdater.on('update-available', (info) => {
     error: null,
     progress: null
   });
-  if (updateCheckMode === 'boot') notifyUpdateAvailable(availableVersion);
+  if (updateCheckMode === 'boot' || updateCheckMode === 'scheduled') notifyUpdateAvailable(availableVersion);
 });
 
 autoUpdater.on('update-not-available', (info) => {
@@ -313,6 +325,15 @@ function scheduleBootUpdateNoticeCheck(){
   if (last === bootKey) return;
   store.set('updates.lastBootNoticeCheck', bootKey);
   setTimeout(() => { checkForUpdates(false, 'boot').catch(() => {}); }, 12000);
+}
+
+function schedulePeriodicUpdateChecks(){
+  if (!app.isPackaged || updateReminderTimer) return;
+  const cfg = getUpdatesConfig();
+  if (!cfg.enabled) return;
+  updateReminderTimer = setInterval(() => {
+    checkForUpdates(false, 'scheduled').catch(() => {});
+  }, 60 * 60 * 1000);
 }
 
 async function downloadUpdate(){
@@ -383,13 +404,17 @@ function setStoredStatsBounds(bounds){
 
 function getStoredCompanyBounds(){
   const ui = store.get('ui') || {};
-  return ui.companyBounds || null;
+  const bounds = ui.companyBounds || null;
+  if (bounds && !bounds.compactV && Number(bounds.height || 0) > 334) {
+    return { ...bounds, height: 334 };
+  }
+  return bounds;
 }
 
 function setStoredCompanyBounds(bounds){
   if (!bounds) return;
   const ui = store.get('ui') || {};
-  ui.companyBounds = { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height };
+  ui.companyBounds = { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height, compactV: 1 };
   store.set('ui', ui);
 }
 
@@ -896,9 +921,9 @@ function openCompanyWindow(){
     modal: false,
     show: false,
     width: initialBounds?.width || 420,
-    height: initialBounds?.height || 470,
+    height: initialBounds?.height || 334,
     minWidth: 360,
-    minHeight: 430,
+    minHeight: 334,
     resizable: true,
     movable: true,
     minimizable: false,
@@ -944,7 +969,6 @@ function openCompanyWindow(){
     companyWindow.focus();
     companyWindow.webContents.send('sproutg:apply-settings', getSettings());
   });
-  companyWindow.on('blur', () => closeCompanyWindow());
 
 }
 
@@ -1156,6 +1180,7 @@ app.whenReady().then(() => {
   registerGlobal();
 
   scheduleBootUpdateNoticeCheck();
+  schedulePeriodicUpdateChecks();
 });
 
 app.on('will-quit', () => {

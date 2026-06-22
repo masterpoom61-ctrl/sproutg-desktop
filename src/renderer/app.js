@@ -40,7 +40,7 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
   setTopbarTheme(s.theme || 'dark-classic');
 })();
 
-  const APP_VERSION = '2.0.4';
+  const APP_VERSION = '2.0.5';
   const PAGE_KEY = 'FarmA.page';
   const THEME_KEY = 'sproutg.theme';
   const THEMES = ['dark-classic', 'light-classic', 'dark-ios', 'light-oldmoney'];

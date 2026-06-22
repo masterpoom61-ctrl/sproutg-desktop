@@ -577,14 +577,14 @@ function setSettings(partial){
 }
 
 function applySettings(next){
-  if (mainWindow) mainWindow.setAlwaysOnTop(!!next.alwaysOnTop);
-  if (mainWindow) {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.setAlwaysOnTop(!!next.alwaysOnTop);
+  if (mainWindow && !mainWindow.isDestroyed()) {
     try { mainWindow.webContents.setZoomFactor(next.zoom || 1); } catch(e) {}
   }
-  if (mainWindow) mainWindow.webContents.send('sproutg:apply-settings', next);
-  if (settingsWindow) settingsWindow.webContents.send('sproutg:apply-settings', next);
-  if (statsWindow) statsWindow.webContents.send('sproutg:apply-settings', next);
-  if (companyWindow) companyWindow.webContents.send('sproutg:apply-settings', next);
+  safeSend(mainWindow, 'sproutg:apply-settings', next);
+  safeSend(settingsWindow, 'sproutg:apply-settings', next);
+  safeSend(statsWindow, 'sproutg:apply-settings', next);
+  safeSend(companyWindow, 'sproutg:apply-settings', next);
 }
 
 
@@ -644,6 +644,16 @@ function closeSettingsWindow(){
   if (!settingsWindow || settingsWindow.isDestroyed()) return false;
   lastSettingsClosedAt = Date.now();
   try { settingsWindow.close(); return true; } catch(e) { return false; }
+}
+
+function safeSend(win, channel, payload){
+  try {
+    if (!win || win.isDestroyed() || !win.webContents || win.webContents.isDestroyed()) return false;
+    win.webContents.send(channel, payload);
+    return true;
+  } catch(e) {
+    return false;
+  }
 }
 
 function openSettingsWindow(){
@@ -1155,18 +1165,8 @@ ipcMain.on('sproutg:window-control', (_e, action) => {
 ipcMain.on('sproutg:web-message', (_e, msg) => {
   if (!msg || !msg.type) return;
   const t = msg.type;
-  if (t === 'THEME_COLORS' && msg.payload && mainWindow) {
-    mainWindow.webContents.send('sproutg:theme-colors', msg.payload);
-
-    const rawTheme = msg.payload?.theme;
-    const theme = rawTheme ? normalizeTheme(rawTheme) : null;
-    if (theme) {
-      const cur = getSettings();
-      if (cur.theme !== theme) {
-        const next = setSettings({ theme });
-        applySettings(next);
-      }
-    }
+  if (t === 'THEME_COLORS' && msg.payload) {
+    safeSend(mainWindow, 'sproutg:theme-colors', msg.payload);
     return;
   }
   if ((t === 'STATUS_EVENT' || t === 'POINT_EVENT') && msg.payload) {

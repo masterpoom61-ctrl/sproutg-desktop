@@ -48,7 +48,7 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
   setTopbarTheme(s.theme || 'dark-classic');
 })();
 
-  const APP_VERSION = '2.1.1';
+  const APP_VERSION = '2.1.2';
   const PAGE_KEY = 'FarmA.page';
   const HOME_RETURN_KEY = 'FarmA.homeReturnPage';
   const THEME_KEY = 'sproutg.theme';
@@ -300,8 +300,18 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
   let companyFormMeta = null;
 
   // BAN color rules
-  const BAN_RED_VALUES = new Set(['Бан почты','Обход системы','Деловая практика','Мультиаккаутинг']);
-  const BAN_YELLOW_VALUES = new Set(['Подозрительные платежи','Не оплаченный баланс','Будущие платежи']);
+  const BAN_RED_VALUES = new Set([
+    'Бан','Ban','ban','бан',
+    'Бан почты','бан почты','Бан аккаунта','Аккаунт удален',
+    'Обход системы','Деловая практика',
+    'Мультиаккаутинг','Мультиаккаунтинг',
+    'Проверка рекламодателя','Отказ','Не вышел'
+  ]);
+  const BAN_YELLOW_VALUES = new Set([
+    '?','Аппел','Апелл','Аппеляция','Апелляция',
+    'Взять в работу','Подозрительные платежи',
+    'Не оплаченный баланс','Будущие платежи','PrePaid'
+  ]);
   const O1_WORK_GROUPS = ['Ads Видео', 'Платежка', 'Речек'];
   const O1_GROUP_DATE_COL = { 'Ads Видео':'AQ', 'Платежка':'BC', 'Речек':'BQ' };
   const O1_GROUP_DONE_COL = { 'Ads Видео':'AZ', 'Платежка':'BI', 'Речек':'BW' };
@@ -2142,16 +2152,16 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
       else if(v==='Бан') el.classList.add('redLight');
       else if(v==='Вышел') el.classList.add('blueLight');
       else if(v==='Не вышел') el.classList.add('redLight');
-      else if(v==='Апелл' || v==='Аппел') el.classList.add('orangeLight');
-      if(el.classList.contains('greenLight') || el.classList.contains('yellowLight') || el.classList.contains('blueLight') || el.classList.contains('redLight') || el.classList.contains('orangeLight')) el.dataset.appcolor = '1';
+      else if(BAN_YELLOW_VALUES.has(v)) el.classList.add('yellowLight');
+      if(el.classList.contains('greenLight') || el.classList.contains('yellowLight') || el.classList.contains('blueLight') || el.classList.contains('redLight')) el.dataset.appcolor = '1';
       return;
     }
     if(col==='BO'){
       if(v==='Успешно') el.classList.add('greenLight');
       else if(v==='На рассмотрении') el.classList.add('blueLight');
       else if(v==='Отказ') el.classList.add('redLight');
-      else if(v==='Апелл' || v==='Аппел') el.classList.add('orangeLight');
-      if(el.classList.contains('greenLight') || el.classList.contains('blueLight') || el.classList.contains('redLight') || el.classList.contains('orangeLight')) el.dataset.appcolor = '1';
+      else if(BAN_YELLOW_VALUES.has(v)) el.classList.add('yellowLight');
+      if(el.classList.contains('greenLight') || el.classList.contains('blueLight') || el.classList.contains('redLight') || el.classList.contains('yellowLight')) el.dataset.appcolor = '1';
       return;
     }
     if(col==='BP'){
@@ -4272,9 +4282,10 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
         cacheMccProfile(res);
         const key = getMccProfileKey(res.profileName);
         if(mccActiveProfileKey !== key) return;
+        const scrollSnap = captureSproutScroll_('mcc-refresh');
         mccProfile = res;
         mccEditMode = false;
-        renderMccProfile();
+        renderMccProfile({ preserveScrollSnapshot: scrollSnap });
       }).getMccProfile(entry.profileName);
       return;
     }
@@ -4585,6 +4596,7 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
 
   function renderMccTabs(){
     const bar = document.getElementById('mccAccountTabs');
+    const prevScrollLeft = bar?.scrollLeft || 0;
     bar.innerHTML = '';
     if(!mccProfile?.rows?.length) return;
 
@@ -4605,6 +4617,7 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
       frag.appendChild(pill);
     });
     bar.appendChild(frag);
+    requestAnimationFrame(()=>{ if(bar) bar.scrollLeft = prevScrollLeft; });
   }
 
   function mccGetHeaderOffset(){
@@ -4627,7 +4640,7 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
     const barRect = bar.getBoundingClientRect();
     const pillRect = pill.getBoundingClientRect();
     if(pillRect.left < barRect.left || pillRect.right > barRect.right){
-      pill.scrollIntoView({ behavior:'smooth', inline:'center', block:'nearest' });
+      pill.scrollIntoView({ behavior:'smooth', inline:'nearest', block:'nearest' });
     }
   }
 
@@ -5518,17 +5531,16 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
 
     if(col === 'N'){
       if(v === '+') el.classList.add('greenLight');
-      else if(v === '?') el.classList.add('yellowLight');
-      else if(v === 'Аппел' || v === 'Апелл') el.classList.add('orangeLight');
+      else if(BAN_YELLOW_VALUES.has(v)) el.classList.add('yellowLight');
       else if(v === 'Вышел') el.classList.add('blueLight');
       else if(v === 'Не вышел') el.classList.add('redLight');
-      if(el.classList.contains('greenLight') || el.classList.contains('yellowLight') || el.classList.contains('orangeLight') || el.classList.contains('blueLight') || el.classList.contains('redLight')) el.dataset.appcolor = '1';
+      if(el.classList.contains('greenLight') || el.classList.contains('yellowLight') || el.classList.contains('blueLight') || el.classList.contains('redLight')) el.dataset.appcolor = '1';
       return;
     }
 
     if(col === 'O'){
-      if(['Обход системы','Деловая практика'].includes(v)) el.classList.add('redLight');
-      else if(['Подозрительные платежи','Не оплаченный баланс','Будущие платежи'].includes(v)) el.classList.add('yellowLight');
+      if(BAN_RED_VALUES.has(v)) el.classList.add('redLight');
+      else if(BAN_YELLOW_VALUES.has(v)) el.classList.add('yellowLight');
       if(el.classList.contains('yellowLight') || el.classList.contains('redLight')) el.dataset.appcolor = '1';
       return;
     }
@@ -5543,11 +5555,13 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
   function getMccGroupColorClass(nVal, oVal){
     const n = String(nVal || '').trim();
     const o = String(oVal || '').trim();
-    const isORed = ['Обход системы','Деловая практика'].includes(o);
-    const isOYellow = ['Подозрительные платежи','Не оплаченный баланс','Будущие платежи'].includes(o);
+    const isORed = BAN_RED_VALUES.has(o);
+    const isOYellow = BAN_YELLOW_VALUES.has(o);
 
     if(n === 'Не вышел') return 'redLight';
     if(n === 'Вышел') return isORed ? 'redLight' : 'blueLight';
+    if(n === '+') return isORed ? 'redLight' : 'greenLight';
+    if(BAN_YELLOW_VALUES.has(n)) return 'yellowLight';
     if(isORed) return 'redLight';
     if(isOYellow) return 'yellowLight';
     return '';
@@ -5641,6 +5655,101 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
 
     update();
     mccTotpInterval = setInterval(update, 1000);
+  }
+
+  function updateMccVerificationPairColors(rowObj){
+    if(!rowObj?.row) return;
+    const rowSelector = `#mccOut select[data-row="${rowObj.row}"][data-col="U"]`;
+    document.querySelectorAll(rowSelector).forEach((uSel)=>{
+      const scope = uSel.closest('.mccVerificationBlock, .mccAccountVerificationDup') || uSel.parentElement;
+      const vSel = scope?.querySelector(`select[data-row="${rowObj.row}"][data-col="V"]`);
+      if(vSel) applyMccVerificationColors(uSel, vSel, rowObj.values.U, rowObj.values.V);
+    });
+  }
+
+  function syncMccVerificationControls(rowObj, updates = {}){
+    if(!rowObj?.row) return;
+    for(const [colRaw, value] of Object.entries(updates || {})){
+      const col = String(colRaw || '').toUpperCase();
+      if(!col) continue;
+      rowObj.values[col] = value;
+      document.querySelectorAll(`#mccOut [data-row="${rowObj.row}"][data-col="${col}"]`).forEach((el)=>{
+        if('value' in el) el.value = String(value ?? '');
+        else el.textContent = String(value ?? '');
+      });
+    }
+    updateMccVerificationPairColors(rowObj);
+    updateMccTabsColors();
+  }
+
+  function buildMccVerificationDateControl(rowObj){
+    return mccBuildDateInput(rowObj, 'T', rowObj.values.T, {
+      onCommit: (iso, flow)=>{
+        const prevT = String(flow.prevValue || '').trim();
+        const prevU = String(rowObj.values.U || '').trim();
+        const updates = { T: iso };
+        if(iso && !prevT && !prevU) updates.U = 'Взять в работу';
+        for(const [col, val] of Object.entries(updates)) rowObj.values[col] = val;
+        toast('Сохранение…');
+        saveMccCellsInstant(rowObj.row, updates, ()=>{
+          syncMccVerificationControls(rowObj, updates);
+          flow.done();
+          toast('Сохранено');
+        }, (err)=>{ flow.fail(); toast(err||'Ошибка'); });
+      }
+    });
+  }
+
+  function handleMccVerificationStatusChange(rowObj, uSelect, vSelect, next){
+    updateMccVerificationPairColors(rowObj);
+    if(String(next || '').trim() === 'Успешно'){
+      const desired = 'Разбан вериф бизнес';
+      const hasOption = Array.from(vSelect.options).some(opt=>opt.value === desired);
+      if(!hasOption){
+        toast('Нет опции "Разбан вериф бизнес" для V');
+      } else if(vSelect.value !== desired){
+        rowObj.values.V = desired;
+        syncMccVerificationControls(rowObj, { V: desired });
+        toast('Сохранение…');
+        saveMccCellInstant(rowObj.row, 'V', desired, ()=>toast('Сохранено'), (err)=>toast(err||'Ошибка'));
+      }
+    }
+    refreshColors({ source:'mcc', skipFilters:true });
+  }
+
+  function appendMccAccountVerificationRows(fieldsWrap, rowObj){
+    const row1 = document.createElement('div');
+    row1.className = 'field mccAccountVerificationDup';
+    const label1 = document.createElement('div');
+    label1.className = 'label';
+    label1.textContent = 'Вериф';
+    const grid1 = document.createElement('div');
+    grid1.className = 'mccInlineGrid2';
+    grid1.appendChild(mccWrapFieldLabel('T', buildMccVerificationDateControl(rowObj)));
+    grid1.appendChild(mccWrapFieldLabel('AW', mccEditMode ? mccBuildInput(rowObj, 'AW', rowObj.values.AW) : mccBuildButton(rowObj.values.AW, 'AW')));
+    row1.appendChild(label1);
+    row1.appendChild(grid1);
+    row1.appendChild(document.createElement('div')).className='actions';
+    fieldsWrap.appendChild(row1);
+
+    const row2 = document.createElement('div');
+    row2.className = 'field mccVerificationBlock mccAccountVerificationDup';
+    const label2 = document.createElement('div');
+    label2.className = 'label';
+    label2.textContent = 'Статус';
+    const grid2 = document.createElement('div');
+    grid2.className = 'mccInlineGrid2';
+    const uValue = rowObj.values.U ?? '';
+    const vValue = rowObj.values.V ?? '';
+    const uSelect = mccBuildSelect(rowObj, 'U', uValue, mccProfile.dropdowns?.U, (next)=>handleMccVerificationStatusChange(rowObj, uSelect, vSelect, next), { group:'Верификация' });
+    const vSelect = mccBuildSelect(rowObj, 'V', vValue, mccProfile.dropdowns?.V, ()=>updateMccVerificationPairColors(rowObj), { group:'Верификация' });
+    applyMccVerificationColors(uSelect, vSelect, uValue, vValue);
+    grid2.appendChild(mccWrapFieldLabel('U', uSelect));
+    grid2.appendChild(mccWrapFieldLabel('V', vSelect));
+    row2.appendChild(label2);
+    row2.appendChild(grid2);
+    row2.appendChild(document.createElement('div')).className='actions';
+    fieldsWrap.appendChild(row2);
   }
 
   function renderMccProfile(opts = {}){
@@ -5923,6 +6032,7 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
       oRow.appendChild(document.createElement('div')).className='actions';
       fieldsWrap.appendChild(oRow);
 
+      appendMccAccountVerificationRows(fieldsWrap, rowObj);
       setMccGroupColor(card, rowObj.values.N, rowObj.values.O);
 
       card.appendChild(fieldsWrap);
@@ -5965,18 +6075,12 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
             const updates = { T: iso };
             if(iso && !prevT && !prevU){
               updates.U = 'Взять в работу';
-              rowObj.values.U = 'Взять в работу';
             }
+            for(const [col, val] of Object.entries(updates)) rowObj.values[col] = val;
             toast('Сохранение…');
             saveMccCellsInstant(rowObj.row, updates, ()=>{
-              const uSel = document.querySelector(`#mccOut select[data-row="${rowObj.row}"][data-col="U"]`);
-              if(uSel && Object.prototype.hasOwnProperty.call(updates, 'U')){
-                uSel.value = updates.U;
-                const vSel = uSel.closest('.mccVerificationBlock')?.querySelector('select[data-col="V"]');
-                if(vSel) applyMccVerificationColors(uSel, vSel, rowObj.values.U, rowObj.values.V);
-              }
+              syncMccVerificationControls(rowObj, updates);
               flow.done();
-              updateMccTabsColors();
               toast('Сохранено');
             }, (err)=>{ flow.fail(); toast(err||'Ошибка'); });
           }
@@ -5990,18 +6094,12 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
             const updates = { T: iso };
             if(iso && !prevT && !prevU){
               updates.U = 'Взять в работу';
-              rowObj.values.U = 'Взять в работу';
             }
+            for(const [col, val] of Object.entries(updates)) rowObj.values[col] = val;
             toast('Сохранение…');
             saveMccCellsInstant(rowObj.row, updates, ()=>{
-              const uSel = document.querySelector(`#mccOut select[data-row="${rowObj.row}"][data-col="U"]`);
-              if(uSel && Object.prototype.hasOwnProperty.call(updates, 'U')){
-                uSel.value = updates.U;
-                const vSel = uSel.closest('.mccVerificationBlock')?.querySelector('select[data-col="V"]');
-                if(vSel) applyMccVerificationColors(uSel, vSel, rowObj.values.U, rowObj.values.V);
-              }
+              syncMccVerificationControls(rowObj, updates);
               flow.done();
-              updateMccTabsColors();
               toast('Сохранено');
             }, (err)=>{ flow.fail(); toast(err||'Ошибка'); });
           }
@@ -6044,25 +6142,10 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
       const uValue = rowObj.values.U ?? '';
       const vValue = rowObj.values.V ?? '';
 
-      const updateVerificationColors = ()=>applyMccVerificationColors(uSelect, vSelect, rowObj.values.U, rowObj.values.V);
       const uSelect = mccBuildSelect(rowObj, 'U', uValue, mccProfile.dropdowns?.U, (next)=>{
-        updateVerificationColors();
-        if(String(next || '').trim() === 'Успешно'){
-          const desired = 'Разбан вериф бизнес';
-          const hasOption = Array.from(vSelect.options).some(opt=>opt.value === desired);
-          if(!hasOption){
-            toast('Нет опции "Разбан вериф бизнес" для V');
-          } else if(vSelect.value !== desired){
-            rowObj.values.V = desired;
-            vSelect.value = desired;
-            updateVerificationColors();
-            toast('Сохранение…');
-            saveMccCellInstant(rowObj.row, 'V', desired, ()=>toast('Сохранено'), (err)=>toast(err||'Ошибка'));
-          }
-        }
-        refreshColors({ source:'mcc', skipFilters:true });
+        handleMccVerificationStatusChange(rowObj, uSelect, vSelect, next);
       }, { group:'Верификация' });
-      const vSelect = mccBuildSelect(rowObj, 'V', vValue, mccProfile.dropdowns?.V, ()=>updateVerificationColors(), { group:'Верификация' });
+      const vSelect = mccBuildSelect(rowObj, 'V', vValue, mccProfile.dropdowns?.V, ()=>updateMccVerificationPairColors(rowObj), { group:'Верификация' });
 
       applyMccVerificationColors(uSelect, vSelect, uValue, vValue);
       grid3.appendChild(mccWrapFieldLabel('U', uSelect));
@@ -6194,21 +6277,29 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
 
     if(u === 'На рассмотрении'){
       uSelect.classList.add('blueLight');
+      if(BAN_RED_VALUES.has(v)) vSelect.classList.add('redLight');
+      else if(BAN_YELLOW_VALUES.has(v)) vSelect.classList.add('yellowLight');
       return;
     }
-    if(u === 'Взять в работу'){
+    if(u === 'Взять в работу' || BAN_YELLOW_VALUES.has(u)){
       uSelect.classList.add('yellowLight');
+      if(BAN_RED_VALUES.has(v)) vSelect.classList.add('redLight');
+      else if(BAN_YELLOW_VALUES.has(v)) vSelect.classList.add('yellowLight');
       return;
     }
-    if(u === 'Отказ'){
+    if(u === 'Отказ' || BAN_RED_VALUES.has(u)){
       uSelect.classList.add('redLight');
-      if(v === 'Бан аккаунта') vSelect.classList.add('redLight');
+      if(v === 'Бан аккаунта' || BAN_RED_VALUES.has(v)) vSelect.classList.add('redLight');
+      else if(BAN_YELLOW_VALUES.has(v)) vSelect.classList.add('yellowLight');
       return;
     }
     if(u === 'Успешно'){
       uSelect.classList.add('greenLight');
       vSelect.classList.add('greenLight');
+      return;
     }
+    if(BAN_RED_VALUES.has(v)) vSelect.classList.add('redLight');
+    else if(BAN_YELLOW_VALUES.has(v)) vSelect.classList.add('yellowLight');
   }
 
   // ---------- Utils ----------

@@ -74,7 +74,8 @@ html[data-theme="light-academia"]{--bg:#f1e8d3;--panel:rgba(250,244,231,.93);--b
 html[data-theme="art-deco"]{--bg:#0a1111;--panel:rgba(16,27,27,.92);--border:rgba(212,175,55,.28);--text:#f3ead2;--muted:#b9af95;--btn:rgba(212,175,55,.08);--btnH:rgba(0,128,112,.13);--glassTop:rgba(212,175,55,.07);--glassFog:rgba(8,14,14,.54);}
 html[data-theme="bauhaus"]{--bg:#eeebe2;--panel:rgba(248,245,236,.93);--border:rgba(34,40,49,.20);--text:#20242b;--muted:#67645c;--btn:rgba(246,241,229,.76);--btnH:rgba(225,222,211,.84);--glassTop:rgba(255,255,250,.44);--glassFog:rgba(242,238,228,.56);}
 *{box-sizing:border-box;}
-body{margin:0;background:transparent;color:var(--text);font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial;overflow:hidden;}
+body{margin:0;background:transparent;color:var(--text);font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial;overflow:hidden;user-select:none;}
+input,textarea,select{user-select:text;}
 .settingsShell{width:100vw;height:100vh;padding:8px;}
 .card{
   width:100%;

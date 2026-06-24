@@ -11,8 +11,11 @@ const elMonthAvgHint = $('monthAvgHint');
 
 const weekCanvas = $('weekChart');
 const weekTooltip = $('weekTooltip');
+const todayCanvas = $('todayChart');
+const todayTooltip = $('todayTooltip');
 const monthCanvas = $('monthChart');
 const monthTooltip = $('monthTooltip');
+const todayLegend = $('todayLegend');
 const weekLegend = $('weekLegend');
 const monthLegend = $('monthLegend');
 
@@ -110,7 +113,7 @@ function roundRect(ctx, x, y, w, h, r){
 }
 
 
-function drawAreaSeries(canvas, labels, seriesMap, colors){
+function drawAreaSeries(canvas, labels, seriesMap, colors, opts = {}){
   const { ctx, w, h, notReady } = clearCanvas(canvas);
   if (notReady) return false;
   const border = getCssVar('--border');
@@ -140,6 +143,7 @@ function drawAreaSeries(canvas, labels, seriesMap, colors){
   ctx.globalAlpha = 1;
 
   const stepX = (w - padX*2) / Math.max(1, n-1);
+  const hoverIndex = Number.isFinite(opts.hoverIndex) ? Math.max(0, Math.min(n - 1, opts.hoverIndex)) : null;
 
   function yFor(v){
     return baseY - (Number(v||0)/max) * (baseY - padY);
@@ -180,6 +184,35 @@ function drawAreaSeries(canvas, labels, seriesMap, colors){
     ctx.stroke();
   }
 
+  if (hoverIndex !== null){
+    const hx = padX + hoverIndex * stepX;
+    ctx.save();
+    ctx.strokeStyle = border;
+    ctx.globalAlpha = 0.85;
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.moveTo(hx, padY);
+    ctx.lineTo(hx, baseY);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    for (const key of Object.keys(seriesMap)){
+      const arr = seriesMap[key] || [];
+      const v = Number(arr[hoverIndex] || 0);
+      if(!v) continue;
+      const col = colors[key] || ['rgba(56,189,248,0.55)','rgba(99,102,241,0.25)'];
+      const hy = yFor(v);
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = getCssVar('--panel') || 'rgba(0,0,0,.78)';
+      ctx.strokeStyle = col[0];
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.arc(hx, hy, 4.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
   // x labels (sparse)
   ctx.fillStyle = muted2;
   ctx.font = '10px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial';
@@ -190,6 +223,8 @@ function drawAreaSeries(canvas, labels, seriesMap, colors){
       ctx.fillText(labels[i], x, h - 2);
     }
   }
+  canvas.__redraw = (hoverIndex = null)=>drawAreaSeries(canvas, labels, seriesMap, colors, { hoverIndex });
+  return true;
 }
 
 
@@ -211,6 +246,7 @@ function drawBars(canvas, labels, values, opts={}){
   const barGap = 6;
   const barW = (w - padX*2 - barGap*(labels.length-1)) / labels.length;
   const baseY = h - padY;
+  const hoverIndex = Number.isFinite(opts.hoverIndex) ? Math.max(0, Math.min(labels.length - 1, opts.hoverIndex)) : null;
 
   ctx.globalAlpha = 0.6;
   ctx.strokeStyle = border;
@@ -239,6 +275,18 @@ function drawBars(canvas, labels, values, opts={}){
     roundRect(ctx, x, y, barW, barH, 10);
     ctx.fill();
 
+    if(i === hoverIndex){
+      ctx.save();
+      ctx.strokeStyle = getCssVar('--text') || 'rgba(255,255,255,.9)';
+      ctx.fillStyle = getCssVar('--panel') || 'rgba(0,0,0,.78)';
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.arc(x + barW / 2, Math.max(padY + 5, y), 4.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+    }
+
     ctx.fillStyle = muted2;
     ctx.font = '10px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial';
     ctx.textAlign = 'center';
@@ -251,6 +299,7 @@ function drawBars(canvas, labels, values, opts={}){
     ctx.textAlign = 'right';
     ctx.fillText(`макс: ${max}`, w - 2, 10);
   }
+  canvas.__redraw = (hoverIndex = null)=>drawBars(canvas, labels, values, { ...opts, hoverIndex });
   } catch (e) {
     return false;
   }
@@ -525,7 +574,7 @@ function setCanvasTooltipData(canvas, data){
 }
 
 function slotTime(slot){
-  const minutes = Math.max(0, Math.min(71, Number(slot) || 0)) * 20;
+  const minutes = Math.max(0, Math.min(72, Number(slot) || 0)) * 20;
   return `${pad2(Math.floor(minutes / 60))}:${pad2(minutes % 60)}`;
 }
 
@@ -539,14 +588,19 @@ function activitySummary(dayData, type){
   const first = rows[0].slot;
   const last = rows[rows.length - 1].slot;
   const peak = rows.reduce((best, row) => row.total > best.total ? row : best, rows[0]);
-  return `Активность ${slotTime(first)}–${slotTime(last + 1)}, пик ${slotTime(peak.slot)} (${peak.total})`;
+  return `A ${slotTime(first)}–${slotTime(last + 1)} · P ${slotTime(peak.slot)} (${peak.total})`;
 }
 
 function tooltipActivityLine(data, index, type){
   const key = data?.dayKeys?.[index];
   if(!key) return '';
+  const dayData = data?.workDays?.[key];
+  const total = type
+    ? Number(dayData?.byType?.[type] || 0)
+    : Number(dayData?.total || 0);
   const summary = activitySummary(data?.workDays?.[key], type);
-  return summary ? `<div class="tt-note">${summary}</div>` : '';
+  if(!summary && !total) return '';
+  return `<div class="tt-note">Всего за сутки: ${total}${summary ? `<br>${summary}` : ''}</div>`;
 }
 
 function ensureAreaTooltip(canvas, tooltipEl, kind){
@@ -571,6 +625,7 @@ function ensureAreaTooltip(canvas, tooltipEl, kind){
 
     const idx = Math.round((x / rect.width) * (n - 1));
     const i = Math.max(0, Math.min(n-1, idx));
+    if(typeof canvas.__redraw === 'function') canvas.__redraw(i);
 
     if (kind === 'single'){
       const t = data.singleType || Object.keys(seriesMap)[0];
@@ -613,7 +668,7 @@ function ensureAreaTooltip(canvas, tooltipEl, kind){
   };
 
   canvas.addEventListener('mousemove', update);
-  canvas.addEventListener('mouseleave', () => { tooltipEl.style.display = 'none'; });
+  canvas.addEventListener('mouseleave', () => { tooltipEl.style.display = 'none'; if(typeof canvas.__redraw === 'function') canvas.__redraw(null); });
 }
 
 function ensureBarsTooltip(canvas, tooltipEl){
@@ -638,6 +693,7 @@ function ensureBarsTooltip(canvas, tooltipEl){
     const idx = Math.round((x / rect.width) * (n - 1));
     const i = Math.max(0, Math.min(n-1, idx));
     const v = Number(values?.[i] || 0);
+    if(typeof canvas.__redraw === 'function') canvas.__redraw(i);
 
     let inner = `<div class="tt-title">${labels[i]}</div>`;
     inner += `<div class="tt-row"><div class="tt-name"><span class="tt-dot" style="border-color:${dotColor};"></span>${data.name || 'Значение'}</div><div class="tt-val">${v}</div></div>`;
@@ -647,7 +703,157 @@ function ensureBarsTooltip(canvas, tooltipEl){
   };
 
   canvas.addEventListener('mousemove', update);
-  canvas.addEventListener('mouseleave', () => { tooltipEl.style.display = 'none'; });
+  canvas.addEventListener('mouseleave', () => { tooltipEl.style.display = 'none'; if(typeof canvas.__redraw === 'function') canvas.__redraw(null); });
+}
+
+function buildTodayHourSeries(dayData){
+  const hours = Array.from({ length:24 }, ()=>({ total:0, byType:{} }));
+  const slots = dayData?.slots || {};
+  for(const [slotRaw, info] of Object.entries(slots)){
+    const slot = Number(slotRaw);
+    if(!Number.isFinite(slot)) continue;
+    const hour = Math.max(0, Math.min(23, Math.floor((slot * 20) / 60)));
+    const byType = info?.byType || {};
+    const entries = Object.entries(byType).filter(([, value])=>Number(value || 0) > 0);
+    if(entries.length){
+      for(const [type, value] of entries){
+        const n = Number(value || 0);
+        hours[hour].byType[type] = (hours[hour].byType[type] || 0) + n;
+        hours[hour].total += n;
+      }
+    } else {
+      const n = Number(info?.total || 0);
+      if(n > 0){
+        hours[hour].byType['Действия'] = (hours[hour].byType['Действия'] || 0) + n;
+        hours[hour].total += n;
+      }
+    }
+  }
+  return hours;
+}
+
+function drawTodayHours(canvas, hours, colors, opts = {}){
+  if(!canvas) return false;
+  const r = clearCanvas(canvas);
+  if(r.notReady) return false;
+  const { ctx, w, h } = r;
+  const labels = Array.from({ length:24 }, (_, i)=>pad2(i));
+  const border = getCssVar('--border');
+  const muted2 = getCssVar('--muted2');
+  const text = getCssVar('--text');
+  const padX = 8;
+  const padY = 10;
+  const baseY = h - 16;
+  const gap = 3;
+  const barW = Math.max(4, (w - padX * 2 - gap * 23) / 24);
+  const max = Math.max(1, ...hours.map(hour=>Number(hour.total || 0)));
+  const hoverIndex = Number.isFinite(opts.hoverIndex) ? Math.max(0, Math.min(23, opts.hoverIndex)) : null;
+  const typeOrder = Array.from(new Set([
+    ...WORK_TYPES,
+    ...hours.flatMap(hour=>Object.keys(hour.byType || {}))
+  ]));
+
+  ctx.save();
+  ctx.globalAlpha = .58;
+  ctx.strokeStyle = border;
+  ctx.lineWidth = 1;
+  for(let i=1;i<=3;i++){
+    const y = padY + ((baseY - padY) * i/4);
+    ctx.beginPath();
+    ctx.moveTo(padX, y);
+    ctx.lineTo(w - padX, y);
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  for(let i=0;i<24;i++){
+    const hour = hours[i] || { total:0, byType:{} };
+    const x = padX + i * (barW + gap);
+    let y = baseY;
+    for(const type of typeOrder){
+      const v = Number(hour.byType?.[type] || 0);
+      if(!v) continue;
+      const hPart = Math.max(2, (v / max) * (baseY - padY));
+      const col = colors[type]?.[0] || hexToRgba(themePalette().a, .58);
+      ctx.fillStyle = col;
+      const nextY = Math.max(padY, y - hPart);
+      const drawH = Math.max(1, y - nextY);
+      roundRect(ctx, x, nextY, barW, drawH + .5, Math.min(6, barW / 2));
+      ctx.fill();
+      y = nextY;
+      if(y <= padY) break;
+    }
+    if(!hour.total){
+      ctx.fillStyle = border;
+      roundRect(ctx, x, baseY - 2, barW, 2, 2);
+      ctx.fill();
+    }
+    if(i === hoverIndex){
+      ctx.save();
+      ctx.strokeStyle = text;
+      ctx.globalAlpha = .72;
+      ctx.lineWidth = 1.5;
+      roundRect(ctx, x - 1.5, padY, barW + 3, baseY - padY, Math.min(8, barW / 2 + 2));
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = getCssVar('--panel') || 'rgba(0,0,0,.78)';
+      ctx.strokeStyle = text;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(x + barW / 2, Math.max(padY + 5, y || baseY), 4.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  ctx.fillStyle = muted2;
+  ctx.font = '10px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial';
+  ctx.textAlign = 'center';
+  for(let i=0;i<24;i+=3){
+    const x = padX + i * (barW + gap) + barW / 2;
+    ctx.fillText(labels[i], x, h - 2);
+  }
+
+  canvas.__redraw = (hoverIndex = null)=>drawTodayHours(canvas, hours, colors, { hoverIndex });
+  return true;
+}
+
+function bindTodayTooltip(hours, colors){
+  if(!todayCanvas || !todayTooltip) return;
+  if(todayCanvas.dataset.todayTtBound !== '1'){
+    todayCanvas.dataset.todayTtBound = '1';
+    todayCanvas.addEventListener('mousemove', (evt)=>{
+      const rect = todayCanvas.getBoundingClientRect();
+      const x = evt.clientX - rect.left;
+      const idx = Math.max(0, Math.min(23, Math.floor((x / Math.max(1, rect.width)) * 24)));
+      if(typeof todayCanvas.__redraw === 'function') todayCanvas.__redraw(idx);
+      const hour = todayCanvas.__todayHours?.[idx] || { total:0, byType:{} };
+      if(!hour.total){
+        todayTooltip.style.display = 'none';
+        return;
+      }
+      const rows = Object.entries(hour.byType || {})
+        .map(([type, value])=>[type, Number(value || 0)])
+        .filter(([, value])=>value > 0)
+        .sort((a,b)=>b[1]-a[1]);
+      let inner = `<div class="tt-title">${pad2(idx)}:00–${pad2(idx + 1)}:00 · всего ${hour.total}</div>`;
+      for(const [type, value] of rows.slice(0, 8)){
+        const col = colors?.[type]?.[0] || 'rgba(56,189,248,0.9)';
+        inner += `<div class="tt-row"><div class="tt-name"><span class="tt-dot" style="border-color:${col};"></span>${labelForType(type)}</div><div class="tt-val">${value}</div></div>`;
+      }
+      if(rows.length > 8){
+        inner += `<div class="tt-row"><div class="tt-name" style="color:var(--muted);">ещё…</div><div class="tt-val" style="color:var(--muted);">+${rows.length - 8}</div></div>`;
+      }
+      todayTooltip.innerHTML = inner;
+      todayTooltip.style.display = 'block';
+    });
+    todayCanvas.addEventListener('mouseleave', ()=>{
+      todayTooltip.style.display = 'none';
+      if(typeof todayCanvas.__redraw === 'function') todayCanvas.__redraw(null);
+    });
+  }
+  todayCanvas.__todayHours = hours;
 }
 
 function bindWorkAllTooltip(labels, seriesMap, dayKeys, workDays){
@@ -727,6 +933,17 @@ function render(points){
 
   elToday.textContent = String(today);
   elTodayHint.textContent = `${pad2(now.getHours())}:${pad2(now.getMinutes())} · 00:00–23:59`;
+
+  const todayHours = buildTodayHourSeries(points?.workDays?.[todayKey]);
+  const todayColors = getWorkColors();
+  const okToday = drawTodayHours(todayCanvas, todayHours, todayColors);
+  try{ bindTodayTooltip(todayHours, todayColors); }catch(e){}
+  if(!okToday) { scheduleRetry(); return; }
+  if(todayLegend){
+    const activeHours = todayHours.filter(hour=>Number(hour.total || 0) > 0).length;
+    const totalActions = todayHours.reduce((sum, hour)=>sum + Number(hour.total || 0), 0);
+    todayLegend.textContent = activeHours ? `${activeHours} ч активности · ${totalActions} действий` : 'Нет действий по часам';
+  }
 
   if (!selectedWeekStartKey) selectedWeekStartKey = toDateKey(startOfWeekMonday(now));
   const w0 = dateFromKey(selectedWeekStartKey);

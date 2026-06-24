@@ -19,7 +19,7 @@
     </div>
     <div class="drag topbar__center"></div>
     <div class="topbar__right">
-      <button class="tbbtn tbbtnIcon tbbtnHome" id="btnHome" title="Домой: выбор O1 или MCC" aria-label="Домой">
+      <button class="tbbtn tbbtnIcon tbbtnHome" id="btnHome" title="Домой" aria-label="Домой">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 11.5 12 4l8.5 7.5"/><path d="M5.5 10.5V20h13v-9.5"/><path d="M9.5 20v-5h5v5"/></svg>
         <span class="srOnly">Домой</span>
       </button>
@@ -323,16 +323,24 @@
   </div>
 
   <div id="toast" class="toast"></div>
-  <button id="o1SyncLeft" class="btn sideSyncBtn hidden" type="button" title="Синхронизировать">С</button>
-  <button id="mccSyncLeft" class="btn sideSyncBtn hidden" type="button" title="Синхронизировать">С</button>
+  <button id="o1SyncLeft" class="btn sideSyncBtn hidden" type="button" title="Синхронизировать" aria-label="Синхронизировать">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 0 1-15.6 6.1"/><path d="M3 12A9 9 0 0 1 18.6 5.9"/><path d="M3 18v-5h5"/><path d="M21 6v5h-5"/></svg>
+  </button>
+  <button id="mccSyncLeft" class="btn sideSyncBtn hidden" type="button" title="Синхронизировать" aria-label="Синхронизировать">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 0 1-15.6 6.1"/><path d="M3 12A9 9 0 0 1 18.6 5.9"/><path d="M3 18v-5h5"/><path d="M21 6v5h-5"/></svg>
+  </button>
   <div id="o1TopCluster" class="o1TopCluster">
     <button id="o1ToTop" class="btn o1TopBtn" type="button" title="В начало">↑</button>
   </div>
   <div id="mccBottomBar" class="mccBottomBar">
     <div id="mccTopCluster" class="mccTopCluster">
       <button id="mccToTop" class="btn mccTopBtn" type="button" title="В начало">↑</button>
-      <button id="mccToVerification" class="btn mccTopBtn" type="button" title="К Верификациям">В</button>
-      <button id="mccToRechek" class="btn mccTopBtn" type="button" title="К Речекам">Р</button>
+      <button id="mccToVerification" class="btn mccTopBtn" type="button" title="К Верификациям" aria-label="К Верификациям">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v5h5"/><path d="M9 13h6"/><path d="M9 17h4"/></svg>
+      </button>
+      <button id="mccToRechek" class="btn mccTopBtn" type="button" title="К Речекам" aria-label="К Речекам">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v18"/><path d="M17 7.5c-.8-1.4-2.4-2-5-2-3 0-5 1.2-5 3.3 0 4.6 10 2 10 6.8 0 2.2-2 3.4-5 3.4-2.7 0-4.5-.8-5.3-2.4"/></svg>
+      </button>
     </div>
   </div>
   </main>

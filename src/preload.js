@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld('sproutg', {
   reloadWeb: () => ipcRenderer.invoke('sproutg:reload-web'),
   windowControl: (action) => ipcRenderer.send('sproutg:window-control', action),
   getUpdateState: () => ipcRenderer.invoke('sproutg:get-update-state'),
+  getPoints: () => ipcRenderer.invoke('sproutg:get-points'),
   checkForUpdates: () => ipcRenderer.invoke('sproutg:check-for-updates'),
   downloadUpdate: () => ipcRenderer.invoke('sproutg:download-update'),
   installUpdate: () => ipcRenderer.invoke('sproutg:install-update'),
@@ -22,5 +23,7 @@ contextBridge.exposeInMainWorld('sproutg', {
   onNotice: (cb) => ipcRenderer.on('sproutg:notice', (_e, payload) => cb(payload)),
   onBridgeState: (cb) => ipcRenderer.on('sproutg:bridge-state', (_e, payload) => cb(payload)),
   onThemeColors: (cb) => ipcRenderer.on('sproutg:theme-colors', (_e, payload) => cb(payload)),
+  onPointsUpdated: (cb) => ipcRenderer.on('sproutg:points-updated', (_e, payload) => cb(payload)),
+  onPointsDelta: (cb) => ipcRenderer.on('sproutg:points-delta', (_e, payload) => cb(payload)),
   onApplySettings: (cb) => ipcRenderer.on('sproutg:apply-settings', (_e, settings) => cb(settings))
 });

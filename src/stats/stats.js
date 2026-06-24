@@ -29,6 +29,15 @@ const workOneTitle = $('workOneTitle');
 const workTabs = $('workTabs');
 const monthSelect = $('monthSelect');
 const monthTabs = $('monthTabs');
+const periodButton = $('periodButton');
+const monthPicker = $('monthPicker');
+const monthPickerMonth = $('monthPickerMonth');
+const monthPickerYear = $('monthPickerYear');
+const monthPickerApply = $('monthPickerApply');
+const todayPrevBtn = $('todayPrevBtn');
+const todayNextBtn = $('todayNextBtn');
+const todayChartTitle = $('todayChartTitle');
+const statsCloseBtn = $('statsCloseBtn');
 const weekPrevBtn = $('weekPrevBtn');
 const weekNextBtn = $('weekNextBtn');
 const monthPrevBtn = $('monthPrevBtn');
@@ -40,6 +49,9 @@ let __lastPoints = null;
 let closing = false;
 let __retryTimer = null;
 let __retryCount = 0;
+const STATS_MONTH_KEY = 'sproutg.stats.selectedMonth';
+const STATS_DAY_KEY = 'sproutg.stats.selectedDay';
+const MONTHS_RU = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
 function scheduleRetry(){
   if (__retryTimer) return;
   if (__retryCount > 12) return; // ~1s max
@@ -80,6 +92,29 @@ function formatDateRange(start, end){
   return `${toDateKey(start).split('-').reverse().join('.')} — ${toDateKey(end).split('-').reverse().join('.')}`;
 }
 function isSameDateKey(a, b){ return toDateKey(a) === toDateKey(b); }
+function persistStatsSelection(){
+  try {
+    if(selectedMonthKey) localStorage.setItem(STATS_MONTH_KEY, selectedMonthKey);
+    if(selectedDayKey) localStorage.setItem(STATS_DAY_KEY, selectedDayKey);
+  } catch(e) {}
+}
+
+function dayLabel(dayKey){
+  const now = new Date();
+  const today = toDateKey(now);
+  const yesterday = toDateKey(addDays(now, -1));
+  if(dayKey === today) return 'Сегодня';
+  if(dayKey === yesterday) return 'Вчера';
+  return String(dayKey || '').split('-').reverse().join('.');
+}
+
+function clampSelectedDay(){
+  const today = toDateKey(new Date());
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(String(selectedDayKey || '')) || selectedDayKey > today){
+    selectedDayKey = today;
+  }
+  persistStatsSelection();
+}
 
 function getCssVar(name){ return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
 
@@ -383,10 +418,59 @@ function prepareClose(){
   document.body.classList.add('sgClosing');
 }
 
+statsCloseBtn?.addEventListener('click', () => {
+  prepareClose();
+  window.sproutgStats.closeWindow?.().catch?.(()=>{});
+});
+
+function bindHorizontalWheel(el){
+  if(!el || el.dataset.wheelTabsBound === '1') return;
+  el.dataset.wheelTabsBound = '1';
+  el.addEventListener('wheel', (event)=>{
+    const delta = Math.abs(event.deltaY) >= Math.abs(event.deltaX) ? event.deltaY : event.deltaX;
+    if(!delta) return;
+    event.preventDefault();
+    el.scrollBy({ left: delta, behavior:'smooth' });
+  }, { passive:false });
+}
+
+function setupElasticBounce(container, target){
+  if(!container || container.dataset.elasticBound === '1') return;
+  container.dataset.elasticBound = '1';
+  const moving = target || container;
+  let offset = 0;
+  let timer = null;
+  const settle = ()=>{
+    clearTimeout(timer);
+    timer = setTimeout(()=>{
+      offset = 0;
+      moving.style.transition = 'transform .46s cubic-bezier(.18,.9,.22,1.18)';
+      moving.style.transform = 'translateY(0)';
+      setTimeout(()=>{ moving.style.transition = ''; }, 480);
+    }, 28);
+  };
+  container.addEventListener('wheel', (event)=>{
+    const maxScroll = Math.max(0, container.scrollHeight - container.clientHeight);
+    const atTop = container.scrollTop <= 0;
+    const atBottom = container.scrollTop >= maxScroll - 1;
+    const shouldElastic = maxScroll <= 0 || (event.deltaY < 0 && atTop) || (event.deltaY > 0 && atBottom);
+    if(!shouldElastic) return;
+    event.preventDefault();
+    const maxOffset = 76;
+    const resistance = 1 - Math.min(.72, Math.abs(offset) / (maxOffset * 1.25));
+    offset += -event.deltaY * .22 * resistance;
+    offset = Math.max(-maxOffset, Math.min(maxOffset, offset));
+    moving.style.transition = 'none';
+    moving.style.transform = `translateY(${offset}px)`;
+    settle();
+  }, { passive:false });
+}
+
 let currentWorkRange = 'week';
 let currentWorkType = WORK_TYPES[0];
-let selectedMonthKey = '';
+let selectedMonthKey = (() => { try { return localStorage.getItem(STATS_MONTH_KEY) || ''; } catch(e) { return ''; } })();
 let selectedWeekStartKey = '';
+let selectedDayKey = (() => { try { return localStorage.getItem(STATS_DAY_KEY) || ''; } catch(e) { return ''; } })();
 
 function setActive(el, cls){
   for (const b of el.parentElement.querySelectorAll('.'+cls)) b.classList.remove('is-active');
@@ -452,18 +536,87 @@ function updatePeriodControls(){
 
   const currentMonthKey = monthKeyFromDate(now);
   if(!selectedMonthKey) selectedMonthKey = currentMonthKey;
+  if(periodButton) periodButton.textContent = selectedMonthKey === currentMonthKey ? 'Текущий месяц' : monthLabel(selectedMonthKey);
   if(monthTitle) {
     monthTitle.textContent = selectedMonthKey === currentMonthKey ? 'Текущий месяц' : monthLabel(selectedMonthKey);
   }
   if(monthNextBtn) monthNextBtn.disabled = selectedMonthKey >= currentMonthKey;
+
+  clampSelectedDay();
+  if(todayChartTitle) todayChartTitle.textContent = dayLabel(selectedDayKey);
+  if(todayNextBtn) todayNextBtn.disabled = selectedDayKey >= toDateKey(new Date());
 }
 
 function bindPeriodNavigation(){
+  if(todayPrevBtn && todayPrevBtn.dataset.bound !== '1'){
+    todayPrevBtn.dataset.bound = '1';
+    todayPrevBtn.addEventListener('click', () => {
+      clampSelectedDay();
+      selectedDayKey = toDateKey(addDays(dateFromKey(selectedDayKey), -1));
+      persistStatsSelection();
+      const wrap = todayCanvas?.closest('.chartwrap');
+      if(wrap){
+        wrap.classList.remove('period-left', 'period-right');
+        void wrap.offsetWidth;
+        wrap.classList.add('period-right');
+        setTimeout(() => wrap.classList.remove('period-left', 'period-right'), 260);
+      }
+      if(window.__lastStatsData) render(window.__lastStatsData);
+    });
+  }
+  if(todayNextBtn && todayNextBtn.dataset.bound !== '1'){
+    todayNextBtn.dataset.bound = '1';
+    todayNextBtn.addEventListener('click', () => {
+      clampSelectedDay();
+      const today = toDateKey(new Date());
+      const next = toDateKey(addDays(dateFromKey(selectedDayKey), 1));
+      if(next > today) return;
+      selectedDayKey = next;
+      persistStatsSelection();
+      const wrap = todayCanvas?.closest('.chartwrap');
+      if(wrap){
+        wrap.classList.remove('period-left', 'period-right');
+        void wrap.offsetWidth;
+        wrap.classList.add('period-left');
+        setTimeout(() => wrap.classList.remove('period-left', 'period-right'), 260);
+      }
+      if(window.__lastStatsData) render(window.__lastStatsData);
+    });
+  }
+  if(periodButton && periodButton.dataset.bound !== '1'){
+    periodButton.dataset.bound = '1';
+    periodButton.addEventListener('click', () => {
+      setupMonthPickerUi();
+      if(monthPicker) monthPicker.hidden = !monthPicker.hidden;
+    });
+  }
+  if(monthPickerApply && monthPickerApply.dataset.bound !== '1'){
+    monthPickerApply.dataset.bound = '1';
+    monthPickerApply.addEventListener('click', () => {
+      const m0 = Math.max(0, Math.min(11, Number(monthPickerMonth?.value || 0)));
+      const year = Math.max(2020, Math.min(2100, Number(monthPickerYear?.value || new Date().getFullYear())));
+      selectedMonthKey = monthKeyFromDate(new Date(year, m0, 1));
+      persistStatsSelection();
+      if(monthSelect) monthSelect.value = selectedMonthKey;
+      if(monthPicker) monthPicker.hidden = true;
+      animatePeriod('month', 1);
+      if(window.__lastStatsData) render(window.__lastStatsData);
+    });
+  }
+  if(monthPicker && monthPicker.dataset.outsideBound !== '1'){
+    monthPicker.dataset.outsideBound = '1';
+    document.addEventListener('pointerdown', (event)=>{
+      if(monthPicker.hidden) return;
+      if(monthPicker.contains(event.target) || periodButton?.contains(event.target)) return;
+      monthPicker.hidden = true;
+    });
+  }
   if(weekPrevBtn && weekPrevBtn.dataset.bound !== '1'){
     weekPrevBtn.dataset.bound = '1';
     weekPrevBtn.addEventListener('click', () => {
       const base = selectedWeekStartKey ? dateFromKey(selectedWeekStartKey) : startOfWeekMonday(new Date());
       selectedWeekStartKey = toDateKey(addDays(base, -7));
+      persistStatsSelection();
       animatePeriod('week', -1);
       if(window.__lastStatsData) render(window.__lastStatsData);
     });
@@ -476,6 +629,7 @@ function bindPeriodNavigation(){
       const next = toDateKey(addDays(base, 7));
       if(next > nowWeek) return;
       selectedWeekStartKey = next;
+      persistStatsSelection();
       animatePeriod('week', 1);
       if(window.__lastStatsData) render(window.__lastStatsData);
     });
@@ -484,6 +638,7 @@ function bindPeriodNavigation(){
     monthPrevBtn.dataset.bound = '1';
     monthPrevBtn.addEventListener('click', () => {
       selectedMonthKey = addMonthsToKey(selectedMonthKey || monthKeyFromDate(new Date()), -1);
+      persistStatsSelection();
       if(monthSelect) monthSelect.value = selectedMonthKey;
       animatePeriod('month', -1);
       if(window.__lastStatsData) render(window.__lastStatsData);
@@ -496,11 +651,29 @@ function bindPeriodNavigation(){
       const next = addMonthsToKey(selectedMonthKey || nowKey, 1);
       if(next > nowKey) return;
       selectedMonthKey = next;
+      persistStatsSelection();
       if(monthSelect) monthSelect.value = selectedMonthKey;
       animatePeriod('month', 1);
       if(window.__lastStatsData) render(window.__lastStatsData);
     });
   }
+}
+
+function setupMonthPickerUi(){
+  if(!monthPickerMonth || !monthPickerYear) return;
+  if(monthPickerMonth.dataset.ready !== '1'){
+    monthPickerMonth.dataset.ready = '1';
+    monthPickerMonth.innerHTML = '';
+    MONTHS_RU.forEach((name, index)=>{
+      const opt = document.createElement('option');
+      opt.value = String(index);
+      opt.textContent = name;
+      monthPickerMonth.appendChild(opt);
+    });
+  }
+  const [y, m] = String(selectedMonthKey || monthKeyFromDate(new Date())).split('-').map(Number);
+  monthPickerMonth.value = String(Math.max(0, (m || 1) - 1));
+  monthPickerYear.value = String(y || new Date().getFullYear());
 }
 
 
@@ -934,7 +1107,9 @@ function render(points){
   elToday.textContent = String(today);
   elTodayHint.textContent = `${pad2(now.getHours())}:${pad2(now.getMinutes())} · 00:00–23:59`;
 
-  const todayHours = buildTodayHourSeries(points?.workDays?.[todayKey]);
+  clampSelectedDay();
+  const chartDayKey = selectedDayKey || todayKey;
+  const todayHours = buildTodayHourSeries(points?.workDays?.[chartDayKey]);
   const todayColors = getWorkColors();
   const okToday = drawTodayHours(todayCanvas, todayHours, todayColors);
   try{ bindTodayTooltip(todayHours, todayColors); }catch(e){}
@@ -942,7 +1117,7 @@ function render(points){
   if(todayLegend){
     const activeHours = todayHours.filter(hour=>Number(hour.total || 0) > 0).length;
     const totalActions = todayHours.reduce((sum, hour)=>sum + Number(hour.total || 0), 0);
-    todayLegend.textContent = activeHours ? `${activeHours} ч активности · ${totalActions} действий` : 'Нет действий по часам';
+    todayLegend.textContent = activeHours ? `${dayLabel(chartDayKey)} · ${activeHours} ч активности · ${totalActions} действий` : `${dayLabel(chartDayKey)} · нет действий по часам`;
   }
 
   if (!selectedWeekStartKey) selectedWeekStartKey = toDateKey(startOfWeekMonday(now));
@@ -1026,7 +1201,7 @@ for (const [k,obj] of Object.entries(days || {})){
 function setTheme(theme){
   const aliases = { dark:'dark-classic', light:'light-classic', 'midnight-pro':'dark-midnight-pro', forest:'dark-forest', 'cyberpunk-neon':'cyberpunk' };
   const next = aliases[theme] || theme || 'dark-classic';
-  const allowed = new Set(['dark-classic', 'light-classic', 'dark-ios', 'light-ios', 'dark-oldmoney', 'light-oldmoney', 'dark-midnight-pro', 'light-midnight-pro', 'dark-forest', 'light-forest', 'cyberpunk', 'nordic-frost', 'coffee-sepia', 'retro-terminal', 'synthwave', 'vaporwave', 'dark-academia', 'light-academia', 'art-deco', 'bauhaus']);
+  const allowed = new Set(['dark-classic', 'light-classic', 'dark-ios', 'light-ios', 'dark-oldmoney', 'light-oldmoney', 'dark-midnight-pro', 'light-midnight-pro', 'dark-forest', 'light-forest', 'cyberpunk', 'nordic-frost', 'coffee-sepia', 'retro-terminal', 'synthwave', 'vaporwave', 'dark-academia', 'light-academia', 'art-deco', 'bauhaus', 'graphite-pro', 'obsidian', 'slate-blue', 'platinum-light', 'notion-clean', 'linear-dark', 'royal-navy', 'emerald-gold', 'burgundy-club', 'caviar', 'paper-white', 'milk-glass', 'deep-space', 'tokyo-night', 'aurora', 'rainy-day', 'terracotta', 'blueprint', 'swiss', 'executive', 'banking-green', 'marble', 'typewriter', 'amber-terminal', 'mountain']);
   document.documentElement.setAttribute('data-theme', allowed.has(next) ? next : 'dark-classic');
   if (__lastPoints) render(__lastPoints);
 }
@@ -1063,10 +1238,12 @@ function ensureMonthSelect(days){
     }
     monthSelect.value = keys.has(currentValue) ? currentValue : selectedMonthKey;
     selectedMonthKey = monthSelect.value;
+    persistStatsSelection();
     if(monthSelect.dataset.bound !== '1'){
       monthSelect.dataset.bound = '1';
       monthSelect.addEventListener('change', ()=>{
         selectedMonthKey = monthSelect.value || nowKey;
+        persistStatsSelection();
         renderMonthTabs(sorted);
         if(window.__lastStatsData) render(window.__lastStatsData);
       });
@@ -1090,6 +1267,7 @@ function renderMonthTabs(sortedKeys){
     btn.addEventListener('click', ()=>{
       if(selectedMonthKey === key) return;
       selectedMonthKey = key;
+      persistStatsSelection();
       if(monthSelect) monthSelect.value = key;
       renderMonthTabs(keys);
       if(window.__lastStatsData) render(window.__lastStatsData);
@@ -1117,6 +1295,9 @@ function hexToRgba(hex, alpha){
 window.sproutgStats.onApplySettings((s) => { if (s?.theme) setTheme(s.theme); });
 window.sproutgStats.onPointsUpdated((data) => render(data));
 window.sproutgStats.onPrepareClose(prepareClose);
+bindHorizontalWheel(monthTabs);
+bindHorizontalWheel(workChips);
+setupElasticBounce(document.querySelector('.card'));
 
 (async () => {
   const s = await window.sproutgStats.getSettings();

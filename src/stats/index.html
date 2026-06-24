@@ -5,16 +5,23 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self';">
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Статистика</title>
+  <link rel="stylesheet" href="../shared/themes-v213.css" />
   <link rel="stylesheet" href="./stats.css" />
 </head>
 <body>
   <div class="card">
     <div class="dragbar" title="Перетащи окно мышью"></div>
+    <button class="windowClose" id="statsCloseBtn" type="button" aria-label="Закрыть">×</button>
     <div class="header">
       <div class="title">Статистика</div>
-      <div class="subtitle">Поинты считаются локально. Сброс — только при “Выйти из Google”.</div>
+      <button class="periodButton" id="periodButton" type="button">Текущий месяц</button>
     </div>
     <div class="monthbar">
+      <div class="monthPicker" id="monthPicker" hidden>
+        <select id="monthPickerMonth" aria-label="Месяц"></select>
+        <input id="monthPickerYear" type="number" min="2020" max="2100" step="1" aria-label="Год" />
+        <button class="pickerApply" id="monthPickerApply" type="button">Готово</button>
+      </div>
       <div class="monthTabs" id="monthTabs" role="tablist" aria-label="Месяцы статистики"></div>
       <select id="monthSelect" aria-label="Месяц статистики"></select>
     </div>
@@ -46,7 +53,11 @@
     </div>
 
     <div class="section">
-      <div class="section__title">Сегодня</div>
+      <div class="sectionHead">
+        <button class="periodNav" id="todayPrevBtn" type="button" aria-label="Предыдущий день">‹</button>
+        <div class="section__title" id="todayChartTitle">Сегодня</div>
+        <button class="periodNav" id="todayNextBtn" type="button" aria-label="Следующий день">›</button>
+      </div>
       <div class="chartwrap chartwrapToday">
         <canvas id="todayChart" height="118"></canvas>
         <div class="tooltip" id="todayTooltip" style="display:none;"></div>

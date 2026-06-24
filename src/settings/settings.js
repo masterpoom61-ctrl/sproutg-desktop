@@ -20,7 +20,32 @@ const THEMES = {
   'dark-academia': 'Dark Academia',
   'light-academia': 'Light Academia',
   'art-deco': 'Art Deco',
-  bauhaus: 'Bauhaus'
+  bauhaus: 'Bauhaus',
+  'graphite-pro': 'Graphite Pro',
+  obsidian: 'Obsidian',
+  'slate-blue': 'Slate Blue',
+  'platinum-light': 'Platinum Light',
+  'notion-clean': 'Notion Clean',
+  'linear-dark': 'Linear Dark',
+  'royal-navy': 'Royal Navy',
+  'emerald-gold': 'Emerald Gold',
+  'burgundy-club': 'Burgundy Club',
+  caviar: 'Caviar',
+  'paper-white': 'Paper White',
+  'milk-glass': 'Milk Glass',
+  'deep-space': 'Deep Space',
+  'tokyo-night': 'Tokyo Night',
+  aurora: 'Aurora',
+  'rainy-day': 'Rainy Day',
+  terracotta: 'Terracotta',
+  blueprint: 'Blueprint',
+  swiss: 'Swiss',
+  executive: 'Executive',
+  'banking-green': 'Banking Green',
+  marble: 'Marble',
+  typewriter: 'Typewriter',
+  'amber-terminal': 'Amber Terminal',
+  mountain: 'Mountain'
 };
 const THEME_ALIASES = { dark: 'dark-classic', light: 'light-classic', 'midnight-pro': 'dark-midnight-pro', forest: 'dark-forest', 'cyberpunk-neon': 'cyberpunk' };
 
@@ -47,6 +72,7 @@ const btnSaveSmsPoolKey = $('btnSaveSmsPoolKey');
 const smsPoolStatus = $('smsPoolStatus');
 const techDesktopVersion = $('techDesktopVersion');
 const techWebVersion = $('techWebVersion');
+const settingsCloseBtn = $('settingsCloseBtn');
 
 let current = { theme: 'dark-classic', zoom: 1.0, alwaysOnTop: false };
 let closing = false;
@@ -135,6 +161,38 @@ function renderUpdateState(state = {}) {
 function closeSettingsSoon() {
   prepareClose();
   window.setTimeout(() => window.sproutgSettings.closeWindow().catch(() => {}), 0);
+}
+
+function setupElasticBounce(container, target){
+  if(!container || container.dataset.elasticBound === '1') return;
+  container.dataset.elasticBound = '1';
+  const moving = target || container;
+  let offset = 0;
+  let timer = null;
+  const settle = ()=>{
+    clearTimeout(timer);
+    timer = setTimeout(()=>{
+      offset = 0;
+      moving.style.transition = 'transform .46s cubic-bezier(.18,.9,.22,1.18)';
+      moving.style.transform = 'translateY(0)';
+      setTimeout(()=>{ moving.style.transition = ''; }, 480);
+    }, 28);
+  };
+  container.addEventListener('wheel', (event)=>{
+    const maxScroll = Math.max(0, container.scrollHeight - container.clientHeight);
+    const atTop = container.scrollTop <= 0;
+    const atBottom = container.scrollTop >= maxScroll - 1;
+    const shouldElastic = maxScroll <= 0 || (event.deltaY < 0 && atTop) || (event.deltaY > 0 && atBottom);
+    if(!shouldElastic) return;
+    event.preventDefault();
+    const maxOffset = 76;
+    const resistance = 1 - Math.min(.72, Math.abs(offset) / (maxOffset * 1.25));
+    offset += -event.deltaY * .22 * resistance;
+    offset = Math.max(-maxOffset, Math.min(maxOffset, offset));
+    moving.style.transition = 'none';
+    moving.style.transform = `translateY(${offset}px)`;
+    settle();
+  }, { passive:false });
 }
 
 async function refresh() {
@@ -245,6 +303,8 @@ btnInstallUpdate.addEventListener('click', async () => {
   finally { btnInstallUpdate.disabled = false; }
 });
 
+settingsCloseBtn?.addEventListener('click', closeSettingsSoon);
+
 window.sproutgSettings.onApplySettings((s) => {
   if (!s) return;
   current = s;
@@ -266,4 +326,5 @@ document.addEventListener('keydown', (event) => {
 });
 
 refresh();
+setupElasticBounce(document.getElementById('scrollableContent') || settingsCard, settingsCard);
 

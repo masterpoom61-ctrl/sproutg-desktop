@@ -560,7 +560,7 @@ html,body{height:100%;overflow:hidden;}
       overflow:hidden;
       max-height:3600px;
       opacity:1;
-      transition:max-height .24s cubic-bezier(.22,1,.36,1), opacity .18s ease, margin-top .24s ease;
+      transition:max-height .42s cubic-bezier(.22,1,.36,1), opacity .28s ease, margin-top .42s ease;
     }
     .panelCollapsed .panelBody{
       display:block;
@@ -645,7 +645,7 @@ html,body{height:100%;overflow:hidden;}
     }
     .listItem:hover{background:rgba(255,255,255,.10);}
     .listItem.active{outline:2px solid rgba(255,255,255,.18);}
-    :root{--sg-ease:cubic-bezier(.22,1,.36,1);--sg-fast:120ms;--sg-normal:220ms;}
+    :root{--sg-ease:cubic-bezier(.22,1,.36,1);--sg-fast:180ms;--sg-normal:420ms;}
     .card,.panel,.listItem{
       transition:transform var(--sg-normal) var(--sg-ease),box-shadow var(--sg-normal) var(--sg-ease),border-color var(--sg-normal) var(--sg-ease),background-color var(--sg-normal) var(--sg-ease);
     }
@@ -666,8 +666,10 @@ html,body{height:100%;overflow:hidden;}
     #out .card,
     #mccProfileShell .card,
     #mccProfileShell .mccVerificationBlock{
-      animation:sgSectionIn .18s var(--sg-ease) both;
+      animation:sgSectionIn .48s var(--sg-ease) both;
     }
+    #mccProfileShell .card,
+    #mccProfileShell .mccVerificationBlock{animation-duration:1s;}
     .sgFadeIn{animation:sgFadeIn var(--sg-normal) var(--sg-ease) both;}
     .sgSavePulse{animation:sgSavePulse 520ms var(--sg-ease) both;}
     .sgSaving{position:relative;overflow:hidden;}
@@ -1191,6 +1193,60 @@ html,body{height:100%;overflow:hidden;}
     }
     .sideSyncBtn.hidden{display:none;}
     .sideSyncBtn:disabled{opacity:.45;cursor:not-allowed;}
+    .pointsHud{
+      position:fixed;
+      left:12px;
+      bottom:58px;
+      z-index:10001;
+      width:38px;
+      min-height:38px;
+      display:flex;
+      flex-direction:column;
+      align-items:center;
+      justify-content:flex-end;
+      gap:3px;
+      pointer-events:none;
+      color:var(--text);
+      text-align:center;
+    }
+    .pointsHud.hidden{display:none;}
+    .pointsFly{
+      min-height:18px;
+      padding:2px 6px;
+      border:1px solid var(--g-br);
+      border-radius:999px;
+      background:var(--g-bg);
+      color:var(--g-tx);
+      font-size:12px;
+      font-weight:1000;
+      line-height:1;
+      opacity:0;
+      transform:translateY(8px) scale(.86);
+      backdrop-filter:blur(12px) saturate(1.14);
+      box-shadow:0 8px 24px rgba(0,0,0,.18);
+    }
+    .pointsFly.show{
+      animation:pointsPop .92s cubic-bezier(.2,.9,.2,1) both;
+    }
+    .pointsToday{
+      min-width:38px;
+      padding:2px 4px;
+      border-radius:999px;
+      color:var(--muted);
+      font-size:9px;
+      font-weight:900;
+      line-height:1.1;
+      background:color-mix(in srgb, var(--surface) 70%, transparent);
+      border:1px solid var(--line);
+      backdrop-filter:blur(12px);
+    }
+    @keyframes pointsPop{
+      0%{opacity:0;transform:translateY(8px) scale(.82) rotate(-4deg);}
+      18%{opacity:.92;transform:translateY(-8px) scale(1.08) rotate(3deg);}
+      34%{transform:translateY(-14px) scale(.98) rotate(-2deg);}
+      54%{transform:translateY(-20px) scale(1.02) rotate(1deg);}
+      100%{opacity:0;transform:translateY(-34px) scale(.92) rotate(0);}
+    }
 
     .workFilterRow{
       display:flex;

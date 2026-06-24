@@ -1,12 +1,13 @@
 const $ = (id) => document.getElementById(id);
 
-const THEMES = new Set(['dark-classic', 'light-classic', 'dark-ios', 'light-ios', 'dark-oldmoney', 'light-oldmoney', 'dark-midnight-pro', 'light-midnight-pro', 'dark-forest', 'light-forest', 'cyberpunk', 'nordic-frost', 'coffee-sepia', 'retro-terminal', 'synthwave', 'vaporwave', 'dark-academia', 'light-academia', 'art-deco', 'bauhaus']);
+const THEMES = new Set(['dark-classic', 'light-classic', 'dark-ios', 'light-ios', 'dark-oldmoney', 'light-oldmoney', 'dark-midnight-pro', 'light-midnight-pro', 'dark-forest', 'light-forest', 'cyberpunk', 'nordic-frost', 'coffee-sepia', 'retro-terminal', 'synthwave', 'vaporwave', 'dark-academia', 'light-academia', 'art-deco', 'bauhaus', 'graphite-pro', 'obsidian', 'slate-blue', 'platinum-light', 'notion-clean', 'linear-dark', 'royal-navy', 'emerald-gold', 'burgundy-club', 'caviar', 'paper-white', 'milk-glass', 'deep-space', 'tokyo-night', 'aurora', 'rainy-day', 'terracotta', 'blueprint', 'swiss', 'executive', 'banking-green', 'marble', 'typewriter', 'amber-terminal', 'mountain']);
 const THEME_ALIASES = { dark: 'dark-classic', light: 'light-classic', 'midnight-pro': 'dark-midnight-pro', forest: 'dark-forest', 'cyberpunk-neon': 'cyberpunk' };
 
 const card = $('companyCard');
 const grid = $('companyFormGrid');
 const submitBtn = $('companySubmitBtn');
 const errEl = $('companyErr');
+const closeBtn = $('companyCloseBtn');
 const COMPANY_LABELS = ['Компания', 'Адресс', 'Индекс', 'Город', 'EE', 'DUNS'];
 
 let duplicateTimer = null;
@@ -165,6 +166,10 @@ async function submitCompany() {
 }
 
 submitBtn.addEventListener('click', submitCompany);
+closeBtn?.addEventListener('click', () => {
+  prepareClose();
+  window.sproutgCompany.closeWindow().catch(() => {});
+});
 
 window.sproutgCompany.onApplySettings((settings) => {
   if (settings?.theme) setTheme(settings.theme);

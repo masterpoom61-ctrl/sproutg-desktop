@@ -181,7 +181,32 @@ const THEME_ALIASES = {
   'dark-academia': 'dark-academia',
   'light-academia': 'light-academia',
   'art-deco': 'art-deco',
-  bauhaus: 'bauhaus'
+  bauhaus: 'bauhaus',
+  'graphite-pro': 'graphite-pro',
+  obsidian: 'obsidian',
+  'slate-blue': 'slate-blue',
+  'platinum-light': 'platinum-light',
+  'notion-clean': 'notion-clean',
+  'linear-dark': 'linear-dark',
+  'royal-navy': 'royal-navy',
+  'emerald-gold': 'emerald-gold',
+  'burgundy-club': 'burgundy-club',
+  caviar: 'caviar',
+  'paper-white': 'paper-white',
+  'milk-glass': 'milk-glass',
+  'deep-space': 'deep-space',
+  'tokyo-night': 'tokyo-night',
+  aurora: 'aurora',
+  'rainy-day': 'rainy-day',
+  terracotta: 'terracotta',
+  blueprint: 'blueprint',
+  swiss: 'swiss',
+  executive: 'executive',
+  'banking-green': 'banking-green',
+  marble: 'marble',
+  typewriter: 'typewriter',
+  'amber-terminal': 'amber-terminal',
+  mountain: 'mountain'
 };
 
 function normalizeTheme(theme){
@@ -607,6 +632,15 @@ function addPoints(payload){
   if (statsWindow && !statsWindow.isDestroyed()) {
     statsWindow.webContents.send('sproutg:points-updated', points);
   }
+  safeSend(mainWindow, 'sproutg:points-updated', points);
+  safeSend(mainWindow, 'sproutg:points-delta', {
+    delta: Number(res.deltaPoints || 0),
+    clicks: Number(res.deltaClicks || 0),
+    type: res.newScore?.type || payload?.key || 'custom',
+    dayKey: k,
+    todayTotal: Number(days[k]?.total || 0),
+    ts: Number(payload?.ts) || Date.now()
+  });
   return points;
 }
 
@@ -701,7 +735,7 @@ function safeSend(win, channel, payload){
   }
 }
 
-function closeWindowAnimated(win, delayMs = 150){
+function closeWindowAnimated(win, delayMs = 420){
   if (!win || win.isDestroyed()) return false;
   try {
     if (win.__sproutgClosing) return true;
@@ -1203,6 +1237,7 @@ ipcMain.handle('sproutg:zoom', (_e, dir) => zoom(dir));
 ipcMain.handle('sproutg:toggle-aot', () => toggleAOT());
 ipcMain.handle('sproutg:reload-web', () => { reloadWeb(); return true; });
 ipcMain.handle('sproutg:close-settings-window', () => closeSettingsWindow());
+ipcMain.handle('sproutg:close-stats-window', () => closeStatsWindow());
 ipcMain.handle('sproutg:close-company-window', () => closeCompanyWindow());
 
 ipcMain.handle('sproutg:clear-cache', async () => {

@@ -207,6 +207,7 @@ input,textarea,select{user-select:text;}
 .card{
   width:100vw;
   height:100vh;
+  position:relative;
   background:
     linear-gradient(135deg, var(--glassTop), var(--glassFog)),
     var(--panel);
@@ -218,18 +219,94 @@ input,textarea,select{user-select:text;}
   padding:12px;
   overflow-x:hidden;
   overflow-y:auto;
-  animation:windowIn .18s cubic-bezier(.2,.9,.2,1) both;
+  animation:windowIn .46s cubic-bezier(.2,.9,.2,1) both;
 }
-body.sgClosing .card{animation:windowOut .14s ease-in both;pointer-events:none;}
+body.sgClosing .card{animation:windowOut .38s ease-in both;pointer-events:none;}
 @keyframes windowIn{from{opacity:0;transform:translateY(-8px) scale(.965);}to{opacity:1;transform:translateY(0) scale(1);}}
 @keyframes windowOut{from{opacity:1;transform:translateY(0) scale(1);}to{opacity:0;transform:translateY(-8px) scale(.965);}}
-.header{margin-bottom:10px;}
-.title{font-weight:900;font-size:14px;}
-.subtitle{margin-top:6px;font-size:11px;color:var(--muted);line-height:1.35;}
-.monthbar{margin:-2px 0 10px;overflow:hidden;}
-.monthbar select{display:none;}
-.monthTabs{
+.windowClose{
+  position:absolute;
+  top:10px;
+  right:10px;
+  z-index:5;
+  width:28px;
+  height:28px;
+  border:1px solid var(--tooltipBorder);
+  border-radius:999px;
+  background:var(--panel2);
+  color:var(--text);
+  cursor:pointer;
+  font-size:18px;
+  line-height:1;
+}
+.windowClose:hover{background:var(--panel);}
+.header{
+  margin-bottom:10px;
+  padding-right:34px;
   display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+}
+.title{font-weight:900;font-size:14px;}
+.periodButton{
+  border:1px solid var(--tooltipBorder);
+  background:var(--panel2);
+  color:var(--text);
+  border-radius:999px;
+  padding:7px 11px;
+  font-size:11px;
+  font-weight:900;
+  cursor:pointer;
+  max-width:260px;
+  white-space:nowrap;
+}
+.periodButton:hover{background:var(--panel);}
+.monthbar{position:relative;margin:-2px 0 10px;overflow:visible;min-height:0;}
+.monthbar select{display:none;}
+.monthPicker{
+  position:absolute;
+  top:-2px;
+  right:0;
+  z-index:10;
+  display:grid;
+  grid-template-columns:minmax(110px,1fr) 76px auto;
+  gap:8px;
+  align-items:center;
+  width:min(360px, calc(100vw - 24px));
+  padding:8px;
+  border:1px solid var(--tooltipBorder);
+  border-radius:14px;
+  background:var(--tooltipBg);
+  box-shadow:var(--tooltipShadow);
+  backdrop-filter:blur(18px) saturate(1.18);
+}
+.monthPicker[hidden]{display:none;}
+.monthPicker select,
+.monthPicker input{
+  display:block;
+  width:100%;
+  min-width:0;
+  height:32px;
+  border:1px solid var(--tooltipBorder);
+  border-radius:10px;
+  background:var(--panel2);
+  color:var(--text);
+  padding:0 9px;
+  outline:none;
+}
+.pickerApply{
+  height:32px;
+  border:1px solid var(--tooltipBorder);
+  border-radius:10px;
+  background:var(--panel2);
+  color:var(--text);
+  font-weight:900;
+  cursor:pointer;
+}
+.pickerApply:hover{background:var(--panel);}
+.monthTabs{
+  display:none;
   gap:8px;
   overflow-x:auto;
   scrollbar-width:none;
@@ -302,8 +379,8 @@ body.sgClosing .card{animation:windowOut .14s ease-in both;pointer-events:none;}
   padding:10px;
   background:var(--panel2);
 }
-.chartwrap.period-left{animation:periodLeft .22s ease both;}
-.chartwrap.period-right{animation:periodRight .22s ease both;}
+.chartwrap.period-left{animation:periodLeft .34s ease both;}
+.chartwrap.period-right{animation:periodRight .34s ease both;}
 @keyframes periodLeft{
   from{opacity:.58;transform:translateX(10px);}
   to{opacity:1;transform:translateX(0);}

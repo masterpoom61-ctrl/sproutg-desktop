@@ -48,11 +48,11 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
   setTopbarTheme(s.theme || 'dark-classic');
 })();
 
-  const APP_VERSION = '2.1.2';
+  const APP_VERSION = '2.1.3';
   const PAGE_KEY = 'FarmA.page';
   const HOME_RETURN_KEY = 'FarmA.homeReturnPage';
   const THEME_KEY = 'sproutg.theme';
-  const THEMES = ['dark-classic', 'light-classic', 'dark-ios', 'light-ios', 'dark-oldmoney', 'light-oldmoney', 'dark-midnight-pro', 'light-midnight-pro', 'dark-forest', 'light-forest', 'cyberpunk', 'nordic-frost', 'coffee-sepia', 'retro-terminal', 'synthwave', 'vaporwave', 'dark-academia', 'light-academia', 'art-deco', 'bauhaus'];
+  const THEMES = ['dark-classic', 'light-classic', 'dark-ios', 'light-ios', 'dark-oldmoney', 'light-oldmoney', 'dark-midnight-pro', 'light-midnight-pro', 'dark-forest', 'light-forest', 'cyberpunk', 'nordic-frost', 'coffee-sepia', 'retro-terminal', 'synthwave', 'vaporwave', 'dark-academia', 'light-academia', 'art-deco', 'bauhaus', 'graphite-pro', 'obsidian', 'slate-blue', 'platinum-light', 'notion-clean', 'linear-dark', 'royal-navy', 'emerald-gold', 'burgundy-club', 'caviar', 'paper-white', 'milk-glass', 'deep-space', 'tokyo-night', 'aurora', 'rainy-day', 'terracotta', 'blueprint', 'swiss', 'executive', 'banking-green', 'marble', 'typewriter', 'amber-terminal', 'mountain'];
   const THEME_ALIASES = { dark:'dark-classic', light:'light-classic', 'midnight-pro':'dark-midnight-pro', forest:'dark-forest', 'cyberpunk-neon':'cyberpunk' };
 
   let current = null;
@@ -363,6 +363,9 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
     setupMccTopButton();
     setupPanelCollapses();
     setupSideSyncButtons();
+    setupWheelTabScroll();
+    setupElasticScrollers();
+    setupPointsHud();
     loadMccProfileTabsFromStorage();
     loadMccProfileCacheFromStorage();
     renderMccProfileTabsSelect();
@@ -711,6 +714,103 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
       mccBtn.classList.toggle('hidden', activePage !== 'MCC');
       mccBtn.disabled = !mccProfile;
     }
+    const hud = document.getElementById('pointsHud');
+    if(hud) hud.classList.toggle('hidden', activePage !== 'O1' && activePage !== 'MCC');
+  }
+
+  function bindHorizontalWheel(el){
+    if(!el || el.dataset.wheelTabsBound === '1') return;
+    el.dataset.wheelTabsBound = '1';
+    el.addEventListener('wheel', (event)=>{
+      const delta = Math.abs(event.deltaY) >= Math.abs(event.deltaX) ? event.deltaY : event.deltaX;
+      if(!delta) return;
+      event.preventDefault();
+      el.scrollBy({ left: delta, behavior:'smooth' });
+    }, { passive:false });
+  }
+
+  function setupWheelTabScroll(){
+    bindHorizontalWheel(document.getElementById('tabsBar'));
+    bindHorizontalWheel(document.getElementById('mccAccountTabs'));
+  }
+
+  function setupElasticScroller(container, target){
+    if(!container || container.dataset.elasticBound === '1') return;
+    container.dataset.elasticBound = '1';
+    const moving = target || container.firstElementChild || container;
+    let offset = 0;
+    let settleTimer = null;
+    const maxOffset = 76;
+    const settle = ()=>{
+      clearTimeout(settleTimer);
+      settleTimer = setTimeout(()=>{
+        offset = 0;
+        moving.style.transition = 'transform .46s cubic-bezier(.18,.9,.22,1.18)';
+        moving.style.transform = 'translateY(0)';
+        setTimeout(()=>{ moving.style.transition = ''; }, 480);
+      }, 28);
+    };
+    container.addEventListener('wheel', (event)=>{
+      const maxScroll = Math.max(0, container.scrollHeight - container.clientHeight);
+      const atTop = container.scrollTop <= 0;
+      const atBottom = container.scrollTop >= maxScroll - 1;
+      const up = event.deltaY < 0;
+      const down = event.deltaY > 0;
+      const shouldElastic = maxScroll <= 0 || (up && atTop) || (down && atBottom);
+      if(!shouldElastic) return;
+      event.preventDefault();
+      const resistance = 1 - Math.min(0.72, Math.abs(offset) / (maxOffset * 1.25));
+      offset += -event.deltaY * 0.22 * resistance;
+      offset = Math.max(-maxOffset, Math.min(maxOffset, offset));
+      moving.style.transition = 'none';
+      moving.style.transform = `translateY(${offset}px)`;
+      settle();
+    }, { passive:false });
+  }
+
+  function setupElasticScrollers(){
+    setupElasticScroller(document.getElementById('mainScrollO1'), document.querySelector('#mainScrollO1 .wrap'));
+    setupElasticScroller(document.getElementById('mainScrollMcc'), document.querySelector('#mainScrollMcc .wrap'));
+    setupElasticScroller(document.getElementById('mainScrollCompany'), document.querySelector('#mainScrollCompany .wrap'));
+  }
+
+  function localDateKey(ts = Date.now()){
+    const d = new Date(Number(ts) || Date.now());
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${d.getFullYear()}-${m}-${day}`;
+  }
+
+  function renderPointsHud(points){
+    const hud = document.getElementById('pointsHud');
+    const total = document.getElementById('pointsToday');
+    if(!hud || !total) return;
+    const today = points?.days?.[localDateKey()]?.total || 0;
+    total.textContent = `${today}`;
+    hud.classList.toggle('hidden', activePage !== 'O1' && activePage !== 'MCC');
+  }
+
+  function animatePointsDelta(delta){
+    const hud = document.getElementById('pointsHud');
+    const fly = document.getElementById('pointsFly');
+    if(!hud || !fly || !Number.isFinite(Number(delta)) || Number(delta) === 0) return;
+    hud.classList.toggle('hidden', activePage !== 'O1' && activePage !== 'MCC');
+    fly.classList.remove('show');
+    fly.textContent = `${Number(delta) > 0 ? '+' : ''}${Number(delta)}`;
+    void fly.offsetWidth;
+    fly.classList.add('show');
+  }
+
+  async function setupPointsHud(){
+    try{
+      const points = await window.sproutg.getPoints?.();
+      renderPointsHud(points);
+    }catch(e){}
+    window.sproutg.onPointsUpdated?.((points)=>renderPointsHud(points));
+    window.sproutg.onPointsDelta?.((payload)=>{
+      if(payload?.dayKey === localDateKey()) renderPointsHud({ days:{ [payload.dayKey]:{ total: payload.todayTotal || 0 } } });
+      animatePointsDelta(payload?.delta);
+    });
   }
 
   function scrollTabs(dir){
@@ -5153,6 +5253,34 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
     return { wrap, select: sel, plusBtn };
   }
 
+  function mccBuildPlusOnlyControl(rowObj, col, value, onChange, meta = {}){
+    const plusBtn = document.createElement('button');
+    plusBtn.type = 'button';
+    plusBtn.className = 'btn statusPlusBtn mccPlusOnlyBtn';
+    plusBtn.textContent = '+';
+    plusBtn.title = '+';
+    plusBtn.dataset.col = col;
+    plusBtn.dataset.row = String(rowObj.row);
+    plusBtn.dataset.prevValue = String(value ?? '');
+    plusBtn.dataset.uiValue = String(value ?? '');
+    plusBtn.classList.toggle('is-active', String(value ?? '').trim() === '+');
+    plusBtn.addEventListener('click', ()=>{
+      const oldValue = String(rowObj.values[col] ?? plusBtn.dataset.uiValue ?? plusBtn.dataset.prevValue ?? '');
+      const nextValue = oldValue === '+' ? '' : '+';
+      rowObj.values[col] = nextValue;
+      plusBtn.dataset.uiValue = nextValue;
+      plusBtn.classList.toggle('is-active', nextValue === '+');
+      updateMccTabsColors();
+      onChange?.(nextValue);
+      saveMccCellInstant(rowObj.row, col, nextValue, ()=>{
+        plusBtn.dataset.prevValue = nextValue;
+        plusBtn.dataset.uiValue = nextValue;
+        sproutgEmitStatusEvent('MCC', meta.group || rowObj.groupName || 'MCC', nextValue, meta.col || col, rowObj.row, oldValue);
+      }, (err)=>toast(err||'Ошибка'));
+    });
+    return plusBtn;
+  }
+
 
   function loadMccApellIndex(force = false){
     return new Promise((resolve)=>{
@@ -6202,10 +6330,9 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
 
       rowObj.groupName = 'Речек';
       const zValue = rowObj.values.Z ?? '';
-      const zStatus = mccBuildPlusSelectControl(rowObj, 'Z', zValue, mccProfile.dropdowns?.Z, (next)=>applyMccSelectColor(zSelect, 'Z', next), { group:'Речек' });
-      const zSelect = zStatus.select;
-      applyMccSelectColor(zSelect, 'Z', zValue);
-      grid.appendChild(mccWrapFieldLabel('Z', zStatus.wrap));
+      const zPlus = mccBuildPlusOnlyControl(rowObj, 'Z', zValue, (next)=>applyMccSelectColor(zPlus, 'Z', next), { group:'Речек' });
+      applyMccSelectColor(zPlus, 'Z', zValue);
+      grid.appendChild(mccWrapFieldLabel('Z', zPlus));
 
       row.appendChild(label);
       row.appendChild(grid);
@@ -6251,9 +6378,12 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
       }
       const wInput = document.querySelector(`#mccOut input[data-row="${rowObj.row}"][data-col="W"]`);
       if(wInput && Object.prototype.hasOwnProperty.call(applied, 'W')) wInput.value = applied.W;
-      const zSel = document.querySelector(`#mccOut select[data-row="${rowObj.row}"][data-col="Z"]`);
+      const zSel = document.querySelector(`#mccOut [data-row="${rowObj.row}"][data-col="Z"]`);
       if(zSel && Object.prototype.hasOwnProperty.call(applied, 'Z')){
-        zSel.value = applied.Z;
+        if('value' in zSel) zSel.value = applied.Z;
+        zSel.dataset.uiValue = applied.Z;
+        zSel.dataset.prevValue = applied.Z;
+        zSel.classList.toggle('is-active', String(applied.Z || '').trim() === '+');
         applyMccSelectColor(zSel, 'Z', applied.Z);
       }
       flow.done();

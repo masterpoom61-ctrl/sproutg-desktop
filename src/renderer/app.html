@@ -5,6 +5,7 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self';">
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>SproutG</title>
+  <link rel="stylesheet" href="../shared/themes-v213.css" />
   <link rel="stylesheet" href="./app.css" />
 </head>
 <body>
@@ -323,6 +324,10 @@
   </div>
 
   <div id="toast" class="toast"></div>
+  <div id="pointsHud" class="pointsHud hidden" aria-live="polite">
+    <div id="pointsFly" class="pointsFly"></div>
+    <div id="pointsToday" class="pointsToday">0</div>
+  </div>
   <button id="o1SyncLeft" class="btn sideSyncBtn hidden" type="button" title="Синхронизировать" aria-label="Синхронизировать">
     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 0 1-15.6 6.1"/><path d="M3 12A9 9 0 0 1 18.6 5.9"/><path d="M3 18v-5h5"/><path d="M21 6v5h-5"/></svg>
   </button>

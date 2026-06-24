@@ -18,7 +18,7 @@ const store = new Store({
     ui: { statsBounds: null, companyBounds: null },
     points: { days: {}, workDays: {} },
     statusState: {},
-    settings: { theme: 'dark-classic', zoom: 1.0, alwaysOnTop: false },
+    settings: { theme: 'dark-classic', zoom: 1.0, alwaysOnTop: false, graphicsMode: 'ultra', contrastMode: false, classicTrafficLights: false },
     window: { bounds: null, isMaximized: false },
     web: { url: null }
   }
@@ -384,10 +384,26 @@ function installDownloadedUpdate(){
   return updateState;
 }
 
+function normalizeSettings(input){
+  const raw = input && typeof input === 'object' ? input : {};
+  const next = {
+    theme: normalizeTheme(raw.theme),
+    zoom: clamp(Number(raw.zoom || 1), 0.7, 1.6),
+    alwaysOnTop: !!raw.alwaysOnTop,
+    graphicsMode: raw.graphicsMode === 'lite' ? 'lite' : 'ultra',
+    contrastMode: !!raw.contrastMode,
+    classicTrafficLights: !!raw.classicTrafficLights
+  };
+  if (next.graphicsMode === 'lite' && next.theme !== 'dark-classic' && next.theme !== 'light-classic') {
+    next.theme = 'dark-classic';
+  }
+  return next;
+}
+
 function getSettings(){
   const settings = store.get('settings') || {};
-  const next = { ...settings, theme: normalizeTheme(settings.theme) };
-  if (settings.theme !== next.theme) store.set('settings', next);
+  const next = normalizeSettings(settings);
+  if (JSON.stringify(settings) !== JSON.stringify(next)) store.set('settings', next);
   return next;
 }
 function clampToWorkArea(bounds){
@@ -441,6 +457,46 @@ function setStoredCompanyBounds(bounds){
   const ui = store.get('ui') || {};
   ui.companyBounds = { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height, compactV: 1 };
   store.set('ui', ui);
+}
+
+let cachedAppBytes = null;
+
+function fileOrDirSizeSafe(target, depth = 0){
+  if (!target || depth > 16) return 0;
+  try {
+    const stat = fs.lstatSync(target);
+    if (stat.isSymbolicLink()) return 0;
+    if (stat.isFile()) return stat.size || 0;
+    if (!stat.isDirectory()) return 0;
+    let total = 0;
+    for (const name of fs.readdirSync(target)) {
+      total += fileOrDirSizeSafe(path.join(target, name), depth + 1);
+    }
+    return total;
+  } catch(e) {
+    return 0;
+  }
+}
+
+function getStorageInfo(){
+  const userData = app.getPath('userData');
+  const cacheDirs = [
+    'Cache',
+    'Code Cache',
+    'GPUCache',
+    'DawnCache',
+    'ShaderCache',
+    'Partitions'
+  ];
+  const cacheBytes = cacheDirs.reduce((sum, name) => sum + fileOrDirSizeSafe(path.join(userData, name)), 0);
+  if (cachedAppBytes === null) {
+    cachedAppBytes = fileOrDirSizeSafe(app.getAppPath());
+  }
+  return {
+    cacheBytes,
+    appBytes: cachedAppBytes,
+    userData
+  };
 }
 
 function setPoints(points){
@@ -647,10 +703,7 @@ function addPoints(payload){
 
 function setSettings(partial){
   const cur = getSettings();
-  const next = { ...cur, ...(partial || {}) };
-  next.zoom = clamp(Number(next.zoom || 1), 0.7, 1.6);
-  next.theme = normalizeTheme(next.theme);
-  next.alwaysOnTop = !!next.alwaysOnTop;
+  const next = normalizeSettings({ ...cur, ...(partial || {}) });
   store.set('settings', next);
   return next;
 }
@@ -773,7 +826,7 @@ function openSettingsWindow(){
     modal: false,
     show: false,
     width: 360,
-    height: 620,
+    height: 680,
     resizable: false,
     movable: true,
     minimizable: false,
@@ -808,7 +861,6 @@ function openSettingsWindow(){
     settingsWindow.focus();
     settingsWindow.webContents.send('sproutg:apply-settings', getSettings());
   });
-  settingsWindow.on('blur', () => closeSettingsWindow());
 
   mainWindow.on('move', positionSettingsWindow);
   mainWindow.on('resize', positionSettingsWindow);
@@ -1239,6 +1291,7 @@ ipcMain.handle('sproutg:reload-web', () => { reloadWeb(); return true; });
 ipcMain.handle('sproutg:close-settings-window', () => closeSettingsWindow());
 ipcMain.handle('sproutg:close-stats-window', () => closeStatsWindow());
 ipcMain.handle('sproutg:close-company-window', () => closeCompanyWindow());
+ipcMain.handle('sproutg:get-storage-info', () => getStorageInfo());
 
 ipcMain.handle('sproutg:clear-cache', async () => {
   const s = getSession();

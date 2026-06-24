@@ -5,8 +5,8 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self';">
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Настройки</title>
-  <link rel="stylesheet" href="../shared/themes-v213.css" />
   <link rel="stylesheet" href="./settings.css" />
+  <link rel="stylesheet" href="../shared/themes-v213.css" />
 </head>
 <body>
   <div class="settingsShell">
@@ -28,6 +28,30 @@
             <button class="btn" id="btnZoomOut" title="Ctrl+-">-</button>
             <button class="btn" id="btnZoomIn" title="Ctrl++">+</button>
             <div class="pill" id="zoomValue">100%</div>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="label">Графика</div>
+          <div class="segmented">
+            <button class="seg" id="graphicsLite" type="button">Lite</button>
+            <button class="seg" id="graphicsUltra" type="button">Ultra</button>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="label">Контраст</div>
+          <div class="segmented">
+            <button class="seg" id="contrastOff" type="button">Выкл</button>
+            <button class="seg" id="contrastOn" type="button">Вкл</button>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="label">З-Ж-К</div>
+          <div class="segmented">
+            <button class="seg" id="trafficOff" type="button">Выкл</button>
+            <button class="seg" id="trafficOn" type="button">Вкл</button>
           </div>
         </div>
 
@@ -82,12 +106,9 @@
           </div>
         </details>
 
-        <div class="row">
-          <button class="btn btn-wide" id="btnReload" title="Ctrl+R">Перезагрузить UI и мост</button>
-        </div>
-
-        <div class="row">
-          <button class="btn btn-wide" id="btnClearCache">Очистить кеш без выхода из Google</button>
+        <div class="row cacheRow">
+          <div class="pill cacheSize" id="cacheSize">Кеш: —</div>
+          <button class="btn btn-wide" id="btnClearCache">Очистить кеш</button>
         </div>
 
         <div class="updateBox">
@@ -123,6 +144,9 @@
           <div class="row">
             <button class="btn btn-wide" id="btnChangeUrl">Изменить URL Apps Script</button>
           </div>
+          <div class="row">
+            <button class="btn btn-wide" id="btnReload" title="Ctrl+R">Перезагрузить UI и мост</button>
+          </div>
           <div class="settingsCluster">
             <div class="label label-strong">SMSPool</div>
             <div class="row">
@@ -134,6 +158,7 @@
           <div class="techInfo" id="techInfo">
             <div>SproutG: <b id="techDesktopVersion">—</b></div>
             <div>SproutG.Web: <b id="techWebVersion">—</b></div>
+            <div>Размер приложения: <b id="techAppSize">—</b></div>
             <div>Electron UI, local renderer, Apps Script bridge/API, Google Sheets, CacheService, LockService, ScriptProperties. 2026.</div>
           </div>
           <div class="hint">Выход из Google удаляет cookies. Обычная очистка кеша cookies не трогает.</div>

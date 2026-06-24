@@ -238,6 +238,10 @@ body.sgClosing .card{animation:windowOut .38s ease-in both;pointer-events:none;}
   cursor:pointer;
   font-size:18px;
   line-height:1;
+  -webkit-app-region:no-drag;
+  display:flex;
+  align-items:center;
+  justify-content:center;
 }
 .windowClose:hover{background:var(--panel);}
 .header{

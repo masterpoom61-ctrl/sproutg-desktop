@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld('sproutgSettings', {
   setWebUrl: (val) => ipcRenderer.invoke('sproutg:set-web-url', val),
   getVersion: () => ipcRenderer.invoke('sproutg:get-version'),
   getUpdateState: () => ipcRenderer.invoke('sproutg:get-update-state'),
+  getStorageInfo: () => ipcRenderer.invoke('sproutg:get-storage-info'),
   checkForUpdates: () => ipcRenderer.invoke('sproutg:check-for-updates'),
   downloadUpdate: () => ipcRenderer.invoke('sproutg:download-update'),
   installUpdate: () => ipcRenderer.invoke('sproutg:install-update'),

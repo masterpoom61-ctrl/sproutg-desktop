@@ -221,7 +221,89 @@
     window.postMessage({ source: 'sproutg-desktop', type: 'SETTINGS', payload: settings || {} }, '*');
   });
 
+  let latestBridgeState = null;
+  let bridgePopup = null;
+
+  function escapeHtml(v) {
+    return String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
+  function formatMs(ms) {
+    const n = Number(ms || 0);
+    if (!Number.isFinite(n) || n <= 0) return '—';
+    return n < 1000 ? `${Math.round(n)} мс` : `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)} с`;
+  }
+
+  function secondsAgo(ts) {
+    const n = Number(ts || 0);
+    if (!n) return '—';
+    const sec = Math.max(0, Math.round((Date.now() - n) / 1000));
+    if (sec < 60) return `${sec} с назад`;
+    const min = Math.round(sec / 60);
+    return `${min} мин назад`;
+  }
+
+  function bridgeHealth(state) {
+    const status = state?.status || 'idle';
+    const m = state?.metrics || {};
+    if (['error', 'disconnected', 'missing-url', 'login-required'].includes(status)) return 'bad';
+    if (status === 'timeout') return 'bad';
+    const total = Number(m.total || 0);
+    const failed = Number(m.failed || 0);
+    const ratio = total >= 5 ? failed / Math.max(1, total) : 0;
+    if (Number(m.pending || 0) >= 8 || Number(m.queued || 0) >= 4 || Number(m.lastDurationMs || 0) > 9000 || Number(m.avgDurationMs || 0) > 6500 || ratio > 0.28) return 'bad';
+    if (['connecting', 'reconnecting'].includes(status) || Number(m.pending || 0) >= 4 || Number(m.lastDurationMs || 0) > 4500 || Number(m.avgDurationMs || 0) > 3200 || ratio > 0.12) return 'warn';
+    return state?.ready ? 'ok' : 'warn';
+  }
+
+  function renderBridgePopup(state = latestBridgeState) {
+    if (!bridgePopup || !state) return;
+    const m = state.metrics || {};
+    const total = Number(m.total || 0);
+    const ok = Number(m.ok || 0);
+    const success = total ? Math.round((ok / Math.max(1, total)) * 100) : 0;
+    const health = bridgeHealth(state);
+    bridgePopup.dataset.health = health;
+    bridgePopup.innerHTML = `
+      <div class="bridgeStatusPopup__head">
+        <b>${health === 'bad' ? 'Проблемы с подключением' : (health === 'warn' ? 'Подключение нестабильно' : 'Подключение стабильно')}</b>
+        <span>${escapeHtml(state.status || 'idle')}</span>
+      </div>
+      <div class="bridgeStatusPopup__grid">
+        <span>Последний запрос</span><b>${secondsAgo(m.lastFinishedAt || m.lastStartedAt)}</b>
+        <span>Последняя задержка</span><b>${formatMs(m.lastDurationMs)}</b>
+        <span>Средняя задержка</span><b>${formatMs(m.avgDurationMs)}</b>
+        <span>Очередь</span><b>${Number(m.pending || 0)} / ${Number(m.queued || 0)}</b>
+        <span>Успешность</span><b>${total ? `${success}% (${ok}/${total})` : '—'}</b>
+        <span>Действие</span><b>${escapeHtml(m.lastAction || '—')}</b>
+      </div>
+      <div class="bridgeStatusPopup__message">${escapeHtml(state.error || state.message || '')}</div>
+      <div class="bridgeStatusPopup__actions">
+        <button type="button" data-bridge-action="reload">Переподключить</button>
+        <button type="button" data-bridge-action="login">Вход</button>
+      </div>
+    `;
+  }
+
+  function toggleBridgePopup() {
+    if (bridgePopup) {
+      bridgePopup.remove();
+      bridgePopup = null;
+      return;
+    }
+    bridgePopup = document.createElement('div');
+    bridgePopup.className = 'bridgeStatusPopup';
+    document.body.appendChild(bridgePopup);
+    bridgePopup.addEventListener('click', (event) => {
+      const action = event.target?.closest?.('[data-bridge-action]')?.dataset?.bridgeAction;
+      if (action === 'reload') window.sproutg.reloadWeb();
+      if (action === 'login') window.sproutg.openBridgeLogin();
+    });
+    renderBridgePopup();
+  }
+
   function renderBridgeState(state) {
+    latestBridgeState = state || latestBridgeState;
     const badge = document.getElementById('bridgeBadge');
     if (!badge) return;
     const status = state?.status || 'idle';
@@ -248,6 +330,7 @@
       'missing-url': 'Не задан URL подключения к Google Таблице.'
     };
     badge.dataset.status = status;
+    badge.dataset.health = bridgeHealth(state);
     badge.innerHTML = '<span class="bridgeBadge__label">Статус:</span><span class="bridgeBadge__mark" aria-hidden="true"></span>';
     const mark = badge.querySelector('.bridgeBadge__mark');
     if (mark) {
@@ -256,6 +339,7 @@
       mark.textContent = busy ? '' : (marks[status] || '...');
     }
     badge.title = state?.error || details[status] || state?.message || 'Статус подключения к Google Таблице';
+    renderBridgePopup(state);
   }
 
   function showNotice(payload) {
@@ -278,15 +362,20 @@
   window.addEventListener('DOMContentLoaded', () => {
     const badge = document.getElementById('bridgeBadge');
     if (badge) {
-      badge.addEventListener('click', async () => {
+      badge.addEventListener('click', async (event) => {
+        event.stopPropagation();
         const state = await window.sproutg.getBridgeState().catch(() => null);
-        if (state && state.status === 'ready') {
-          window.sproutg.reloadWeb();
-          return;
-        }
-        window.sproutg.openBridgeLogin();
+        if (state) renderBridgeState(state);
+        toggleBridgePopup();
       });
     }
+    document.addEventListener('pointerdown', (event) => {
+      if (!bridgePopup) return;
+      const badgeEl = document.getElementById('bridgeBadge');
+      if (bridgePopup.contains(event.target) || badgeEl?.contains(event.target)) return;
+      bridgePopup.remove();
+      bridgePopup = null;
+    }, true);
   });
 
   window.sproutg.onBridgeState(renderBridgeState);

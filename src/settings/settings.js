@@ -56,8 +56,15 @@ const zoomValue = $('zoomValue');
 const themeList = $('themeList');
 const btnReload = $('btnReload');
 const btnClearCache = $('btnClearCache');
+const cacheSize = $('cacheSize');
 const btnLogout = $('btnLogout');
 const btnChangeUrl = $('btnChangeUrl');
+const graphicsLite = $('graphicsLite');
+const graphicsUltra = $('graphicsUltra');
+const contrastOff = $('contrastOff');
+const contrastOn = $('contrastOn');
+const trafficOff = $('trafficOff');
+const trafficOn = $('trafficOn');
 const appVersion = $('appVersion');
 const updateBadge = $('updateBadge');
 const updateStatus = $('updateStatus');
@@ -72,9 +79,10 @@ const btnSaveSmsPoolKey = $('btnSaveSmsPoolKey');
 const smsPoolStatus = $('smsPoolStatus');
 const techDesktopVersion = $('techDesktopVersion');
 const techWebVersion = $('techWebVersion');
+const techAppSize = $('techAppSize');
 const settingsCloseBtn = $('settingsCloseBtn');
 
-let current = { theme: 'dark-classic', zoom: 1.0, alwaysOnTop: false };
+let current = { theme: 'dark-classic', zoom: 1.0, alwaysOnTop: false, graphicsMode: 'ultra', contrastMode: false, classicTrafficLights: false };
 let closing = false;
 
 function prepareClose() {
@@ -94,6 +102,41 @@ function setThemeUi(theme) {
   for (const btn of document.querySelectorAll('[data-theme-value]')) {
     btn.dataset.active = btn.dataset.themeValue === next ? 'true' : 'false';
   }
+}
+
+function normalizeGraphics(value) {
+  return value === 'lite' ? 'lite' : 'ultra';
+}
+
+function setPair(offBtn, onBtn, enabled) {
+  if (offBtn) offBtn.dataset.active = enabled ? 'false' : 'true';
+  if (onBtn) onBtn.dataset.active = enabled ? 'true' : 'false';
+}
+
+function setGraphicsUi(mode) {
+  const lite = normalizeGraphics(mode) === 'lite';
+  if (graphicsLite) graphicsLite.dataset.active = lite ? 'true' : 'false';
+  if (graphicsUltra) graphicsUltra.dataset.active = lite ? 'false' : 'true';
+  themeList?.classList.toggle('liteThemeLock', lite);
+}
+
+function applySettingsUi(settings = {}) {
+  const next = {
+    ...current,
+    ...(settings || {}),
+    theme: normalizeTheme(settings.theme || current.theme),
+    graphicsMode: normalizeGraphics(settings.graphicsMode || current.graphicsMode)
+  };
+  current = next;
+  setThemeUi(next.theme);
+  setZoomUi(next.zoom);
+  setAotUi(!!next.alwaysOnTop);
+  setGraphicsUi(next.graphicsMode);
+  setPair(contrastOff, contrastOn, !!next.contrastMode);
+  setPair(trafficOff, trafficOn, !!next.classicTrafficLights);
+  document.documentElement.dataset.graphics = next.graphicsMode;
+  document.documentElement.dataset.contrast = next.contrastMode ? 'on' : 'off';
+  document.documentElement.dataset.zjk = next.classicTrafficLights ? 'on' : 'off';
 }
 
 function setZoomUi(zoom) {
@@ -122,6 +165,13 @@ function formatVersion(v) {
   const raw = String(v || '').trim();
   if (!raw) return '—';
   return raw.startsWith('v') ? raw : `v${raw}`;
+}
+
+function formatBytes(bytes) {
+  const n = Number(bytes || 0);
+  if (!Number.isFinite(n) || n <= 0) return '0 КБ';
+  if (n < 1024 * 1024) return `${Math.max(1, Math.round(n / 1024))} КБ`;
+  return `${(n / 1024 / 1024).toFixed(n >= 100 * 1024 * 1024 ? 0 : 1)} МБ`;
 }
 
 function renderUpdateState(state = {}) {
@@ -197,15 +247,14 @@ function setupElasticBounce(container, target){
 
 async function refresh() {
   current = await window.sproutgSettings.getSettings();
-  setThemeUi(current.theme);
-  setZoomUi(current.zoom);
-  setAotUi(!!current.alwaysOnTop);
+  applySettingsUi(current);
   try {
     renderUpdateState(await window.sproutgSettings.getUpdateState());
   } catch (e) {
     renderUpdateState({ status: 'error', message: 'Не удалось получить статус обновлений', error: String(e?.message || e) });
   }
   refreshTechInfo();
+  refreshStorageInfo();
 }
 
 async function refreshTechInfo() {
@@ -224,10 +273,20 @@ async function refreshTechInfo() {
   }
 }
 
+async function refreshStorageInfo() {
+  try {
+    const info = await window.sproutgSettings.getStorageInfo();
+    if (cacheSize) cacheSize.textContent = `Кеш: ${formatBytes(info?.cacheBytes)}`;
+    if (techAppSize) techAppSize.textContent = formatBytes(info?.appBytes);
+  } catch (e) {
+    if (cacheSize) cacheSize.textContent = 'Кеш: —';
+    if (techAppSize) techAppSize.textContent = '—';
+  }
+}
+
 btnAOT.addEventListener('click', async () => {
   current = await window.sproutgSettings.toggleAOT();
-  setAotUi(!!current.alwaysOnTop);
-  closeSettingsSoon();
+  applySettingsUi(current);
 });
 
 btnZoomIn.addEventListener('click', async () => {
@@ -245,19 +304,50 @@ themeList.addEventListener('click', async (event) => {
   if (!btn) return;
   const theme = normalizeTheme(btn.dataset.themeValue);
   current = await window.sproutgSettings.setSetting({ theme });
-  setThemeUi(theme);
+  applySettingsUi(current);
+});
+
+graphicsLite?.addEventListener('click', async () => {
+  current = await window.sproutgSettings.setSetting({ graphicsMode: 'lite' });
+  applySettingsUi(current);
+});
+
+graphicsUltra?.addEventListener('click', async () => {
+  current = await window.sproutgSettings.setSetting({ graphicsMode: 'ultra' });
+  applySettingsUi(current);
+});
+
+contrastOff?.addEventListener('click', async () => {
+  current = await window.sproutgSettings.setSetting({ contrastMode: false });
+  applySettingsUi(current);
+});
+
+contrastOn?.addEventListener('click', async () => {
+  current = await window.sproutgSettings.setSetting({ contrastMode: true });
+  applySettingsUi(current);
+});
+
+trafficOff?.addEventListener('click', async () => {
+  current = await window.sproutgSettings.setSetting({ classicTrafficLights: false });
+  applySettingsUi(current);
+});
+
+trafficOn?.addEventListener('click', async () => {
+  current = await window.sproutgSettings.setSetting({ classicTrafficLights: true });
+  applySettingsUi(current);
 });
 
 btnReload.addEventListener('click', async () => {
   await window.sproutgSettings.reloadWeb();
-  closeSettingsSoon();
 });
 
 btnClearCache.addEventListener('click', async () => {
   btnClearCache.disabled = true;
-  try { await window.sproutgSettings.clearCache(); }
+  try {
+    await window.sproutgSettings.clearCache();
+    await refreshStorageInfo();
+  }
   finally { btnClearCache.disabled = false; }
-  closeSettingsSoon();
 });
 
 btnLogout.addEventListener('click', async () => {
@@ -307,24 +397,16 @@ settingsCloseBtn?.addEventListener('click', closeSettingsSoon);
 
 window.sproutgSettings.onApplySettings((s) => {
   if (!s) return;
-  current = s;
-  setThemeUi(current.theme);
-  setZoomUi(current.zoom);
-  setAotUi(!!current.alwaysOnTop);
+  applySettingsUi(s);
 });
 
 window.sproutgSettings.onUpdateState(renderUpdateState);
 window.sproutgSettings.onPrepareClose(prepareClose);
-
-document.addEventListener('pointerdown', (event) => {
-  if (event.button !== 0 || !settingsCard || settingsCard.contains(event.target)) return;
-  closeSettingsSoon();
-}, true);
 
 document.addEventListener('keydown', (event) => {
   if (event.key === 'Escape') closeSettingsSoon();
 });
 
 refresh();
-setupElasticBounce(document.getElementById('scrollableContent') || settingsCard, settingsCard);
+setupElasticBounce(document.getElementById('scrollableContent') || settingsCard);
 

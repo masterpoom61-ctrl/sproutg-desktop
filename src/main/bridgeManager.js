@@ -19,6 +19,20 @@ class BridgeManager extends EventEmitter {
     this.pending = new Map();
     this.queue = [];
     this.seq = 0;
+    this.metrics = {
+      total: 0,
+      ok: 0,
+      failed: 0,
+      timeouts: 0,
+      pending: 0,
+      queued: 0,
+      lastAction: null,
+      lastStartedAt: null,
+      lastFinishedAt: null,
+      lastDurationMs: null,
+      avgDurationMs: null,
+      maxDurationMs: 0
+    };
     this.state = {
       status: 'idle',
       ready: false,
@@ -33,7 +47,14 @@ class BridgeManager extends EventEmitter {
   }
 
   getState() {
-    return { ...this.state };
+    return {
+      ...this.state,
+      metrics: {
+        ...this.metrics,
+        pending: this.pending.size,
+        queued: this.queue.length
+      }
+    };
   }
 
   setState(patch) {
@@ -213,6 +234,7 @@ class BridgeManager extends EventEmitter {
 
       if (!this.ready) {
         this.queue.push(item);
+        this.emit('state', this.getState());
         if (this.url && (!this.window || this.window.webContents.isDestroyed())) this.load(this.url);
         return;
       }
@@ -224,10 +246,16 @@ class BridgeManager extends EventEmitter {
   sendRequest(item) {
     if (!this.ready) {
       this.queue.push(item);
+      this.emit('state', this.getState());
       return;
     }
 
     item.attempts += 1;
+    item.startedAt = Date.now();
+    this.metrics.lastAction = item.action || item.type;
+    this.metrics.lastStartedAt = item.startedAt;
+    this.metrics.pending = this.pending.size + 1;
+    this.metrics.queued = this.queue.length;
     const message = {
       source: 'sproutg-desktop',
       type: item.type,
@@ -242,10 +270,12 @@ class BridgeManager extends EventEmitter {
 
     const timer = setTimeout(() => this.timeout(item.id), item.timeoutMs || DEFAULT_TIMEOUT_MS);
     this.pending.set(item.id, { ...item, timer });
+    this.emit('state', this.getState());
 
     if (!this.post(message)) {
       clearTimeout(timer);
       this.pending.delete(item.id);
+      this.recordMetric({ item, ok: false });
       this.ready = false;
       this.queue.unshift(item);
       this.setState({ status: 'disconnected', message: 'Мост Google Таблицы недоступен', error: null });
@@ -258,6 +288,7 @@ class BridgeManager extends EventEmitter {
     if (!item) return;
     clearTimeout(item.timer);
     this.pending.delete(id);
+    this.recordMetric({ item, ok: false, timeout: true });
 
     if (item.attempts <= item.retries) {
       this.setState({ status: 'timeout', message: 'Google Таблица отвечает медленно, повторяем запрос', error: item.action || item.type });
@@ -274,7 +305,27 @@ class BridgeManager extends EventEmitter {
     if (!item) return;
     clearTimeout(item.timer);
     this.pending.delete(id);
+    this.recordMetric({ item, ok: !(result && result.ok === false) });
     item.resolve(result);
+  }
+
+  recordMetric({ item, ok, timeout } = {}) {
+    const now = Date.now();
+    const startedAt = Number(item?.startedAt || now);
+    const duration = Math.max(0, now - startedAt);
+    this.metrics.total += 1;
+    if (ok) this.metrics.ok += 1;
+    else this.metrics.failed += 1;
+    if (timeout) this.metrics.timeouts += 1;
+    this.metrics.lastAction = item?.action || item?.type || this.metrics.lastAction;
+    this.metrics.lastFinishedAt = now;
+    this.metrics.lastDurationMs = duration;
+    this.metrics.maxDurationMs = Math.max(Number(this.metrics.maxDurationMs || 0), duration);
+    const prevAvg = Number(this.metrics.avgDurationMs || 0);
+    this.metrics.avgDurationMs = this.metrics.total <= 1 ? duration : Math.round((prevAvg * (this.metrics.total - 1) + duration) / this.metrics.total);
+    this.metrics.pending = this.pending.size;
+    this.metrics.queued = this.queue.length;
+    this.emit('state', this.getState());
   }
 
   rejectAllPending(message, code) {

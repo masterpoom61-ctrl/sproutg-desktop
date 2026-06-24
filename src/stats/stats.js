@@ -1206,6 +1206,13 @@ function setTheme(theme){
   if (__lastPoints) render(__lastPoints);
 }
 
+function applySettingsUi(settings = {}){
+  if (settings.theme) setTheme(settings.theme);
+  document.documentElement.dataset.graphics = settings.graphicsMode === 'lite' ? 'lite' : 'ultra';
+  document.documentElement.dataset.contrast = settings.contrastMode ? 'on' : 'off';
+  document.documentElement.dataset.zjk = settings.classicTrafficLights ? 'on' : 'off';
+}
+
 function monthKeyFromDate(d){
   return `${d.getFullYear()}-${pad2(d.getMonth()+1)}`;
 }
@@ -1292,7 +1299,7 @@ function hexToRgba(hex, alpha){
   return `rgba(${(n>>16)&255},${(n>>8)&255},${n&255},${alpha})`;
 }
 
-window.sproutgStats.onApplySettings((s) => { if (s?.theme) setTheme(s.theme); });
+window.sproutgStats.onApplySettings((s) => { if (s) applySettingsUi(s); });
 window.sproutgStats.onPointsUpdated((data) => render(data));
 window.sproutgStats.onPrepareClose(prepareClose);
 bindHorizontalWheel(monthTabs);
@@ -1301,7 +1308,7 @@ setupElasticBounce(document.querySelector('.card'));
 
 (async () => {
   const s = await window.sproutgStats.getSettings();
-  setTheme(s?.theme || 'dark');
+  applySettingsUi(s || { theme: 'dark' });
   const data = await window.sproutgStats.getPoints();
   render(data);
 })();

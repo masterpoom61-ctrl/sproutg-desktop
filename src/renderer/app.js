@@ -32,6 +32,13 @@ function setTopbarTheme(theme){
   __themeSwitchTimer = setTimeout(() => document.documentElement.classList.remove('theme-switching'), 140);
 }
 
+function applyDesktopSettings(settings = {}){
+  if (settings.theme) setTopbarTheme(settings.theme);
+  document.documentElement.dataset.graphics = settings.graphicsMode === 'lite' ? 'lite' : 'ultra';
+  document.documentElement.dataset.contrast = settings.contrastMode ? 'on' : 'off';
+  document.documentElement.dataset.zjk = settings.classicTrafficLights ? 'on' : 'off';
+}
+
 window.sproutg.onThemeColors((p) => {
   if (!p) return;
   const payloadTheme = p.theme ? normalizeDesktopTheme(p.theme) : '';
@@ -41,14 +48,14 @@ window.sproutg.onThemeColors((p) => {
   if (p.topbarTextColor) document.documentElement.style.setProperty('--topbar-fg', p.topbarTextColor);
 });
 
-window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme); });
+window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
 
 (async () => {
   const s = await window.sproutg.getSettings();
-  setTopbarTheme(s.theme || 'dark-classic');
+  applyDesktopSettings(s || { theme: 'dark-classic' });
 })();
 
-  const APP_VERSION = '2.1.3';
+  const APP_VERSION = '2.1.4';
   const PAGE_KEY = 'FarmA.page';
   const HOME_RETURN_KEY = 'FarmA.homeReturnPage';
   const THEME_KEY = 'sproutg.theme';
@@ -715,7 +722,7 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
       mccBtn.disabled = !mccProfile;
     }
     const hud = document.getElementById('pointsHud');
-    if(hud) hud.classList.toggle('hidden', activePage !== 'O1' && activePage !== 'MCC');
+    if(hud && activePage !== 'O1' && activePage !== 'MCC') hud.classList.add('hidden');
   }
 
   function bindHorizontalWheel(el){
@@ -774,6 +781,14 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
     setupElasticScroller(document.getElementById('mainScrollCompany'), document.querySelector('#mainScrollCompany .wrap'));
   }
 
+  function runProfileReveal(shell){
+    if(!shell) return;
+    shell.classList.remove('profileReveal');
+    void shell.offsetWidth;
+    shell.classList.add('profileReveal');
+    setTimeout(()=>shell.classList.remove('profileReveal'), 2100);
+  }
+
   function localDateKey(ts = Date.now()){
     const d = new Date(Number(ts) || Date.now());
     const m = String(d.getMonth() + 1).padStart(2, '0');
@@ -781,20 +796,29 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
     return `${d.getFullYear()}-${m}-${day}`;
   }
 
-  function renderPointsHud(points){
+  let pointsHudHideTimer = null;
+
+  function renderPointsHud(points, opts = {}){
     const hud = document.getElementById('pointsHud');
     const total = document.getElementById('pointsToday');
     if(!hud || !total) return;
     const today = points?.days?.[localDateKey()]?.total || 0;
     total.textContent = `${today}`;
-    hud.classList.toggle('hidden', activePage !== 'O1' && activePage !== 'MCC');
+    const visiblePage = activePage === 'O1' || activePage === 'MCC';
+    if(opts.show && visiblePage){
+      hud.classList.remove('hidden');
+      clearTimeout(pointsHudHideTimer);
+      pointsHudHideTimer = setTimeout(()=>hud.classList.add('hidden'), 2100);
+      return;
+    }
+    if(!visiblePage) hud.classList.add('hidden');
   }
 
-  function animatePointsDelta(delta){
+  function animatePointsDelta(delta, todayTotal){
     const hud = document.getElementById('pointsHud');
     const fly = document.getElementById('pointsFly');
     if(!hud || !fly || !Number.isFinite(Number(delta)) || Number(delta) === 0) return;
-    hud.classList.toggle('hidden', activePage !== 'O1' && activePage !== 'MCC');
+    renderPointsHud({ days:{ [localDateKey()]:{ total: Number(todayTotal || 0) } } }, { show:true });
     fly.classList.remove('show');
     fly.textContent = `${Number(delta) > 0 ? '+' : ''}${Number(delta)}`;
     void fly.offsetWidth;
@@ -808,8 +832,8 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
     }catch(e){}
     window.sproutg.onPointsUpdated?.((points)=>renderPointsHud(points));
     window.sproutg.onPointsDelta?.((payload)=>{
-      if(payload?.dayKey === localDateKey()) renderPointsHud({ days:{ [payload.dayKey]:{ total: payload.todayTotal || 0 } } });
-      animatePointsDelta(payload?.delta);
+      if(payload?.dayKey === localDateKey()) renderPointsHud({ days:{ [payload.dayKey]:{ total: payload.todayTotal || 0 } } }, { show: Number(payload?.delta || 0) !== 0 });
+      animatePointsDelta(payload?.delta, payload?.todayTotal);
     });
   }
 
@@ -3608,7 +3632,14 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
           let plusBtn = null;
           const syncPlusUi = (value)=>{
             if(!plusBtn) return;
-            plusBtn.classList.toggle('is-active', String(value || '').trim() === '+');
+            const active = String(value || '').trim() === '+';
+            plusBtn.classList.toggle('is-active', active);
+            if(active){
+              sel.classList.add('greenLight');
+              sel.dataset.appcolor = '1';
+            }else{
+              applySelectColor(sel, f.col, sel.value);
+            }
           };
 
           const saveDropdownValue = (newVal)=>{
@@ -3616,8 +3647,8 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
             if(oldValue === newVal) return;
             f.value = newVal;
             sel.dataset.uiValue = newVal;
-            if(newVal === '+') sel.value = '';
-            applySelectColor(sel, f.col, newVal === '+' ? '+' : sel.value);
+            sel.value = newVal === '+' ? '' : newVal;
+            applySelectColor(sel, f.col, newVal);
             syncPlusUi(newVal);
 
             if(isVerificationGroupName(g.name) && col==='BO'){
@@ -3646,7 +3677,8 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
                 if(['BA','BJ','BX','CG'].includes(col)) syncProfile();
                 sel.dataset.prevValue = finalValue;
                 sel.dataset.uiValue = finalValue;
-                if(finalValue === '+') sel.value = '';
+                sel.value = finalValue === '+' ? '' : finalValue;
+                applySelectColor(sel, f.col, finalValue);
                 syncPlusUi(finalValue);
                 sproutgEmitStatusEvent('O1', g.name || 'O1', finalValue, f.col, res.row, oldValue);
               },
@@ -4008,6 +4040,7 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
     updateAllGroupBadges();
     updateHeader();
     updateActiveListMarkers();
+    runProfileReveal(shell);
     if(opts.preserveScrollSnapshot) restoreSproutScroll_(opts.preserveScrollSnapshot);
   }
 
@@ -5224,13 +5257,24 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
     plusBtn.title = '+';
 
     const opts = (Array.isArray(options) ? options : []).filter(opt => String(opt ?? '').trim() !== '+');
+    const syncPlusUi = (nextValue, selectEl)=>{
+      const active = String(nextValue ?? '').trim() === '+';
+      plusBtn.classList.toggle('is-active', active);
+      if(!selectEl) return;
+      if(active){
+        selectEl.classList.add('greenLight');
+        selectEl.dataset.appcolor = '1';
+      }else{
+        applyMccSelectColor(selectEl, col, selectEl.value);
+      }
+    };
     const sel = mccBuildSelect(rowObj, col, value === '+' ? '' : value, opts, (next)=>{
-      plusBtn.classList.toggle('is-active', false);
+      syncPlusUi(next, sel);
       onChange?.(next);
     }, meta);
     sel.dataset.prevValue = String(value ?? '');
     sel.dataset.uiValue = String(value ?? '');
-    plusBtn.classList.toggle('is-active', String(value ?? '').trim() === '+');
+    syncPlusUi(value, sel);
 
     plusBtn.addEventListener('click', ()=>{
       const oldValue = String(rowObj.values[col] ?? sel.dataset.uiValue ?? sel.dataset.prevValue ?? '');
@@ -5238,7 +5282,8 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
       rowObj.values[col] = nextValue;
       sel.value = nextValue === '+' ? '' : nextValue;
       sel.dataset.uiValue = nextValue;
-      plusBtn.classList.toggle('is-active', nextValue === '+');
+      applyMccSelectColor(sel, col, nextValue);
+      syncPlusUi(nextValue, sel);
       updateMccTabsColors();
       onChange?.(nextValue);
       saveMccCellInstant(rowObj.row, col, nextValue, ()=>{
@@ -6347,6 +6392,7 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
     updateMccTabsColors();
     applyMccFioVisualMarks();
     mccSetupAccountScrollSpy();
+    runProfileReveal(shell);
     if(opts.preserveScrollSnapshot) restoreSproutScroll_(opts.preserveScrollSnapshot);
   }
 
@@ -6954,6 +7000,9 @@ window.sproutg.onApplySettings((s) => { if (s && s.theme) setTopbarTheme(s.theme
         if(data.type !== 'SETTINGS') return;
         const payload = data.payload || {};
         state.lastSettings = payload;
+        document.documentElement.dataset.graphics = payload.graphicsMode === 'lite' ? 'lite' : 'ultra';
+        document.documentElement.dataset.contrast = payload.contrastMode ? 'on' : 'off';
+        document.documentElement.dataset.zjk = payload.classicTrafficLights ? 'on' : 'off';
         const theme = THEME_ALIASES[payload.theme] || payload.theme;
         if(THEMES.includes(theme)){
           setTheme(theme, { persist:true, notifyDesktop:true });

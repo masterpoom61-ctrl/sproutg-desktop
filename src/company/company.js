@@ -29,6 +29,13 @@ function setTheme(theme) {
   document.documentElement.setAttribute('data-theme', normalizeTheme(theme));
 }
 
+function applySettingsUi(settings = {}) {
+  if (settings.theme) setTheme(settings.theme);
+  document.documentElement.dataset.graphics = settings.graphicsMode === 'lite' ? 'lite' : 'ultra';
+  document.documentElement.dataset.contrast = settings.contrastMode ? 'on' : 'off';
+  document.documentElement.dataset.zjk = settings.classicTrafficLights ? 'on' : 'off';
+}
+
 function setError(msg) {
   errEl.textContent = msg || '';
 }
@@ -172,7 +179,7 @@ closeBtn?.addEventListener('click', () => {
 });
 
 window.sproutgCompany.onApplySettings((settings) => {
-  if (settings?.theme) setTheme(settings.theme);
+  if (settings) applySettingsUi(settings);
 });
 window.sproutgCompany.onPrepareClose(prepareClose);
 
@@ -185,6 +192,6 @@ document.addEventListener('keydown', (event) => {
 
 (async () => {
   const settings = await window.sproutgCompany.getSettings();
-  setTheme(settings?.theme || 'dark-classic');
+  applySettingsUi(settings || { theme: 'dark-classic' });
   await loadMeta();
 })();

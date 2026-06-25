@@ -18,7 +18,7 @@ const store = new Store({
     ui: { statsBounds: null, companyBounds: null },
     points: { days: {}, workDays: {} },
     statusState: {},
-    settings: { theme: 'dark-classic', zoom: 1.0, alwaysOnTop: false, graphicsMode: 'ultra', contrastMode: false, classicTrafficLights: false },
+    settings: { theme: 'dark-classic', zoom: 1.0, alwaysOnTop: false, graphicsMode: 'ultra', contrastMode: false, classicTrafficLights: false, smsService: 'smspool' },
     window: { bounds: null, isMaximized: false },
     web: { url: null }
   }
@@ -392,7 +392,8 @@ function normalizeSettings(input){
     alwaysOnTop: !!raw.alwaysOnTop,
     graphicsMode: raw.graphicsMode === 'lite' ? 'lite' : 'ultra',
     contrastMode: !!raw.contrastMode,
-    classicTrafficLights: !!raw.classicTrafficLights
+    classicTrafficLights: !!raw.classicTrafficLights,
+    smsService: raw.smsService === 'herosms' ? 'herosms' : 'smspool'
   };
   if (next.graphicsMode === 'lite' && next.theme !== 'dark-classic' && next.theme !== 'light-classic') {
     next.theme = 'dark-classic';
@@ -601,6 +602,14 @@ function scoreFor(payload, value){
 
 function applyEventWithAntiCheat(payload){
   if (!payload || typeof payload !== 'object') return null;
+
+  if (payload.kind === 'extra-work' || payload.workType || Object.prototype.hasOwnProperty.call(payload, 'deltaClicks')) {
+    const deltaPoints = Number(payload.deltaPoints ?? payload.delta ?? 0);
+    const deltaClicks = Number(payload.deltaClicks ?? payload.count ?? 0);
+    if (!deltaPoints && !deltaClicks) return null;
+    const type = String(payload.workType || payload.key || 'custom').trim() || 'custom';
+    return { deltaPoints, deltaClicks, newScore: { type }, oldScore: { type } };
+  }
 
   if (typeof payload.delta === 'number' && payload.delta !== 0) {
     return { deltaPoints: payload.delta, deltaClicks: 0, newScore: { type: payload.key || 'custom' }, oldScore: { type: payload.key || 'custom' } };

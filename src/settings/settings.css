@@ -127,7 +127,14 @@ select,
 textarea,
 summary,
 details,
-.themeList{
+.themeList,
+.scrollableContent,
+.row,
+.updateBox,
+.settingsCluster,
+.techInfo,
+.divider,
+.hint{
   -webkit-app-region:no-drag;
 }
 .title{font-weight:900;font-size:14px;}
@@ -139,6 +146,7 @@ details,
   overflow-x:hidden;
   padding-right:2px;
   scrollbar-width:none;
+  overscroll-behavior-y:contain;
   -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 14px, #000 calc(100% - 14px), transparent 100%);
   mask-image: linear-gradient(to bottom, transparent 0, #000 14px, #000 calc(100% - 14px), transparent 100%);
 }

@@ -26,29 +26,69 @@
       <select id="monthSelect" aria-label="Месяц статистики"></select>
     </div>
 
-    <div class="grid">
-      <div class="kpi">
-        <div class="kpi__label">Сегодня</div>
+    <div class="grid statGrid">
+      <div class="kpi statCard statCard--today" id="cardToday">
+        <div class="statCard__top">
+          <div class="kpi__label">Сегодня</div>
+          <div class="statCard__badge" id="todayBadge">●</div>
+        </div>
         <div class="kpi__value" id="todayValue">0</div>
         <div class="kpi__hint" id="todayHint">00:00–23:59</div>
+        <div class="statCard__chips" id="todayBreakdown"></div>
       </div>
 
-      <div class="kpi">
-        <div class="kpi__label">Этот месяц</div>
+      <div class="kpi statCard statCard--month" id="cardMonth">
+        <div class="statCard__top">
+          <div class="kpi__label">Этот месяц</div>
+          <div class="statCard__badge" id="monthBadge">◆</div>
+        </div>
         <div class="kpi__value" id="monthTotal">0</div>
         <div class="kpi__hint" id="monthHint">Сумма поинтов</div>
+        <div class="statProgress" id="monthProgress"><span></span></div>
+        <div class="statCard__chips" id="monthBreakdown"></div>
       </div>
 
-      <div class="kpi kpi--record">
-        <div class="kpi__label">Рекорд за день</div>
+      <div class="kpi statCard statCard--record kpi--record" id="cardDayRecord">
+        <div class="statCard__top">
+          <div class="kpi__label">Рекорд за день</div>
+          <div class="statCard__badge" id="dayRecordBadge">—</div>
+        </div>
         <div class="kpi__value" id="monthRecord">0</div>
         <div class="kpi__hint" id="monthRecordHint">—</div>
+        <div class="statCard__league" id="dayRecordLeague"></div>
+        <div class="statCard__chips" id="dayRecordBreakdown"></div>
       </div>
 
-      <div class="kpi">
-        <div class="kpi__label">Среднее в день</div>
+      <div class="kpi statCard statCard--avg" id="cardAverage">
+        <div class="statCard__top">
+          <div class="kpi__label">Среднее в день</div>
+          <div class="statCard__badge" id="avgBadge">≈</div>
+        </div>
         <div class="kpi__value" id="monthAvg">0</div>
         <div class="kpi__hint" id="monthAvgHint">За текущий месяц</div>
+        <div class="statCard__chips" id="avgBreakdown"></div>
+      </div>
+
+      <div class="kpi statCard statCard--week" id="cardWeekRecord">
+        <div class="statCard__top">
+          <div class="kpi__label">Продуктивная неделя</div>
+          <div class="statCard__badge" id="weekRecordBadge">—</div>
+        </div>
+        <div class="kpi__value" id="weekRecord">0</div>
+        <div class="kpi__hint" id="weekRecordHint">—</div>
+        <div class="statCard__league" id="weekRecordLeague"></div>
+        <div class="statCard__chips" id="weekRecordBreakdown"></div>
+      </div>
+
+      <div class="kpi statCard statCard--bestMonth" id="cardBestMonth">
+        <div class="statCard__top">
+          <div class="kpi__label">Продуктивный месяц</div>
+          <div class="statCard__badge" id="bestMonthBadge">—</div>
+        </div>
+        <div class="kpi__value" id="bestMonthRecord">0</div>
+        <div class="kpi__hint" id="bestMonthRecordHint">—</div>
+        <div class="statCard__league" id="bestMonthLeague"></div>
+        <div class="statCard__chips" id="bestMonthBreakdown"></div>
       </div>
     </div>
 

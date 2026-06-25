@@ -47,10 +47,11 @@
 <div id="pageSelector" class="pageSelector hidden">
     <div class="selectorCard">
       <h2>Выберите раздел</h2>
-      <p>Откройте O1 или MCC. Компании доступны в верхней панели.</p>
+      <p>Откройте O1, MCC или Доп.Работу. Компании доступны в верхней панели.</p>
       <div class="selectorBtns">
         <button class="btn btnPrimary" onclick="choosePage('O1')">O1</button>
         <button class="btn" onclick="choosePage('MCC')">MCC</button>
+        <button class="btn" onclick="choosePage('EXTRA')">Доп.Работа</button>
       </div>
     </div>
   </div>
@@ -101,6 +102,7 @@
             <select id="pageSwitchO1" class="pageSwitch" aria-label="Переключение страницы">
               <option value="O1">O1</option>
               <option value="MCC">MCC</option>
+              <option value="EXTRA">Доп.Работа</option>
             </select>
           </div>
         </div>
@@ -221,6 +223,7 @@
             <select id="pageSwitchMcc" class="pageSwitch" aria-label="Переключение страницы">
               <option value="O1">O1</option>
               <option value="MCC">MCC</option>
+              <option value="EXTRA">Доп.Работа</option>
             </select>
           </div>
         </div>
@@ -296,6 +299,47 @@
     </div>
   </div>
 
+  <div id="pageExtra" class="pageRoot">
+    <div class="fixedHeader" id="fixedHeaderExtra">
+      <div class="fixedHeaderInner">
+        <div class="fhTop">
+          <div class="fhMeta">Доп.Работа</div>
+          <div class="fhRight">
+            <select id="pageSwitchExtra" class="pageSwitch" aria-label="Переключение страницы">
+              <option value="O1">O1</option>
+              <option value="MCC">MCC</option>
+              <option value="EXTRA">Доп.Работа</option>
+            </select>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div id="mainScrollExtra">
+      <div class="wrap extraWorkWrap">
+        <div class="panel extraWorkPanel">
+          <h3>Доп.Работа</h3>
+          <div class="extraWorkGrid">
+            <button class="extraWorkCard" type="button" data-extra-type="drafts">
+              <span class="extraWorkCard__title">Черновики MCC</span>
+              <span class="extraWorkCard__value" id="extraDraftsValue">0</span>
+              <span class="extraWorkCard__meta">10 поинтов за черновик</span>
+            </button>
+            <button class="extraWorkCard" type="button" data-extra-type="okto">
+              <span class="extraWorkCard__title">Профили Okto</span>
+              <span class="extraWorkCard__value" id="extraOktoValue">0</span>
+              <span class="extraWorkCard__meta">10 поинтов за профиль</span>
+            </button>
+            <button class="extraWorkCard" type="button" data-extra-type="numbers">
+              <span class="extraWorkCard__title">Старые/номера</span>
+              <span class="extraWorkCard__value" id="extraNumbersValue">0</span>
+              <span class="extraWorkCard__meta">15 поинтов за номер</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div id="pageCompany" class="pageRoot">
     <div class="fixedHeader" id="fixedHeaderCompany">
       <div class="fixedHeaderInner">
@@ -324,6 +368,30 @@
   </div>
 
   <div id="toast" class="toast"></div>
+  <div id="extraKeypad" class="extraKeypad hidden" aria-hidden="true">
+    <div class="extraKeypad__panel">
+      <div class="extraKeypad__top">
+        <div class="extraKeypad__title" id="extraKeypadTitle">Доп.Работа</div>
+        <button class="extraKeypad__close" type="button" data-extra-key="close" aria-label="Закрыть">×</button>
+      </div>
+      <div class="extraKeypad__display" id="extraKeypadDisplay">0</div>
+      <div class="extraKeypad__keys">
+        <button type="button" data-extra-key="1">1</button>
+        <button type="button" data-extra-key="2">2</button>
+        <button type="button" data-extra-key="3">3</button>
+        <button type="button" data-extra-key="4">4</button>
+        <button type="button" data-extra-key="5">5</button>
+        <button type="button" data-extra-key="6">6</button>
+        <button type="button" data-extra-key="7">7</button>
+        <button type="button" data-extra-key="8">8</button>
+        <button type="button" data-extra-key="9">9</button>
+        <button type="button" data-extra-key="minus">−</button>
+        <button type="button" data-extra-key="0">0</button>
+        <button type="button" data-extra-key="backspace">⌫</button>
+      </div>
+      <button class="extraKeypad__submit" type="button" data-extra-key="submit">Внести</button>
+    </div>
+  </div>
   <div id="pointsHud" class="pointsHud hidden" aria-live="polite">
     <div id="pointsFly" class="pointsFly"></div>
     <div id="pointsToday" class="pointsToday">0</div>

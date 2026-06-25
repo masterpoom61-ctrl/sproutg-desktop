@@ -32,11 +32,24 @@ function setTopbarTheme(theme){
   __themeSwitchTimer = setTimeout(() => document.documentElement.classList.remove('theme-switching'), 140);
 }
 
+let desktopSettings = { smsService: 'smspool' };
 function applyDesktopSettings(settings = {}){
+  const prevSmsService = desktopSettings.smsService || 'smspool';
+  desktopSettings = { ...desktopSettings, ...(settings || {}) };
+  desktopSettings.smsService = desktopSettings.smsService === 'herosms' ? 'herosms' : 'smspool';
   if (settings.theme) setTopbarTheme(settings.theme);
   document.documentElement.dataset.graphics = settings.graphicsMode === 'lite' ? 'lite' : 'ultra';
   document.documentElement.dataset.contrast = settings.contrastMode ? 'on' : 'off';
   document.documentElement.dataset.zjk = settings.classicTrafficLights ? 'on' : 'off';
+  if(prevSmsService !== desktopSettings.smsService){
+    try{
+      document.querySelectorAll('.smsServiceTitle').forEach((el)=>{ el.textContent = desktopSettings.smsService === 'herosms' ? 'HeroSMS' : 'SMSPool'; });
+      if(typeof stopSmsPool === 'function' && typeof smsPoolInit === 'function' && typeof current !== 'undefined' && current?.row){
+        stopSmsPool();
+        smsPoolInit({ preserve:false });
+      }
+    }catch(e){}
+  }
 }
 
 window.sproutg.onThemeColors((p) => {
@@ -55,7 +68,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
   applyDesktopSettings(s || { theme: 'dark-classic' });
 })();
 
-  const APP_VERSION = '2.1.4';
+  const APP_VERSION = '2.1.5';
   const PAGE_KEY = 'FarmA.page';
   const HOME_RETURN_KEY = 'FarmA.homeReturnPage';
   const THEME_KEY = 'sproutg.theme';
@@ -98,6 +111,13 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     codeValue: '',
     elements: null
   };
+  const EXTRA_WORK_TYPES = {
+    drafts: { title: 'Черновики MCC', workType: 'Черновики MCC', unit: 'черновик', points: 10, valueId: 'extraDraftsValue' },
+    okto: { title: 'Профили Okto', workType: 'Профиль Okto', unit: 'профиль', points: 10, valueId: 'extraOktoValue' },
+    numbers: { title: 'Старые/номера', workType: 'Номер', unit: 'номер', points: 15, valueId: 'extraNumbersValue' }
+  };
+  const extraWorkTotals = { drafts: 0, okto: 0, numbers: 0 };
+  let extraKeypadState = { type: '', raw: '' };
 
   let activePage = '';
   let homeReturnPage = '';
@@ -322,6 +342,9 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
   const O1_WORK_GROUPS = ['Ads Видео', 'Платежка', 'Речек'];
   const O1_GROUP_DATE_COL = { 'Ads Видео':'AQ', 'Платежка':'BC', 'Речек':'BQ' };
   const O1_GROUP_DONE_COL = { 'Ads Видео':'AZ', 'Платежка':'BI', 'Речек':'BW' };
+  const O1_LABEL_OVERRIDES = {
+    AA:'Резервная Почта'
+  };
   const MCC_LABEL_OVERRIDES = {
     G:'Карта',
     H:'БИН',
@@ -341,6 +364,11 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     AO:'Аутентификатор'
   };
 
+  function o1LabelForField(f){
+    const col = String(f?.col || '').toUpperCase();
+    return O1_LABEL_OVERRIDES[col] || ((f?.label && String(f.label).trim()) ? f.label : col);
+  }
+
   document.getElementById('profile').addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ e.preventDefault(); search(); }});
   document.getElementById('fltText').addEventListener('input', ()=>{ renderFilterList(); updateHeaderNav(); });
   document.getElementById('profilePill').addEventListener('click', async ()=>{ if(current?.profileName) await copyText(current.profileName); });
@@ -352,6 +380,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     if(mccProfile?.profileName) await copyText(mccProfile.profileName);
   });
   document.getElementById('pageSwitchMcc').addEventListener('change', (e)=>setActivePage(e.target.value));
+  document.getElementById('pageSwitchExtra')?.addEventListener('change', (e)=>setActivePage(e.target.value));
   document.getElementById('pageSwitchCompany')?.addEventListener('change', (e)=>setActivePage(e.target.value));
   document.getElementById('companyAddBtn')?.addEventListener('click', ()=>openCompanyForm());
   document.getElementById('companySubmitBtn')?.addEventListener('click', ()=>submitCompanyForm());
@@ -373,6 +402,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     setupWheelTabScroll();
     setupElasticScrollers();
     setupPointsHud();
+    setupExtraWork();
     loadMccProfileTabsFromStorage();
     loadMccProfileCacheFromStorage();
     renderMccProfileTabsSelect();
@@ -407,7 +437,13 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     return getVisibleScrollerByIds(['mainScrollMcc', 'mccScroll', 'mccOutScroll']);
   }
 
+  function getExtraScroller_(){
+    return getVisibleScrollerByIds(['mainScrollExtra']);
+  }
+
   function getActiveSproutScroller_(){
+    const extra = getExtraScroller_();
+    if(extra && document.body.contains(extra) && extra.clientHeight > 0) return extra;
     const mcc = getMccScroller_();
     if(mcc && document.body.contains(mcc) && mcc.clientHeight > 0) return mcc;
     const o1 = getO1Scroller_();
@@ -422,6 +458,9 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
         row: mccProfile && mccProfile.profileRow ? String(mccProfile.profileRow.row || mccProfile.profileRow) : '',
         profile: mccProfile && mccProfile.profileName ? String(mccProfile.profileName) : ''
       };
+    }
+    if(typeof activePage !== 'undefined' && activePage === 'EXTRA'){
+      return { page: 'EXTRA', row: '', profile: '' };
     }
     if(typeof current !== 'undefined' && current){
       return {
@@ -554,6 +593,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
   function getActiveHeaderWrapper(){
     if(activePage === 'MCC') return document.getElementById('fixedHeaderMcc');
     if(activePage === 'COMPANY') return document.getElementById('fixedHeaderCompany');
+    if(activePage === 'EXTRA') return document.getElementById('fixedHeaderExtra');
     return document.getElementById('fixedHeaderO1');
   }
 
@@ -570,9 +610,11 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     const o1 = document.getElementById('fixedHeaderO1');
     const mcc = document.getElementById('fixedHeaderMcc');
     const company = document.getElementById('fixedHeaderCompany');
+    const extra = document.getElementById('fixedHeaderExtra');
     if(o1) observer.observe(o1);
     if(mcc) observer.observe(mcc);
     if(company) observer.observe(company);
+    if(extra) observer.observe(extra);
   }
 
   function choosePage(page){
@@ -580,7 +622,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
   }
 
   function showHomeScreen(opts = {}){
-    if(opts.remember && (activePage === 'O1' || activePage === 'MCC')){
+    if(opts.remember && (activePage === 'O1' || activePage === 'MCC' || activePage === 'EXTRA')){
       homeReturnPage = activePage;
       try{ localStorage.setItem(HOME_RETURN_KEY, activePage); }catch(e){}
     }
@@ -601,20 +643,22 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
       return;
     }
     const saved = homeReturnPage || localStorage.getItem(HOME_RETURN_KEY) || localStorage.getItem(PAGE_KEY) || 'O1';
-    const next = (saved === 'O1' || saved === 'MCC') ? saved : 'O1';
+    const next = (saved === 'O1' || saved === 'MCC' || saved === 'EXTRA') ? saved : 'O1';
     setActivePage(next, { persist:true, hideSelector:true });
   }
 
   function setActivePage(page, opts = {}){
-    const next = (page === 'MCC') ? 'MCC' : (page === 'COMPANY' ? 'COMPANY' : 'O1');
+    const next = (page === 'MCC') ? 'MCC' : (page === 'COMPANY' ? 'COMPANY' : (page === 'EXTRA' ? 'EXTRA' : 'O1'));
     activePage = next;
 
     const o1 = document.getElementById('pageO1');
     const mcc = document.getElementById('pageMcc');
     const company = document.getElementById('pageCompany');
+    const extra = document.getElementById('pageExtra');
     if(o1) o1.classList.toggle('active', next === 'O1');
     if(mcc) mcc.classList.toggle('active', next === 'MCC');
     if(company) company.classList.toggle('active', next === 'COMPANY');
+    if(extra) extra.classList.toggle('active', next === 'EXTRA');
 
     updatePageSwitchers(next);
     if(opts.persist) localStorage.setItem(PAGE_KEY, next);
@@ -637,15 +681,17 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
   function updatePageSwitchers(page){
     const swO1 = document.getElementById('pageSwitchO1');
     const swMcc = document.getElementById('pageSwitchMcc');
+    const swExtra = document.getElementById('pageSwitchExtra');
     const swCompany = document.getElementById('pageSwitchCompany');
     if(swO1) swO1.value = page;
     if(swMcc) swMcc.value = page;
+    if(swExtra) swExtra.value = page;
     if(swCompany) swCompany.value = page;
   }
 
   function initPageSelection(){
     const saved = localStorage.getItem(PAGE_KEY);
-    if(saved === 'O1' || saved === 'MCC'){
+    if(saved === 'O1' || saved === 'MCC' || saved === 'EXTRA'){
       setActivePage(saved, { persist:false, hideSelector:true });
     } else {
       showHomeScreen();
@@ -683,7 +729,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
   }
 
   function applyPanelCollapseStates(page){
-    if(page === 'COMPANY') return;
+    if(page === 'COMPANY' || page === 'EXTRA') return;
     const root = page === 'MCC' ? document.getElementById('pageMcc') : document.getElementById('pageO1');
     if(!root) return;
     root.querySelectorAll('.panelCollapsible[data-panel-key]').forEach((panel)=>{
@@ -722,7 +768,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
       mccBtn.disabled = !mccProfile;
     }
     const hud = document.getElementById('pointsHud');
-    if(hud && activePage !== 'O1' && activePage !== 'MCC') hud.classList.add('hidden');
+    if(hud && activePage !== 'O1' && activePage !== 'MCC' && activePage !== 'EXTRA') hud.classList.add('hidden');
   }
 
   function bindHorizontalWheel(el){
@@ -779,6 +825,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     setupElasticScroller(document.getElementById('mainScrollO1'), document.querySelector('#mainScrollO1 .wrap'));
     setupElasticScroller(document.getElementById('mainScrollMcc'), document.querySelector('#mainScrollMcc .wrap'));
     setupElasticScroller(document.getElementById('mainScrollCompany'), document.querySelector('#mainScrollCompany .wrap'));
+    setupElasticScroller(document.getElementById('mainScrollExtra'), document.querySelector('#mainScrollExtra .wrap'));
   }
 
   function runProfileReveal(shell){
@@ -804,7 +851,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     if(!hud || !total) return;
     const today = points?.days?.[localDateKey()]?.total || 0;
     total.textContent = `${today}`;
-    const visiblePage = activePage === 'O1' || activePage === 'MCC';
+    const visiblePage = activePage === 'O1' || activePage === 'MCC' || activePage === 'EXTRA';
     if(opts.show && visiblePage){
       hud.classList.remove('hidden');
       clearTimeout(pointsHudHideTimer);
@@ -835,6 +882,118 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
       if(payload?.dayKey === localDateKey()) renderPointsHud({ days:{ [payload.dayKey]:{ total: payload.todayTotal || 0 } } }, { show: Number(payload?.delta || 0) !== 0 });
       animatePointsDelta(payload?.delta, payload?.todayTotal);
     });
+  }
+
+  function extraWorkDisplayValue(){
+    const raw = String(extraKeypadState.raw || '');
+    if(!raw || raw === '-') return raw || '0';
+    return raw;
+  }
+
+  function syncExtraKeypadDisplay(){
+    const display = document.getElementById('extraKeypadDisplay');
+    if(display) display.textContent = extraWorkDisplayValue();
+  }
+
+  function updateExtraWorkTotals(){
+    for(const [key, cfg] of Object.entries(EXTRA_WORK_TYPES)){
+      const el = document.getElementById(cfg.valueId);
+      if(el) el.textContent = String(extraWorkTotals[key] || 0);
+    }
+  }
+
+  function openExtraKeypad(type){
+    const cfg = EXTRA_WORK_TYPES[type];
+    if(!cfg) return;
+    extraKeypadState = { type, raw: '' };
+    const keypad = document.getElementById('extraKeypad');
+    const title = document.getElementById('extraKeypadTitle');
+    if(title) title.textContent = cfg.title;
+    syncExtraKeypadDisplay();
+    if(keypad){
+      keypad.classList.remove('hidden');
+      keypad.setAttribute('aria-hidden', 'false');
+    }
+  }
+
+  function closeExtraKeypad(){
+    const keypad = document.getElementById('extraKeypad');
+    if(keypad){
+      keypad.classList.add('hidden');
+      keypad.setAttribute('aria-hidden', 'true');
+    }
+    extraKeypadState = { type: '', raw: '' };
+  }
+
+  function submitExtraWork(){
+    const cfg = EXTRA_WORK_TYPES[extraKeypadState.type];
+    if(!cfg) return;
+    const count = Number(extraKeypadState.raw || 0);
+    if(!Number.isFinite(count) || count === 0){
+      closeExtraKeypad();
+      return;
+    }
+    const deltaPoints = count * cfg.points;
+    extraWorkTotals[extraKeypadState.type] = Number(extraWorkTotals[extraKeypadState.type] || 0) + count;
+    updateExtraWorkTotals();
+    sproutgPostToDesktop('POINT_EVENT', {
+      kind: 'extra-work',
+      page: 'EXTRA',
+      group: cfg.title,
+      workType: cfg.workType,
+      key: cfg.workType,
+      count,
+      deltaClicks: count,
+      deltaPoints,
+      delta: deltaPoints,
+      ts: Date.now()
+    });
+    toast(`${count > 0 ? '+' : ''}${count} ${cfg.unit}`);
+    closeExtraKeypad();
+  }
+
+  function handleExtraKey(key){
+    if(!key) return;
+    if(key === 'close') return closeExtraKeypad();
+    if(key === 'submit') return submitExtraWork();
+    if(key === 'backspace'){
+      extraKeypadState.raw = String(extraKeypadState.raw || '').slice(0, -1);
+      syncExtraKeypadDisplay();
+      return;
+    }
+    if(key === 'minus'){
+      const raw = String(extraKeypadState.raw || '');
+      extraKeypadState.raw = raw.startsWith('-') ? raw.slice(1) : `-${raw}`;
+      syncExtraKeypadDisplay();
+      return;
+    }
+    if(/^\d$/.test(key)){
+      const raw = String(extraKeypadState.raw || '');
+      const sign = raw.startsWith('-') ? '-' : '';
+      const digits = raw.replace(/^-/, '');
+      const nextDigits = (digits === '0' ? key : digits + key).slice(0, 5);
+      extraKeypadState.raw = sign + nextDigits;
+      syncExtraKeypadDisplay();
+    }
+  }
+
+  function setupExtraWork(){
+    document.querySelectorAll('[data-extra-type]').forEach((card)=>{
+      if(card.dataset.bound) return;
+      card.dataset.bound = '1';
+      card.addEventListener('click', ()=>openExtraKeypad(card.dataset.extraType));
+    });
+    const keypad = document.getElementById('extraKeypad');
+    if(keypad && !keypad.dataset.bound){
+      keypad.dataset.bound = '1';
+      keypad.addEventListener('click', (event)=>{
+        const keyBtn = event.target.closest('[data-extra-key]');
+        if(!keyBtn) return;
+        event.preventDefault();
+        handleExtraKey(keyBtn.dataset.extraKey);
+      });
+    }
+    updateExtraWorkTotals();
   }
 
   function scrollTabs(dir){
@@ -2803,9 +2962,39 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     };
   }
 
+  function smsServiceKey(){
+    return desktopSettings?.smsService === 'herosms' ? 'herosms' : 'smspool';
+  }
+
+  function smsServiceLabel(){
+    return smsServiceKey() === 'herosms' ? 'HeroSMS' : 'SMSPool';
+  }
+
+  function smsStateKey(row){
+    return `${smsServiceKey()}:${String(row || '')}`;
+  }
+
+  function smsApiMethod(action){
+    const hero = smsServiceKey() === 'herosms';
+    const prefix = hero ? 'heroSms' : 'smsPool';
+    return `${prefix}${action}O1`;
+  }
+
+  function smsRun(action, args, onSuccess, onFailure){
+    const method = smsApiMethod(action);
+    const runner = google.script.run
+      .withSuccessHandler(onSuccess)
+      .withFailureHandler(onFailure || ((err)=>toast(String(err))));
+    if(typeof runner[method] !== 'function'){
+      toast(`${smsServiceLabel()}: метод недоступен`);
+      return;
+    }
+    runner[method](...(Array.isArray(args) ? args : []));
+  }
+
   function smsPoolStoreState(row){
     if(!row) return;
-    smsPoolProfileStates.set(String(row), {
+    smsPoolProfileStates.set(smsStateKey(row), {
       activeOrder: smsPoolUIState.activeOrder,
       balanceLastTs: smsPoolUIState.balanceLastTs,
       balanceText: smsPoolUIState.balanceText,
@@ -2818,7 +3007,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
 
   function smsPoolLoadState(row){
     const base = smsPoolDefaultState();
-    const stored = smsPoolProfileStates.get(String(row));
+    const stored = smsPoolProfileStates.get(smsStateKey(row));
     const next = stored ? { ...base, ...stored } : base;
     smsPoolUIState.profileRow = row;
     smsPoolUIState.activeOrder = next.activeOrder;
@@ -2832,9 +3021,11 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
 
   function smsPoolFindOrderRow(orderId){
     if(!orderId) return '';
-    for(const [row, state] of smsPoolProfileStates.entries()){
+    const prefix = `${smsServiceKey()}:`;
+    for(const [rowKey, state] of smsPoolProfileStates.entries()){
+      if(!String(rowKey).startsWith(prefix)) continue;
       const storedId = state?.activeOrder?.order_id;
-      if(storedId && String(storedId) === String(orderId)) return row;
+      if(storedId && String(storedId) === String(orderId)) return String(rowKey).slice(prefix.length);
     }
     return '';
   }
@@ -2983,13 +3174,13 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     const card = document.createElement('div');
     card.className = 'card';
     card.dataset.group = 'SMSPool';
-    card.dataset.section = 'SMSPool';
-    card.innerHTML = `
-      <div class="title">
-        <h3>SMSPool • One-time</h3>
-        <div class="meta2">
-          <button class="btn btnPrimary smsPoolOrderBtn" type="button">Заказать номер</button>
-          <button class="btn smsPoolRefundBtn" type="button" disabled>Refund</button>
+      card.dataset.section = 'SMSPool';
+      card.innerHTML = `
+        <div class="title">
+          <h3><span class="smsServiceTitle">${smsServiceLabel()}</span> • One-time</h3>
+          <div class="meta2">
+            <button class="btn btnPrimary smsPoolOrderBtn" type="button">Заказать номер</button>
+            <button class="btn smsPoolRefundBtn" type="button" disabled>Refund</button>
         </div>
       </div>
       <div class="field">
@@ -3110,22 +3301,24 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
   function smsPoolExtractGoogleCode(text){
     const raw = String(text || '');
     const match = raw.match(/G-\s*(\d{6})/i);
-    return match ? match[1] : '';
+    if(match) return match[1];
+    const plain = raw.match(/(?:^|\D)(\d{6})(?:\D|$)/);
+    return plain ? plain[1] : '';
   }
 
   function smsPoolUpdateBalance(opts = {}){
     const now = Date.now();
     if(!opts.force && now - smsPoolUIState.balanceLastTs < 20000) return;
     smsPoolUIState.balanceLastTs = now;
-    google.script.run.withSuccessHandler(res=>{
+    smsRun('Balance', [], (res)=>{
       if(!res || res.ok === false){
         smsPoolRenderBalance(smsPoolUIState.balanceText || '—');
         return;
       }
       smsPoolRenderBalance(res.balance);
-    }).withFailureHandler(()=>{
+    }, ()=>{
       smsPoolRenderBalance(smsPoolUIState.balanceText || '—');
-    }).smspoolBalanceO1();
+    });
   }
 
   function smsPoolStartBalancePoll(){
@@ -3145,8 +3338,8 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     if(smsPoolUIState.apFillPending) return;
     const existing = getO1FieldValue(current, 'AP');
     if(existing) return;
-    const normalizedNumber = String(order.number || '').trim().replace(/\s+/g, '');
-    const apValue = normalizedNumber.slice(2);
+    const digits = String(order.number || '').replace(/[^\d]/g, '');
+    const apValue = digits.length === 11 && digits.startsWith('1') ? digits.slice(1) : digits;
     if(!apValue) return;
 
     smsPoolUIState.apFillPending = true;
@@ -3242,7 +3435,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     const el = smsPoolUIState.elements;
     if(!order || !el) return;
     const profileRow = smsPoolUIState.profileRow;
-    google.script.run.withSuccessHandler(res=>{
+    smsRun('Check', [order.order_id], (res)=>{
       if(!profileRow || smsPoolUIState.profileRow !== profileRow || String(current?.row || '') !== String(profileRow)) return;
       if(!res || res.ok === false){
         el.code.textContent = res?.error || 'Ошибка проверки';
@@ -3266,9 +3459,9 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
       } else {
         smsPoolSetCodeDisplay('', 'Ожидание…');
       }
-    }).withFailureHandler(err=>{
+    }, (err)=>{
       smsPoolSetCodeDisplay('', String(err));
-    }).smspoolCheckO1(order.order_id);
+    });
   }
 
   function smsPoolStartPoll(){
@@ -3318,7 +3511,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
       return;
     }
 
-    google.script.run.withSuccessHandler(res=>{
+    smsRun('GetState', [], (res)=>{
       if(!res || res.ok === false){
         smsPoolSetCodeDisplay('', res?.error || 'Ошибка загрузки');
         return;
@@ -3341,9 +3534,9 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
       smsPoolRenderActive();
       smsPoolStartCountdown();
       smsPoolStartPoll();
-    }).withFailureHandler(err=>{
+    }, (err)=>{
       smsPoolSetCodeDisplay('', String(err));
-    }).smspoolGetStateO1();
+    });
   }
 
   function smsPoolOrder(){
@@ -3351,7 +3544,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     if(!el) return;
     smsPoolSetOrderLoading(true);
     el.code.textContent = 'Заказ…';
-    google.script.run.withSuccessHandler(res=>{
+    smsRun('Order', [], (res)=>{
       smsPoolSetOrderLoading(false);
       if(!res || res.ok === false){
         smsPoolSetCodeDisplay('', res?.error || 'Ошибка заказа');
@@ -3368,10 +3561,10 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
       smsPoolStartCountdown();
       smsPoolStartPoll();
       smsPoolUpdateBalance({ force:true });
-    }).withFailureHandler(err=>{
+    }, (err)=>{
       smsPoolSetOrderLoading(false);
       smsPoolSetCodeDisplay('', String(err));
-    }).smspoolOrderO1();
+    });
   }
 
   function smsPoolRefund(){
@@ -3380,7 +3573,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     if(!el || !order) return;
     if(!confirm('Отменить номер и вернуть средства?')) return;
     el.refundBtn.disabled = true;
-    google.script.run.withSuccessHandler(res=>{
+    smsRun('Refund', [order.order_id], (res)=>{
       if(!res || res.ok === false){
         el.refundBtn.disabled = false;
         toast(res?.error || 'Ошибка Refund');
@@ -3393,10 +3586,10 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
       toast('Refund выполнен');
       smsPoolStartBalancePoll();
       smsPoolUpdateBalance({ force:true });
-    }).withFailureHandler(err=>{
+    }, (err)=>{
       el.refundBtn.disabled = false;
       toast(String(err));
-    }).smspoolRefundO1(order.order_id);
+    });
   }
 
   // ---------- BAN button color class ----------
@@ -3573,7 +3766,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
 
         const label=document.createElement('div');
         label.className='label';
-        label.textContent=(f.label && String(f.label).trim()) ? f.label : f.col;
+        label.textContent=o1LabelForField(f);
         label.title=`${f.col} • ${f.label || ''}`.trim();
 
         const actions=document.createElement('div');

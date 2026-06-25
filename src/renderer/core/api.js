@@ -37,7 +37,12 @@
     smspoolCheckO1: { action: 'smspool.checkO1', payload: ([orderId]) => ({ orderId }) },
     smspoolRefundO1: { action: 'smspool.refundO1', payload: ([orderId]) => ({ orderId }) },
     smspoolGetStateO1: { action: 'smspool.stateO1', payload: () => ({}) },
-    smspoolBalanceO1: { action: 'smspool.balanceO1', payload: () => ({}) }
+    smspoolBalanceO1: { action: 'smspool.balanceO1', payload: () => ({}) },
+    heroSmsOrderO1: { action: 'herosms.orderO1', payload: () => ({}) },
+    heroSmsCheckO1: { action: 'herosms.checkO1', payload: ([orderId]) => ({ orderId }) },
+    heroSmsRefundO1: { action: 'herosms.refundO1', payload: ([orderId]) => ({ orderId }) },
+    heroSmsGetStateO1: { action: 'herosms.stateO1', payload: () => ({}) },
+    heroSmsBalanceO1: { action: 'herosms.balanceO1', payload: () => ({}) }
   };
 
   const readCache = new Map();
@@ -51,7 +56,8 @@
     'o1.profileByName', 'o1.profileByRow', 'o1.profilesByRows', 'o1.appealRow', 'o1.lists', 'o1.workLists', 'o1.groupDateList', 'o1.cleanupList',
     'mcc.profile', 'mcc.overview', 'mcc.lists', 'mcc.stageList', 'mcc.workList', 'mcc.verificationPools',
     'apell.index', 'pass.lookupFios', 'company.formMeta', 'company.checkDuplicate',
-    'smspool.checkO1', 'smspool.stateO1', 'smspool.balanceO1'
+    'smspool.checkO1', 'smspool.stateO1', 'smspool.balanceO1',
+    'herosms.checkO1', 'herosms.stateO1', 'herosms.balanceO1'
   ]);
 
   function cacheKey(action, payload) {
@@ -202,7 +208,12 @@
     smsPoolCheckO1: (orderId) => callApi('smspool.checkO1', { orderId }, { cache: false }),
     smsPoolRefundO1: (orderId) => callApi('smspool.refundO1', { orderId }, { cache: false }),
     smsPoolGetStateO1: () => callApi('smspool.stateO1', {}, { cache: false }),
-    smsPoolBalanceO1: () => callApi('smspool.balanceO1', {})
+    smsPoolBalanceO1: () => callApi('smspool.balanceO1', {}),
+    heroSmsOrderO1: () => callApi('herosms.orderO1', {}, { cache: false }),
+    heroSmsCheckO1: (orderId) => callApi('herosms.checkO1', { orderId }, { cache: false }),
+    heroSmsRefundO1: (orderId) => callApi('herosms.refundO1', { orderId }, { cache: false }),
+    heroSmsGetStateO1: () => callApi('herosms.stateO1', {}, { cache: false }),
+    heroSmsBalanceO1: () => callApi('herosms.balanceO1', {})
   };
 
   window.google = window.google || {};

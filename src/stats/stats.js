@@ -8,6 +8,26 @@ const elMonthRecord = $('monthRecord');
 const elMonthRecordHint = $('monthRecordHint');
 const elMonthAvg = $('monthAvg');
 const elMonthAvgHint = $('monthAvgHint');
+const elTodayBreakdown = $('todayBreakdown');
+const elMonthBreakdown = $('monthBreakdown');
+const elDayRecordBreakdown = $('dayRecordBreakdown');
+const elAvgBreakdown = $('avgBreakdown');
+const elWeekRecord = $('weekRecord');
+const elWeekRecordHint = $('weekRecordHint');
+const elWeekRecordBreakdown = $('weekRecordBreakdown');
+const elBestMonthRecord = $('bestMonthRecord');
+const elBestMonthRecordHint = $('bestMonthRecordHint');
+const elBestMonthBreakdown = $('bestMonthBreakdown');
+const cardDayRecord = $('cardDayRecord');
+const cardWeekRecord = $('cardWeekRecord');
+const cardBestMonth = $('cardBestMonth');
+const dayRecordBadge = $('dayRecordBadge');
+const weekRecordBadge = $('weekRecordBadge');
+const bestMonthBadge = $('bestMonthBadge');
+const dayRecordLeague = $('dayRecordLeague');
+const weekRecordLeague = $('weekRecordLeague');
+const bestMonthLeague = $('bestMonthLeague');
+const monthProgress = $('monthProgress');
 
 const weekCanvas = $('weekChart');
 const weekTooltip = $('weekTooltip');
@@ -355,6 +375,9 @@ const WORK_LABELS = {
   'Апелляции O1': 'Апелляции O1',
   'Апелляции MCC': 'Апелляции MCC',
   'Мини (O1+MCC)': 'Мини',
+  'Черновики MCC': 'Черновики',
+  'Профиль Okto': 'Okto',
+  'Номер': 'Номера',
 };
 function labelForType(t){
   return WORK_LABELS[t] || String(t||'').replace(/\s*\([^)]*\)\s*/g,'').trim();
@@ -371,6 +394,9 @@ const WORK_TYPES = [
   'Верификации (O1+MCC)',
   'Апелляции O1',
   'Апелляции MCC',
+  'Черновики MCC',
+  'Профиль Okto',
+  'Номер',
 ];
 
 const WORK_COLORS = {
@@ -410,6 +436,205 @@ function getWorkColors(){
     'РђРїРµР»Р»СЏС†РёРё MCC': [hexToRgba(p.b,0.50), hexToRgba(p.b,0.08)],
     'РњРёРЅРё (O1+MCC)': [hexToRgba(p.c,0.50), hexToRgba(p.c,0.08)]
   };
+}
+
+const LEAGUE_LEVELS = [
+  { key:'none', name:'Без лиги', short:'Нет', icon:'·', colorVar:'--muted2' },
+  { key:'bronze', name:'Бронза', short:'BRZ', icon:'🥉', colorVar:'--chartC' },
+  { key:'silver', name:'Серебро', short:'SLV', icon:'🥈', colorVar:'--chartA' },
+  { key:'gold', name:'Золото', short:'GLD', icon:'👑', colorVar:'--chartB' },
+  { key:'diamond', name:'Алмаз', short:'DIA', icon:'💎', colorVar:'--chartD' },
+  { key:'legendary', name:'Легендарно', short:'LEG', icon:'🏆', colorVar:'--chartC' }
+];
+const LEAGUE_BY_KEY = LEAGUE_LEVELS.reduce((acc, item) => {
+  acc[item.key] = item;
+  return acc;
+}, {});
+const DAY_LEAGUE_THRESHOLDS = { bronze:2500, silver:5000, gold:7500, diamond:10000, legendary:12500 };
+const WEEK_LEAGUE_THRESHOLDS = { bronze:10000, silver:15000, gold:25000, diamond:35000, legendary:50000 };
+const MONTH_LEAGUE_THRESHOLDS = { bronze:25000, silver:50000, gold:75000, diamond:100000, legendary:125000 };
+const COUNTED_LEAGUES = ['bronze','silver','gold','diamond','legendary'];
+
+function leagueForValue(value, thresholds){
+  const n = Number(value || 0);
+  if (n >= thresholds.legendary) return LEAGUE_BY_KEY.legendary;
+  if (n >= thresholds.diamond) return LEAGUE_BY_KEY.diamond;
+  if (n >= thresholds.gold) return LEAGUE_BY_KEY.gold;
+  if (n >= thresholds.silver) return LEAGUE_BY_KEY.silver;
+  if (n >= thresholds.bronze) return LEAGUE_BY_KEY.bronze;
+  return LEAGUE_BY_KEY.none;
+}
+
+function emptyLeagueCounter(){
+  return COUNTED_LEAGUES.reduce((acc, key) => {
+    acc[key] = 0;
+    return acc;
+  }, {});
+}
+
+function countLeague(counter, league){
+  const key = league?.key;
+  if (key && key !== 'none' && Object.prototype.hasOwnProperty.call(counter, key)) counter[key] += 1;
+}
+
+function mergeTypeCounts(keys, workDays){
+  const out = {};
+  for (const key of keys || []){
+    const byType = workDays?.[key]?.byType || {};
+    for (const [type, value] of Object.entries(byType)){
+      const n = Number(value || 0);
+      if (!n) continue;
+      out[type] = Number(out[type] || 0) + n;
+    }
+  }
+  return out;
+}
+
+function sumDays(keys, days){
+  return (keys || []).reduce((sum, key) => sum + Number(days?.[key]?.total || 0), 0);
+}
+
+function formatDayKey(key){
+  return key ? String(key).split('-').reverse().join('.') : '—';
+}
+
+function monthKeysFromDays(days){
+  const keys = new Set();
+  for (const dayKey of Object.keys(days || {})){
+    const monthKey = String(dayKey || '').slice(0, 7);
+    if (/^\d{4}-\d{2}$/.test(monthKey)) keys.add(monthKey);
+  }
+  return Array.from(keys).sort();
+}
+
+function keysForMonth(monthKey){
+  const [y, m] = String(monthKey || '').split('-').map(Number);
+  if (!y || !m) return [];
+  const dim = daysInMonth(y, m - 1);
+  const keys = [];
+  for (let day = 1; day <= dim; day++) keys.push(toDateKey(new Date(y, m - 1, day)));
+  return keys;
+}
+
+function buildWeekRecords(days, workDays){
+  const weekMap = new Map();
+  for (const key of Object.keys(days || {})){
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) continue;
+    const start = startOfWeekMonday(dateFromKey(key));
+    const startKey = toDateKey(start);
+    if (!weekMap.has(startKey)){
+      const keys = [];
+      for (let i = 0; i < 7; i++) keys.push(toDateKey(addDays(start, i)));
+      weekMap.set(startKey, {
+        startKey,
+        endKey: keys[6],
+        keys,
+        total: 0,
+        byType: {}
+      });
+    }
+  }
+  for (const record of weekMap.values()){
+    record.total = sumDays(record.keys, days);
+    record.byType = mergeTypeCounts(record.keys, workDays);
+  }
+  return Array.from(weekMap.values()).sort((a, b) => a.startKey.localeCompare(b.startKey));
+}
+
+function buildMonthRecords(days, workDays){
+  return monthKeysFromDays(days).map((monthKey) => {
+    const keys = keysForMonth(monthKey);
+    return {
+      monthKey,
+      keys,
+      total: sumDays(keys, days),
+      byType: mergeTypeCounts(keys, workDays)
+    };
+  });
+}
+
+function bestByTotal(items){
+  let best = null;
+  for (const item of items || []){
+    if (!best || Number(item.total || 0) > Number(best.total || 0)) best = item;
+  }
+  return best;
+}
+
+function buildLeagueCounters(days, weekRecords, monthRecords, selectedMonthKey){
+  const day = emptyLeagueCounter();
+  const week = emptyLeagueCounter();
+  const month = emptyLeagueCounter();
+  const selected = String(selectedMonthKey || monthKeyFromDate(new Date()));
+  for (const key of keysForMonth(selected)){
+    countLeague(day, leagueForValue(days?.[key]?.total || 0, DAY_LEAGUE_THRESHOLDS));
+  }
+  for (const record of weekRecords || []){
+    if (String(record.startKey || '').slice(0, 7) === selected) {
+      countLeague(week, leagueForValue(record.total, WEEK_LEAGUE_THRESHOLDS));
+    }
+  }
+  for (const record of monthRecords || []){
+    countLeague(month, leagueForValue(record.total, MONTH_LEAGUE_THRESHOLDS));
+  }
+  return { day, week, month };
+}
+
+function renderTypeChips(container, byType, limit = 4){
+  if (!container) return;
+  const colors = getWorkColors();
+  const rows = Object.entries(byType || {})
+    .map(([type, value]) => [type, Number(value || 0)])
+    .filter(([, value]) => value !== 0)
+    .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
+  container.innerHTML = '';
+  if (!rows.length){
+    const empty = document.createElement('span');
+    empty.className = 'statChip statChip--empty';
+    empty.textContent = 'нет данных';
+    container.appendChild(empty);
+    return;
+  }
+  const visible = rows.slice(0, limit);
+  for (const [type, value] of visible){
+    const chip = document.createElement('span');
+    chip.className = 'statChip';
+    chip.style.setProperty('--chip-accent', colors[type]?.[0] || 'var(--stat-accent)');
+    chip.textContent = `${labelForType(type)} ${value}`;
+    chip.title = type;
+    container.appendChild(chip);
+  }
+  if (rows.length > visible.length){
+    const more = document.createElement('span');
+    more.className = 'statChip statChip--more';
+    more.textContent = `+${rows.length - visible.length}`;
+    container.appendChild(more);
+  }
+}
+
+function applyLeagueCard(card, badge, leagueText, league, value, thresholds){
+  if (!card) return;
+  const next = league || leagueForValue(value, thresholds);
+  card.dataset.league = next.key;
+  card.style.setProperty('--stat-accent', `var(${next.colorVar})`);
+  if (badge) {
+    badge.textContent = next.icon;
+    badge.title = next.name;
+  }
+  if (leagueText) leagueText.textContent = `${next.name} · ${next.short}`;
+}
+
+function nextLeagueProgress(value, thresholds){
+  const n = Number(value || 0);
+  const ordered = [
+    thresholds.bronze,
+    thresholds.silver,
+    thresholds.gold,
+    thresholds.diamond,
+    thresholds.legendary
+  ].filter(Number.isFinite);
+  const next = ordered.find((threshold) => n < threshold) || ordered[ordered.length - 1] || 1;
+  return Math.max(0, Math.min(100, Math.round((n / next) * 100)));
 }
 
 function prepareClose(){
@@ -1097,6 +1322,7 @@ function renderWork(data){
 function render(points){
   __lastPoints = points;
   const days = points?.days || {};
+  const workDays = points?.workDays || {};
   bindPeriodNavigation();
   ensureMonthSelect(days);
   updatePeriodControls();
@@ -1106,6 +1332,7 @@ function render(points){
 
   elToday.textContent = String(today);
   elTodayHint.textContent = `${pad2(now.getHours())}:${pad2(now.getMinutes())} · 00:00–23:59`;
+  renderTypeChips(elTodayBreakdown, workDays?.[todayKey]?.byType || {}, 4);
 
   clampSelectedDay();
   const chartDayKey = selectedDayKey || todayKey;
@@ -1162,6 +1389,7 @@ function render(points){
     if (v > monthMax) { monthMax = v; monthMaxKey = k; }
   }
 
+  const monthTypeCounts = mergeTypeCounts(monthKeys, workDays);
 
 // global record (all-time), does NOT reset by month
 let recordMax = 0;
@@ -1174,15 +1402,69 @@ for (const [k,obj] of Object.entries(days || {})){
   }
 }
 
-  elMonthTotal.textContent = String(monthSum);
-  elMonthHint.textContent = `${pad2(m0+1)}.${y}`;
-  elMonthRecord.textContent = String(recordMax);
-  elMonthRecordHint.textContent = recordKey ? recordKey.split('-').reverse().join('.') : '—';
+  const weekRecords = buildWeekRecords(days, workDays);
+  const monthRecords = buildMonthRecords(days, workDays);
+  const bestWeek = bestByTotal(weekRecords);
+  const bestMonth = bestByTotal(monthRecords);
+  const leagueCounters = buildLeagueCounters(days, weekRecords, monthRecords, selected);
+  window.__statsLeagueCounters = {
+    dayLeague: leagueCounters.day,
+    weekLeague: leagueCounters.week,
+    monthLeague: leagueCounters.month,
+    thresholds: {
+      dayLeague: DAY_LEAGUE_THRESHOLDS,
+      weekLeague: WEEK_LEAGUE_THRESHOLDS,
+      monthLeague: MONTH_LEAGUE_THRESHOLDS
+    }
+  };
 
-  const elapsedDays = monthKeyFromDate(now) === selected ? now.getDate() : dim;
-  const avg = elapsedDays ? Math.round(monthSum / elapsedDays) : 0;
+  elMonthTotal.textContent = String(monthSum);
+  elMonthHint.textContent = monthLabel(selected);
+  renderTypeChips(elMonthBreakdown, monthTypeCounts, 4);
+  if (monthProgress?.firstElementChild) {
+    monthProgress.firstElementChild.style.width = `${nextLeagueProgress(monthSum, MONTH_LEAGUE_THRESHOLDS)}%`;
+  }
+  elMonthRecord.textContent = String(recordMax);
+  elMonthRecordHint.textContent = recordKey ? formatDayKey(recordKey) : '—';
+  renderTypeChips(elDayRecordBreakdown, recordKey ? workDays?.[recordKey]?.byType || {} : {}, 4);
+  applyLeagueCard(cardDayRecord, dayRecordBadge, dayRecordLeague, leagueForValue(recordMax, DAY_LEAGUE_THRESHOLDS), recordMax, DAY_LEAGUE_THRESHOLDS);
+
+  const activeDays = monthKeys.filter((key) => Number(days?.[key]?.total || 0) > 0).length;
+  const avg = activeDays ? Math.round(monthSum / activeDays) : 0;
+  const avgTypeCounts = {};
+  if (activeDays) {
+    for (const [type, value] of Object.entries(monthTypeCounts)) {
+      const avgValue = Math.round(Number(value || 0) / activeDays);
+      if (avgValue) avgTypeCounts[type] = avgValue;
+    }
+  }
   elMonthAvg.textContent = String(avg);
-  elMonthAvgHint.textContent = `за ${elapsedDays} дн.`;
+  elMonthAvgHint.textContent = `за ${activeDays} активн. дн.`;
+  renderTypeChips(elAvgBreakdown, avgTypeCounts, 4);
+
+  if (bestWeek) {
+    elWeekRecord.textContent = String(bestWeek.total || 0);
+    elWeekRecordHint.textContent = `${formatDayKey(bestWeek.startKey)} — ${formatDayKey(bestWeek.endKey)}`;
+    renderTypeChips(elWeekRecordBreakdown, bestWeek.byType || {}, 4);
+    applyLeagueCard(cardWeekRecord, weekRecordBadge, weekRecordLeague, leagueForValue(bestWeek.total, WEEK_LEAGUE_THRESHOLDS), bestWeek.total, WEEK_LEAGUE_THRESHOLDS);
+  } else {
+    elWeekRecord.textContent = '0';
+    elWeekRecordHint.textContent = '—';
+    renderTypeChips(elWeekRecordBreakdown, {}, 4);
+    applyLeagueCard(cardWeekRecord, weekRecordBadge, weekRecordLeague, LEAGUE_BY_KEY.none, 0, WEEK_LEAGUE_THRESHOLDS);
+  }
+
+  if (bestMonth) {
+    elBestMonthRecord.textContent = String(bestMonth.total || 0);
+    elBestMonthRecordHint.textContent = monthLabel(bestMonth.monthKey);
+    renderTypeChips(elBestMonthBreakdown, bestMonth.byType || {}, 4);
+    applyLeagueCard(cardBestMonth, bestMonthBadge, bestMonthLeague, leagueForValue(bestMonth.total, MONTH_LEAGUE_THRESHOLDS), bestMonth.total, MONTH_LEAGUE_THRESHOLDS);
+  } else {
+    elBestMonthRecord.textContent = '0';
+    elBestMonthRecordHint.textContent = '—';
+    renderTypeChips(elBestMonthBreakdown, {}, 4);
+    applyLeagueCard(cardBestMonth, bestMonthBadge, bestMonthLeague, LEAGUE_BY_KEY.none, 0, MONTH_LEAGUE_THRESHOLDS);
+  }
 
   const labels = monthValues.map((_,i)=> (i%5===0 ? String(i+1) : ''));
   const okMonth = drawBars(monthCanvas, labels, monthValues, {showMax:false});

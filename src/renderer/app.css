@@ -318,7 +318,8 @@ html[data-graphics="ultra"] .profileReveal{
     }
 
     #mainScrollO1,
-    #mainScrollMcc{
+    #mainScrollMcc,
+    #mainScrollExtra{
       position:fixed;left:0;right:0;bottom:0;top:0;
       overflow-y:auto;
       -webkit-overflow-scrolling:touch;
@@ -328,7 +329,8 @@ html[data-graphics="ultra"] .profileReveal{
       scroll-padding-top:var(--app-header-h, 0px);
     }
     #mainScrollO1::-webkit-scrollbar,
-    #mainScrollMcc::-webkit-scrollbar{width:0;height:0}
+    #mainScrollMcc::-webkit-scrollbar,
+    #mainScrollExtra::-webkit-scrollbar{width:0;height:0}
 
     .pageRoot{display:none;}
     .pageRoot.active{display:block;}
@@ -1073,7 +1075,7 @@ html[data-graphics="ultra"] .profileReveal{
     }
 
     .toast{
-      position:fixed;bottom:16px;left:50%;
+      position:fixed;bottom:72px;left:50%;
       background:var(--toast-bg);
       color:#fff;
       min-width:38px;
@@ -1176,10 +1178,15 @@ html[data-graphics="ultra"] .profileReveal{
       height:38px;
       padding:0;
       border-radius:999px;
-      font-size:12px;
+      font-size:14px;
+      font-weight:1000;
       display:flex;
       align-items:center;
       justify-content:center;
+      background:color-mix(in srgb, var(--surface-alt) 82%, transparent);
+      -webkit-backdrop-filter:blur(28px) saturate(1.25);
+      backdrop-filter:blur(28px) saturate(1.25);
+      box-shadow:0 12px 26px rgba(0,0,0,.20), inset 0 1px 0 rgba(255,255,255,.12);
     }
     .mccBottomBar{
       position:fixed;
@@ -1209,10 +1216,15 @@ html[data-graphics="ultra"] .profileReveal{
       height:38px;
       padding:0;
       border-radius:999px;
-      font-size:12px;
+      font-size:14px;
+      font-weight:1000;
       display:flex;
       align-items:center;
       justify-content:center;
+      background:color-mix(in srgb, var(--surface-alt) 82%, transparent);
+      -webkit-backdrop-filter:blur(28px) saturate(1.25);
+      backdrop-filter:blur(28px) saturate(1.25);
+      box-shadow:0 12px 26px rgba(0,0,0,.20), inset 0 1px 0 rgba(255,255,255,.12);
     }
     .mccTopBtn svg,
     .sideSyncBtn svg{
@@ -1220,7 +1232,7 @@ html[data-graphics="ultra"] .profileReveal{
       height:16px;
       fill:none;
       stroke:currentColor;
-      stroke-width:1.9;
+      stroke-width:2.45;
       stroke-linecap:round;
       stroke-linejoin:round;
     }
@@ -1237,9 +1249,135 @@ html[data-graphics="ultra"] .profileReveal{
       justify-content:center;
       padding:0;
       font-weight:900;
+      background:color-mix(in srgb, var(--surface-alt) 82%, transparent);
+      -webkit-backdrop-filter:blur(28px) saturate(1.25);
+      backdrop-filter:blur(28px) saturate(1.25);
+      box-shadow:0 12px 26px rgba(0,0,0,.20), inset 0 1px 0 rgba(255,255,255,.12);
     }
     .sideSyncBtn.hidden{display:none;}
     .sideSyncBtn:disabled{opacity:.45;cursor:not-allowed;}
+    .extraWorkWrap{max-width:920px;}
+    .extraWorkGrid{
+      display:grid;
+      grid-template-columns:repeat(3, minmax(0, 1fr));
+      gap:12px;
+    }
+    .extraWorkCard{
+      --extra-accent:var(--g-tx);
+      min-height:144px;
+      border:1px solid var(--line-strong);
+      border-radius:18px;
+      padding:14px;
+      background:
+        radial-gradient(circle at 82% 12%, color-mix(in srgb, var(--extra-accent) 22%, transparent), transparent 36%),
+        linear-gradient(145deg, color-mix(in srgb, var(--surface) 78%, transparent), color-mix(in srgb, var(--surface-alt) 86%, transparent));
+      color:var(--text);
+      display:flex;
+      flex-direction:column;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap:10px;
+      cursor:pointer;
+      text-align:left;
+      box-shadow:0 16px 34px rgba(0,0,0,.18), inset 0 1px 0 rgba(255,255,255,.10);
+      -webkit-backdrop-filter:blur(22px) saturate(1.16);
+      backdrop-filter:blur(22px) saturate(1.16);
+    }
+    .extraWorkCard:nth-child(2){--extra-accent:var(--y-tx);}
+    .extraWorkCard:nth-child(3){--extra-accent:var(--b-tx);}
+    .extraWorkCard:hover{transform:translateY(-1px);border-color:color-mix(in srgb, var(--extra-accent) 38%, var(--line-strong));}
+    .extraWorkCard__title{
+      font-size:12px;
+      font-weight:1000;
+      color:var(--muted);
+      text-transform:uppercase;
+    }
+    .extraWorkCard__value{
+      font-size:36px;
+      font-weight:1000;
+      line-height:1;
+      color:var(--text);
+      text-shadow:0 0 18px color-mix(in srgb, var(--extra-accent) 28%, transparent);
+    }
+    .extraWorkCard__meta{
+      font-size:11px;
+      font-weight:900;
+      color:var(--muted);
+    }
+    .extraKeypad{
+      position:fixed;
+      inset:0;
+      z-index:12000;
+      display:flex;
+      align-items:flex-end;
+      justify-content:center;
+      padding:18px;
+      background:rgba(0,0,0,.18);
+    }
+    .extraKeypad.hidden{display:none;}
+    .extraKeypad__panel{
+      width:min(340px, calc(100vw - 24px));
+      border:1px solid var(--line-strong);
+      border-radius:20px;
+      padding:12px;
+      background:color-mix(in srgb, var(--surface-alt) 88%, transparent);
+      color:var(--text);
+      box-shadow:0 20px 54px rgba(0,0,0,.36);
+      -webkit-backdrop-filter:blur(30px) saturate(1.2);
+      backdrop-filter:blur(30px) saturate(1.2);
+    }
+    .extraKeypad__top{
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:10px;
+      margin-bottom:10px;
+    }
+    .extraKeypad__title{font-size:12px;font-weight:1000;color:var(--muted);}
+    .extraKeypad__close{
+      width:30px;height:30px;border-radius:999px;border:1px solid var(--line);
+      background:var(--surface);color:var(--text);font-size:18px;font-weight:1000;cursor:pointer;
+    }
+    .extraKeypad__display{
+      min-height:48px;
+      border:1px solid var(--line);
+      border-radius:14px;
+      background:var(--surface);
+      display:flex;
+      align-items:center;
+      justify-content:flex-end;
+      padding:0 14px;
+      font-size:28px;
+      font-weight:1000;
+      margin-bottom:10px;
+    }
+    .extraKeypad__keys{
+      display:grid;
+      grid-template-columns:repeat(3, 1fr);
+      gap:8px;
+    }
+    .extraKeypad__keys button,
+    .extraKeypad__submit{
+      min-height:44px;
+      border:1px solid var(--line);
+      border-radius:14px;
+      background:var(--surface);
+      color:var(--text);
+      font-size:18px;
+      font-weight:1000;
+      cursor:pointer;
+    }
+    .extraKeypad__submit{
+      width:100%;
+      margin-top:8px;
+      background:var(--g-bg);
+      border-color:var(--g-br);
+      color:var(--g-tx);
+      font-size:13px;
+    }
+    @media (max-width:720px){
+      .extraWorkGrid{grid-template-columns:1fr;}
+    }
     .pointsHud{
       position:fixed;
       left:12px;
@@ -1492,10 +1630,10 @@ html[data-graphics="ultra"] .profileReveal{
 
 /* Overrides: original UI used viewport top=0 inside Apps Script; desktop has a native topbar. */
 .fixedHeader{top:var(--desktop-topbar-h) !important;}
-#mainScrollO1,#mainScrollMcc,#mainScrollCompany{position:fixed;left:0;right:0;bottom:0;top:var(--desktop-topbar-h);overflow-y:auto;-webkit-overflow-scrolling:touch;-ms-overflow-style:none;scrollbar-width:none;padding-top:var(--app-header-h,0px);scroll-padding-top:var(--app-header-h,0px);scroll-behavior:smooth;overscroll-behavior-y:contain;}
-#mainScrollCompany::-webkit-scrollbar{width:0;height:0;}
+#mainScrollO1,#mainScrollMcc,#mainScrollCompany,#mainScrollExtra{position:fixed;left:0;right:0;bottom:0;top:var(--desktop-topbar-h);overflow-y:auto;-webkit-overflow-scrolling:touch;-ms-overflow-style:none;scrollbar-width:none;padding-top:var(--app-header-h,0px);scroll-padding-top:var(--app-header-h,0px);scroll-behavior:smooth;overscroll-behavior-y:contain;}
+#mainScrollCompany::-webkit-scrollbar,#mainScrollExtra::-webkit-scrollbar{width:0;height:0;}
 .pageSelector{top:var(--desktop-topbar-h) !important;}
-.toast{bottom:18px;}
+.toast{bottom:72px;}
 
 .apiLoading{
   position:fixed;

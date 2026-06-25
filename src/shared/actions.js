@@ -20,7 +20,10 @@ const READ_ACTIONS = new Set([
   'company.formMeta',
   'smspool.checkO1',
   'smspool.stateO1',
-  'smspool.balanceO1'
+  'smspool.balanceO1',
+  'herosms.checkO1',
+  'herosms.stateO1',
+  'herosms.balanceO1'
 ]);
 
 const LEGACY_TO_ACTION = {
@@ -66,7 +69,12 @@ const LEGACY_TO_ACTION = {
   smspoolCheckO1: { action: 'smspool.checkO1', payload: ([orderId]) => ({ orderId }) },
   smspoolRefundO1: { action: 'smspool.refundO1', payload: ([orderId]) => ({ orderId }) },
   smspoolGetStateO1: { action: 'smspool.stateO1', payload: () => ({}) },
-  smspoolBalanceO1: { action: 'smspool.balanceO1', payload: () => ({}) }
+  smspoolBalanceO1: { action: 'smspool.balanceO1', payload: () => ({}) },
+  heroSmsOrderO1: { action: 'herosms.orderO1', payload: () => ({}) },
+  heroSmsCheckO1: { action: 'herosms.checkO1', payload: ([orderId]) => ({ orderId }) },
+  heroSmsRefundO1: { action: 'herosms.refundO1', payload: ([orderId]) => ({ orderId }) },
+  heroSmsGetStateO1: { action: 'herosms.stateO1', payload: () => ({}) },
+  heroSmsBalanceO1: { action: 'herosms.balanceO1', payload: () => ({}) }
 };
 
 function isReadAction(action) {

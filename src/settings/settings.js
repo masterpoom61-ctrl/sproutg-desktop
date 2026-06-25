@@ -76,13 +76,17 @@ const btnInstallUpdate = $('btnInstallUpdate');
 const settingsCard = $('settingsCard');
 const smsPoolApiKey = $('smsPoolApiKey');
 const btnSaveSmsPoolKey = $('btnSaveSmsPoolKey');
+const heroSmsApiKey = $('heroSmsApiKey');
+const btnSaveHeroSmsKey = $('btnSaveHeroSmsKey');
+const smsServiceSmsPool = $('smsServiceSmsPool');
+const smsServiceHeroSms = $('smsServiceHeroSms');
 const smsPoolStatus = $('smsPoolStatus');
 const techDesktopVersion = $('techDesktopVersion');
 const techWebVersion = $('techWebVersion');
 const techAppSize = $('techAppSize');
 const settingsCloseBtn = $('settingsCloseBtn');
 
-let current = { theme: 'dark-classic', zoom: 1.0, alwaysOnTop: false, graphicsMode: 'ultra', contrastMode: false, classicTrafficLights: false };
+let current = { theme: 'dark-classic', zoom: 1.0, alwaysOnTop: false, graphicsMode: 'ultra', contrastMode: false, classicTrafficLights: false, smsService: 'smspool' };
 let closing = false;
 
 function prepareClose() {
@@ -120,18 +124,26 @@ function setGraphicsUi(mode) {
   themeList?.classList.toggle('liteThemeLock', lite);
 }
 
+function setSmsServiceUi(service) {
+  const hero = service === 'herosms';
+  if (smsServiceSmsPool) smsServiceSmsPool.dataset.active = hero ? 'false' : 'true';
+  if (smsServiceHeroSms) smsServiceHeroSms.dataset.active = hero ? 'true' : 'false';
+}
+
 function applySettingsUi(settings = {}) {
   const next = {
     ...current,
     ...(settings || {}),
     theme: normalizeTheme(settings.theme || current.theme),
-    graphicsMode: normalizeGraphics(settings.graphicsMode || current.graphicsMode)
+    graphicsMode: normalizeGraphics(settings.graphicsMode || current.graphicsMode),
+    smsService: settings.smsService === 'herosms' ? 'herosms' : 'smspool'
   };
   current = next;
   setThemeUi(next.theme);
   setZoomUi(next.zoom);
   setAotUi(!!next.alwaysOnTop);
   setGraphicsUi(next.graphicsMode);
+  setSmsServiceUi(next.smsService);
   setPair(contrastOff, contrastOn, !!next.contrastMode);
   setPair(trafficOff, trafficOn, !!next.classicTrafficLights);
   document.documentElement.dataset.graphics = next.graphicsMode;
@@ -337,6 +349,16 @@ trafficOn?.addEventListener('click', async () => {
   applySettingsUi(current);
 });
 
+smsServiceSmsPool?.addEventListener('click', async () => {
+  current = await window.sproutgSettings.setSetting({ smsService: 'smspool' });
+  applySettingsUi(current);
+});
+
+smsServiceHeroSms?.addEventListener('click', async () => {
+  current = await window.sproutgSettings.setSetting({ smsService: 'herosms' });
+  applySettingsUi(current);
+});
+
 btnReload.addEventListener('click', async () => {
   await window.sproutgSettings.reloadWeb();
 });
@@ -372,6 +394,22 @@ btnSaveSmsPoolKey?.addEventListener('click', async () => {
     if (smsPoolStatus) smsPoolStatus.textContent = String(e?.message || e);
   } finally {
     btnSaveSmsPoolKey.disabled = false;
+  }
+});
+
+btnSaveHeroSmsKey?.addEventListener('click', async () => {
+  const key = String(heroSmsApiKey?.value || '').trim();
+  btnSaveHeroSmsKey.disabled = true;
+  if (smsPoolStatus) smsPoolStatus.textContent = 'Сохранение HeroSMS...';
+  try {
+    const res = await window.sproutgSettings.apiCall('herosms.setApiKey', { key }, { cache: false, timeoutMs: 15000 });
+    if (!res || res.ok === false) throw new Error(res?.error || 'Ошибка сохранения');
+    if (heroSmsApiKey) heroSmsApiKey.value = '';
+    if (smsPoolStatus) smsPoolStatus.textContent = key ? 'HeroSMS API key сохранен.' : 'HeroSMS API key очищен.';
+  } catch (e) {
+    if (smsPoolStatus) smsPoolStatus.textContent = String(e?.message || e);
+  } finally {
+    btnSaveHeroSmsKey.disabled = false;
   }
 });
 

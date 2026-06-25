@@ -22,30 +22,30 @@ const THEMES = {
   'art-deco': 'Art Deco',
   bauhaus: 'Bauhaus',
   'graphite-pro': 'Graphite Pro',
-  obsidian: 'Obsidian',
-  'slate-blue': 'Slate Blue',
   'platinum-light': 'Platinum Light',
+  obsidian: 'Obsidian',
   'notion-clean': 'Notion Clean',
   'linear-dark': 'Linear Dark',
-  'royal-navy': 'Royal Navy',
-  'emerald-gold': 'Emerald Gold',
-  'burgundy-club': 'Burgundy Club',
-  caviar: 'Caviar',
   'paper-white': 'Paper White',
+  'royal-navy': 'Royal Navy',
   'milk-glass': 'Milk Glass',
-  'deep-space': 'Deep Space',
-  'tokyo-night': 'Tokyo Night',
-  aurora: 'Aurora',
-  'rainy-day': 'Rainy Day',
-  terracotta: 'Terracotta',
-  blueprint: 'Blueprint',
-  swiss: 'Swiss',
-  executive: 'Executive',
-  'banking-green': 'Banking Green',
+  'emerald-gold': 'Emerald Gold',
   marble: 'Marble',
+  'burgundy-club': 'Burgundy Club',
+  swiss: 'Swiss',
+  caviar: 'Caviar',
+  'banking-green': 'Banking Green',
+  'deep-space': 'Deep Space',
   typewriter: 'Typewriter',
-  'amber-terminal': 'Amber Terminal',
-  mountain: 'Mountain'
+  'tokyo-night': 'Tokyo Night',
+  terracotta: 'Terracotta',
+  aurora: 'Aurora',
+  blueprint: 'Blueprint',
+  mountain: 'Mountain',
+  'slate-blue': 'Slate Blue',
+  executive: 'Executive',
+  'rainy-day': 'Rainy Day',
+  'amber-terminal': 'Amber Terminal'
 };
 const THEME_ALIASES = { dark: 'dark-classic', light: 'light-classic', 'midnight-pro': 'dark-midnight-pro', forest: 'dark-forest', 'cyberpunk-neon': 'cyberpunk' };
 
@@ -70,6 +70,8 @@ const updateBadge = $('updateBadge');
 const updateStatus = $('updateStatus');
 const updateProgress = $('updateProgress');
 const updateProgressBar = $('updateProgressBar');
+const releaseHistorySelect = $('releaseHistorySelect');
+const releaseHistoryBody = $('releaseHistoryBody');
 const btnCheckUpdate = $('btnCheckUpdate');
 const btnDownloadUpdate = $('btnDownloadUpdate');
 const btnInstallUpdate = $('btnInstallUpdate');
@@ -78,8 +80,11 @@ const smsPoolApiKey = $('smsPoolApiKey');
 const btnSaveSmsPoolKey = $('btnSaveSmsPoolKey');
 const heroSmsApiKey = $('heroSmsApiKey');
 const btnSaveHeroSmsKey = $('btnSaveHeroSmsKey');
+const smsActivateApiKey = $('smsActivateApiKey');
+const btnSaveSmsActivateKey = $('btnSaveSmsActivateKey');
 const smsServiceSmsPool = $('smsServiceSmsPool');
 const smsServiceHeroSms = $('smsServiceHeroSms');
+const smsServiceSmsActivate = $('smsServiceSmsActivate');
 const smsPoolStatus = $('smsPoolStatus');
 const techDesktopVersion = $('techDesktopVersion');
 const techWebVersion = $('techWebVersion');
@@ -88,6 +93,117 @@ const settingsCloseBtn = $('settingsCloseBtn');
 
 let current = { theme: 'dark-classic', zoom: 1.0, alwaysOnTop: false, graphicsMode: 'ultra', contrastMode: false, classicTrafficLights: false, smsService: 'smspool' };
 let closing = false;
+
+// RELEASE_HISTORY: при каждом публичном релизе добавляй новую запись сверху,
+// чтобы раздел "История обновлений" в настройках всегда был актуален для пользователей.
+const RELEASE_HISTORY = [
+  {
+    version: '2.1.6',
+    date: '2026-06-25',
+    changes: [
+      'SMS Activate: выбор стран для Google/Gmail/YouTube с ценой, количеством и сортировкой по успешности.',
+      'Исправлена кнопка вверх на странице O1 и поведение пустого поля Gmail в колонке X.',
+      'Лиги в статистике переведены с emoji на крупные кастомные SVG-иконки.',
+      'Добавлена нижняя таблица лиг по дням, неделям, месяцу и рекордным достижениям.',
+      'Усилен blur окна статистики, улучшена пружинка скролла и ускорена проверка обновлений.',
+      'За добавление компании начисляется +10 поинтов и тип работы "Компания" попадает в статистику.'
+    ]
+  },
+  {
+    version: '2.1.5',
+    date: '2026-06-25',
+    changes: [
+      'Добавлен раздел "Доп.Работа" с цифровой клавиатурой и начислением поинтов за черновики, Okto и номера.',
+      'Статистика получила 6 игровых карточек с разбивкой по типам работ и отдельными лигами дня/недели/месяца.',
+      'Добавлен выбор SMSPool/HeroSMS для O1 и поле API HeroSMS в настройках.',
+      'Исправлены мини-уведомления, порядок тем, скролл настроек и поле "Резервная Почта" для O1.'
+    ]
+  },
+  {
+    version: '2.1.4',
+    date: '2026-06-24',
+    changes: [
+      'Доработан HUD поинтов и reveal-анимация загрузки O1/MCC.',
+      'Настройки получили Lite/Ultra, Контраст, З-Ж-К, размеры кеша/приложения и перетаскивание окна.',
+      'Статус в шапке открывает окно с метриками подключения, очереди, задержки и успешности.',
+      'Добавлен Lite CSS-режим без blur, анимаций и прозрачности.'
+    ]
+  },
+  {
+    version: '2.1.3',
+    date: '2026-06-24',
+    changes: [
+      'Улучшены темы и семантические цвета интерфейса.',
+      'Исправлены элементы статистики и связанные состояния окон.'
+    ]
+  },
+  {
+    version: '2.1.2',
+    date: '2026-06-24',
+    changes: [
+      'Улучшена стабильность обновлений и отображение сервисных статусов.',
+      'Исправлены регрессии после перехода на ветку 2.1.'
+    ]
+  },
+  {
+    version: '2.1.1',
+    date: '2026-06-22',
+    changes: [
+      'Исправлены ошибки интерфейса после 2.1.0.',
+      'Доработаны сохранение, статистика и локальные окна приложения.'
+    ]
+  },
+  {
+    version: '2.1.0',
+    date: '2026-06-22',
+    changes: [
+      'Публичная ветка 2.1 с локальными окнами, настройками, статистикой и автообновлениями.',
+      'Подготовлена основа для быстрых desktop-релизов SproutG.'
+    ]
+  },
+  {
+    version: '2.0.5',
+    date: '2026-06-22',
+    changes: [
+      'Hotfix ветки 2.0: правки стабильности и сборки установщика.'
+    ]
+  },
+  {
+    version: '2.0.4',
+    date: '2026-06-22',
+    changes: [
+      'Улучшены desktop-сборка, обновления и базовые окна приложения.'
+    ]
+  },
+  {
+    version: '2.0.3',
+    date: '2026-06-21',
+    changes: [
+      'Правки UI и подготовка к публичному каналу обновлений.'
+    ]
+  },
+  {
+    version: '2.0.2',
+    date: '2026-06-21',
+    changes: [
+      'Стабилизация SproutG Desktop 2.0 и публикация Windows-ассетов.'
+    ]
+  },
+  {
+    version: '1.4.0',
+    date: '2026-06-21',
+    changes: [
+      'Релиз desktop-приложения SproutG на Electron.'
+    ]
+  },
+  {
+    version: '1.3.7',
+    date: '2026-04-26',
+    changes: [
+      'Обновлены настройки, обновления и статистика в ранней desktop-ветке.'
+    ]
+  }
+];
 
 function prepareClose() {
   if (closing) return;
@@ -125,9 +241,10 @@ function setGraphicsUi(mode) {
 }
 
 function setSmsServiceUi(service) {
-  const hero = service === 'herosms';
-  if (smsServiceSmsPool) smsServiceSmsPool.dataset.active = hero ? 'false' : 'true';
-  if (smsServiceHeroSms) smsServiceHeroSms.dataset.active = hero ? 'true' : 'false';
+  const key = service === 'herosms' || service === 'smsactivate' ? service : 'smspool';
+  if (smsServiceSmsPool) smsServiceSmsPool.dataset.active = key === 'smspool' ? 'true' : 'false';
+  if (smsServiceHeroSms) smsServiceHeroSms.dataset.active = key === 'herosms' ? 'true' : 'false';
+  if (smsServiceSmsActivate) smsServiceSmsActivate.dataset.active = key === 'smsactivate' ? 'true' : 'false';
 }
 
 function applySettingsUi(settings = {}) {
@@ -136,7 +253,7 @@ function applySettingsUi(settings = {}) {
     ...(settings || {}),
     theme: normalizeTheme(settings.theme || current.theme),
     graphicsMode: normalizeGraphics(settings.graphicsMode || current.graphicsMode),
-    smsService: settings.smsService === 'herosms' ? 'herosms' : 'smspool'
+    smsService: settings.smsService === 'herosms' || settings.smsService === 'smsactivate' ? settings.smsService : 'smspool'
   };
   current = next;
   setThemeUi(next.theme);
@@ -177,6 +294,32 @@ function formatVersion(v) {
   const raw = String(v || '').trim();
   if (!raw) return '—';
   return raw.startsWith('v') ? raw : `v${raw}`;
+}
+
+function escHtml(s) {
+  return String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c]));
+}
+
+function renderReleaseHistory(version) {
+  if (!releaseHistorySelect || !releaseHistoryBody) return;
+  if (releaseHistorySelect.dataset.ready !== '1') {
+    releaseHistorySelect.dataset.ready = '1';
+    releaseHistorySelect.innerHTML = RELEASE_HISTORY.map((item) => (
+      `<option value="${escHtml(item.version)}">v${escHtml(item.version)} · ${escHtml(item.date)}</option>`
+    )).join('');
+    releaseHistorySelect.addEventListener('change', () => renderReleaseHistory(releaseHistorySelect.value));
+  }
+  const wanted = String(version || releaseHistorySelect.value || RELEASE_HISTORY[0]?.version || '').replace(/^v/i, '');
+  const item = RELEASE_HISTORY.find((entry) => entry.version === wanted) || RELEASE_HISTORY[0];
+  if (!item) {
+    releaseHistoryBody.innerHTML = '';
+    return;
+  }
+  releaseHistorySelect.value = item.version;
+  releaseHistoryBody.innerHTML = `
+    <div class="releaseHistoryTitle">v${escHtml(item.version)} · ${escHtml(item.date)}</div>
+    <ul>${item.changes.map((change) => `<li>${escHtml(change)}</li>`).join('')}</ul>
+  `;
 }
 
 function formatBytes(bytes) {
@@ -254,12 +397,13 @@ function setupElasticBounce(container, target){
     moving.style.transition = 'none';
     moving.style.transform = `translateY(${offset}px)`;
     settle();
-  }, { passive:false });
+  }, { passive:false, capture:true });
 }
 
 async function refresh() {
   current = await window.sproutgSettings.getSettings();
   applySettingsUi(current);
+  renderReleaseHistory(RELEASE_HISTORY[0]?.version);
   try {
     renderUpdateState(await window.sproutgSettings.getUpdateState());
   } catch (e) {
@@ -359,6 +503,11 @@ smsServiceHeroSms?.addEventListener('click', async () => {
   applySettingsUi(current);
 });
 
+smsServiceSmsActivate?.addEventListener('click', async () => {
+  current = await window.sproutgSettings.setSetting({ smsService: 'smsactivate' });
+  applySettingsUi(current);
+});
+
 btnReload.addEventListener('click', async () => {
   await window.sproutgSettings.reloadWeb();
 });
@@ -410,6 +559,22 @@ btnSaveHeroSmsKey?.addEventListener('click', async () => {
     if (smsPoolStatus) smsPoolStatus.textContent = String(e?.message || e);
   } finally {
     btnSaveHeroSmsKey.disabled = false;
+  }
+});
+
+btnSaveSmsActivateKey?.addEventListener('click', async () => {
+  const key = String(smsActivateApiKey?.value || '').trim();
+  btnSaveSmsActivateKey.disabled = true;
+  if (smsPoolStatus) smsPoolStatus.textContent = 'Сохранение SMS Activate...';
+  try {
+    const res = await window.sproutgSettings.smsActivate('setApiKey', { key });
+    if (!res || res.ok === false) throw new Error(res?.error || 'Ошибка сохранения');
+    if (smsActivateApiKey) smsActivateApiKey.value = '';
+    if (smsPoolStatus) smsPoolStatus.textContent = key ? 'SMS Activate API key сохранен локально.' : 'SMS Activate API key очищен.';
+  } catch (e) {
+    if (smsPoolStatus) smsPoolStatus.textContent = String(e?.message || e);
+  } finally {
+    btnSaveSmsActivateKey.disabled = false;
   }
 });
 

@@ -1,0 +1,49 @@
+/* League icons — universal themeable SVG masks / inline SVG styling */
+
+:root {
+  --league-none: rgba(210, 220, 245, .58);
+  --league-bronze: #c9824b;
+  --league-silver: #cfd8ee;
+  --league-gold: #f3c84b;
+  --league-diamond: #56d7ff;
+  --league-legendary: #ff8a34;
+}
+
+.leagueBadge {
+  width: clamp(44px, 2.7vw, 56px);
+  height: clamp(44px, 2.7vw, 56px);
+  border-radius: 16px;
+  display: inline-grid;
+  place-items: center;
+  color: var(--league-accent);
+  background:
+    radial-gradient(circle at 35% 25%, color-mix(in srgb, var(--league-accent) 30%, transparent), transparent 62%),
+    color-mix(in srgb, var(--league-accent) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--league-accent) 55%, transparent);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.16),
+    0 0 22px color-mix(in srgb, var(--league-accent) 22%, transparent);
+}
+
+.leagueBadgeIcon {
+  width: clamp(28px, 1.75vw, 36px);
+  height: clamp(28px, 1.75vw, 36px);
+  display: block;
+  color: currentColor;
+}
+
+/* If SVG is used as CSS mask instead of inline <svg> */
+.leagueMaskIcon {
+  width: clamp(28px, 1.75vw, 36px);
+  height: clamp(28px, 1.75vw, 36px);
+  background: currentColor;
+  mask: var(--league-icon) center / contain no-repeat;
+  -webkit-mask: var(--league-icon) center / contain no-repeat;
+}
+
+.league--none { --league-accent: var(--league-none); --league-icon: url('./league-none.svg'); }
+.league--bronze { --league-accent: var(--league-bronze); --league-icon: url('./league-bronze.svg'); }
+.league--silver { --league-accent: var(--league-silver); --league-icon: url('./league-silver.svg'); }
+.league--gold { --league-accent: var(--league-gold); --league-icon: url('./league-gold.svg'); }
+.league--diamond { --league-accent: var(--league-diamond); --league-icon: url('./league-diamond.svg'); }
+.league--legendary { --league-accent: var(--league-legendary); --league-icon: url('./league-legendary.svg'); }

@@ -19,6 +19,7 @@ const store = new Store({
     points: { days: {}, workDays: {} },
     statusState: {},
     settings: { theme: 'dark-classic', zoom: 1.0, alwaysOnTop: false, graphicsMode: 'ultra', contrastMode: false, classicTrafficLights: false, smsService: 'smspool' },
+    smsActivate: { apiKey: '', activeOrder: null, country: '0', catalog: null, catalogTs: 0 },
     window: { bounds: null, isMaximized: false },
     web: { url: null }
   }
@@ -349,7 +350,7 @@ function scheduleBootUpdateNoticeCheck(){
   const last = store.get('updates.lastBootNoticeCheck');
   if (last === bootKey) return;
   store.set('updates.lastBootNoticeCheck', bootKey);
-  setTimeout(() => { checkForUpdates(false, 'boot').catch(() => {}); }, 12000);
+  setTimeout(() => { checkForUpdates(false, 'boot').catch(() => {}); }, 1800);
 }
 
 function schedulePeriodicUpdateChecks(){
@@ -358,7 +359,7 @@ function schedulePeriodicUpdateChecks(){
   if (!cfg.enabled) return;
   updateReminderTimer = setInterval(() => {
     checkForUpdates(false, 'scheduled').catch(() => {});
-  }, 60 * 60 * 1000);
+  }, 30 * 60 * 1000);
 }
 
 async function downloadUpdate(){
@@ -384,6 +385,249 @@ function installDownloadedUpdate(){
   return updateState;
 }
 
+const SMS_ACTIVATE_API_BASE = 'https://api.sms-activate.org/stubs/handler_api.php';
+const SMS_ACTIVATE_GOOGLE_SERVICE = 'go';
+const SMS_ACTIVATE_ERRORS_RU = {
+  BAD_KEY: 'Неверный API ключ SMS Activate',
+  BAD_ACTION: 'Некорректный метод SMS Activate',
+  BAD_SERVICE: 'Сервис Google/Gmail/YouTube недоступен',
+  BAD_STATUS: 'Некорректный статус активации',
+  NO_BALANCE: 'Недостаточно баланса SMS Activate',
+  NO_NUMBERS: 'Нет доступных номеров для выбранной страны',
+  NO_ACTIVATION: 'Активация не найдена или уже закрыта',
+  STATUS_CANCEL: 'Активация отменена',
+  ACCOUNT_INACTIVE: 'Аккаунт SMS Activate неактивен',
+  BANNED: 'Аккаунт SMS Activate временно заблокирован',
+  ERROR_SQL: 'Ошибка SMS Activate: один из параметров не принят',
+  SQL_ERROR: 'Ошибка SMS Activate: один из параметров не принят',
+  WRONG_SERVICE: 'Этот сервис не поддерживает запрошенную операцию',
+  WRONG_SECURITY: 'Операция недоступна для этой активации',
+  ACCESS_CANCEL: 'Активация отменена',
+  ACCESS_ACTIVATION: 'Активация завершена',
+  ACCESS_READY: 'Ожидание новой SMS',
+  ACCESS_RETRY_GET: 'Запрошена повторная SMS',
+  STATUS_WAIT_CODE: 'Ожидаем SMS с кодом',
+  STATUS_WAIT_RETRY: 'Ожидаем повторную SMS',
+  STATUS_WAIT_RESEND: 'Ожидаем повторную отправку',
+  STATUS_OK: 'Код получен'
+};
+
+function smsActivateTranslate(text){
+  const raw = String(text || '').trim();
+  const key = raw.split(':')[0];
+  return SMS_ACTIVATE_ERRORS_RU[key] || raw || 'Неизвестный ответ SMS Activate';
+}
+
+function smsActivateApiKey(){
+  return String(store.get('smsActivate.apiKey') || '').trim();
+}
+
+function setSmsActivateApiKey(key){
+  const clean = String(key || '').trim();
+  store.set('smsActivate.apiKey', clean);
+  if (!clean) {
+    store.set('smsActivate.activeOrder', null);
+    store.set('smsActivate.catalog', null);
+    store.set('smsActivate.catalogTs', 0);
+  }
+  return { ok: true, hasKey: !!clean };
+}
+
+async function smsActivateFetch(params = {}, opts = {}){
+  const key = smsActivateApiKey();
+  if (!key) return { ok:false, error:'Укажи SMS Activate API key в настройках' };
+  const query = new URLSearchParams({ ...params, api_key: key });
+  const res = await fetch(`${SMS_ACTIVATE_API_BASE}?${query.toString()}`, {
+    method: 'GET',
+    headers: { 'Accept': opts.json ? 'application/json,text/plain,*/*' : 'text/plain,*/*' }
+  });
+  const text = String(await res.text() || '').trim();
+  if (!res.ok) return { ok:false, error:`SMS Activate HTTP ${res.status}: ${text || res.statusText}` };
+  if (!opts.json) return { ok:true, text };
+  try {
+    return { ok:true, text, data: JSON.parse(text) };
+  } catch (e) {
+    return { ok:false, error:smsActivateTranslate(text) };
+  }
+}
+
+function smsActivateTopMap(raw){
+  const map = new Map();
+  const put = (id, value) => {
+    const countryId = String(id ?? '').trim();
+    if (!countryId) return;
+    const src = value && typeof value === 'object' ? value : {};
+    const rawSuccess = src.success ?? src.successRate ?? src.rate ?? src.percent ?? src.conversion ?? src.rating;
+    const successNum = Number.parseFloat(String(rawSuccess ?? '').replace(',', '.'));
+    const success = Number.isFinite(successNum) && successNum > 0 && successNum <= 1 ? successNum * 100 : successNum;
+    const count = Number(src.count ?? src.qty ?? src.available);
+    map.set(countryId, {
+      success: Number.isFinite(success) ? success : null,
+      count: Number.isFinite(count) ? count : null
+    });
+  };
+  if (Array.isArray(raw)) {
+    for (const item of raw) put(item?.country ?? item?.countryId ?? item?.country_id ?? item?.id, item);
+  } else if (raw && typeof raw === 'object') {
+    for (const [id, value] of Object.entries(raw)) put(value?.country ?? value?.countryId ?? value?.country_id ?? value?.id ?? id, value);
+  }
+  return map;
+}
+
+function smsActivateCountryName(countries, id){
+  const src = countries?.[id] || countries?.[String(Number(id))] || {};
+  return {
+    id: String(src.id ?? id),
+    rus: String(src.rus || '').trim(),
+    eng: String(src.eng || '').trim()
+  };
+}
+
+async function smsActivateCatalog(payload = {}){
+  const force = !!payload.force;
+  const cached = store.get('smsActivate.catalog');
+  const cachedTs = Number(store.get('smsActivate.catalogTs') || 0);
+  if (!force && Array.isArray(cached) && cached.length && Date.now() - cachedTs < 5 * 60 * 1000) {
+    return { ok:true, countries: cached };
+  }
+
+  const service = String(payload.service || SMS_ACTIVATE_GOOGLE_SERVICE).trim() || SMS_ACTIVATE_GOOGLE_SERVICE;
+  const [countriesRes, pricesRes, topRes] = await Promise.all([
+    smsActivateFetch({ action:'getCountries' }, { json:true }),
+    smsActivateFetch({ action:'getPrices', service }, { json:true }),
+    smsActivateFetch({ action:'getTopCountriesByService', service }, { json:true }).catch((e) => ({ ok:false, error:String(e?.message || e) }))
+  ]);
+
+  if (!countriesRes.ok) return countriesRes;
+  if (!pricesRes.ok) return pricesRes;
+
+  const countries = countriesRes.data || {};
+  const prices = pricesRes.data || {};
+  const top = smsActivateTopMap(topRes.ok ? topRes.data : null);
+  const rows = [];
+
+  for (const [countryId, services] of Object.entries(prices || {})) {
+    const info = services?.[service];
+    if (!info) continue;
+    const name = smsActivateCountryName(countries, countryId);
+    const topInfo = top.get(String(countryId)) || {};
+    const count = Number(info.count ?? topInfo.count ?? 0);
+    const cost = Number(info.cost ?? info.price ?? 0);
+    const success = Number(topInfo.success);
+    rows.push({
+      id: String(name.id || countryId),
+      rus: name.rus,
+      eng: name.eng,
+      cost: Number.isFinite(cost) ? cost : null,
+      count: Number.isFinite(count) ? count : 0,
+      success: Number.isFinite(success) ? success : null
+    });
+  }
+
+  rows.sort((a, b) => {
+    const as = Number.isFinite(Number(a.success)) ? Number(a.success) : -1;
+    const bs = Number.isFinite(Number(b.success)) ? Number(b.success) : -1;
+    if (bs !== as) return bs - as;
+    const bc = Number(b.count || 0) - Number(a.count || 0);
+    if (bc !== 0) return bc;
+    return Number(a.cost || 9999) - Number(b.cost || 9999);
+  });
+
+  store.set('smsActivate.catalog', rows);
+  store.set('smsActivate.catalogTs', Date.now());
+  return { ok:true, countries: rows, topAvailable: !!topRes.ok };
+}
+
+function smsActivateGetActiveOrder(){
+  const order = store.get('smsActivate.activeOrder') || null;
+  if (order?.expiresAtMs && Number(order.expiresAtMs) <= Date.now()) {
+    store.set('smsActivate.activeOrder', null);
+    return null;
+  }
+  return order;
+}
+
+async function smsActivateBalance(){
+  const res = await smsActivateFetch({ action:'getBalance' });
+  if (!res.ok) return res;
+  const text = res.text;
+  if (text.startsWith('ACCESS_BALANCE:')) return { ok:true, balance: text.slice('ACCESS_BALANCE:'.length) };
+  return { ok:false, error:smsActivateTranslate(text) };
+}
+
+async function smsActivateOrder(payload = {}){
+  const country = String(payload.country || store.get('smsActivate.country') || '0').trim() || '0';
+  const service = String(payload.service || SMS_ACTIVATE_GOOGLE_SERVICE).trim() || SMS_ACTIVATE_GOOGLE_SERVICE;
+  store.set('smsActivate.country', country);
+  const res = await smsActivateFetch({ action:'getNumber', service, country });
+  if (!res.ok) return res;
+  const text = res.text;
+  const parts = text.split(':');
+  if (parts[0] !== 'ACCESS_NUMBER' || parts.length < 3) return { ok:false, error:smsActivateTranslate(text) };
+  const catalog = Array.isArray(store.get('smsActivate.catalog')) ? store.get('smsActivate.catalog') : [];
+  const countryInfo = catalog.find((item) => String(item.id) === country) || {};
+  const now = Date.now();
+  const order = {
+    order_id: String(parts[1] || ''),
+    number: String(parts.slice(2).join(':') || ''),
+    price: countryInfo.cost ?? '',
+    country,
+    countryName: countryInfo.rus || countryInfo.eng || '',
+    service,
+    provider: 'smsactivate',
+    expiresAtMs: now + 20 * 60 * 1000,
+    createdAtMs: now
+  };
+  store.set('smsActivate.activeOrder', order);
+  return { ok:true, order };
+}
+
+async function smsActivateCheck(payload = {}){
+  const id = String(payload.orderId || payload.order_id || '').trim();
+  if (!id) return { ok:false, error:'Не указан ID активации' };
+  const res = await smsActivateFetch({ action:'getStatus', id });
+  if (!res.ok) return res;
+  const text = res.text;
+  if (text.startsWith('STATUS_OK:')) {
+    const sms = text.slice('STATUS_OK:'.length).trim();
+    return { ok:true, status:'completed', sms, full_sms:sms };
+  }
+  if (text === 'STATUS_CANCEL') {
+    store.set('smsActivate.activeOrder', null);
+    return { ok:true, status:text, sms:'0', full_sms:'', message:smsActivateTranslate(text) };
+  }
+  if (text.startsWith('STATUS_WAIT')) {
+    return { ok:true, status:text, sms:'0', full_sms:'', message:smsActivateTranslate(text) };
+  }
+  return { ok:false, error:smsActivateTranslate(text) };
+}
+
+async function smsActivateRefund(payload = {}){
+  const id = String(payload.orderId || payload.order_id || '').trim();
+  if (!id) return { ok:false, error:'Не указан ID активации' };
+  const res = await smsActivateFetch({ action:'setStatus', id, status:8 });
+  if (!res.ok) return res;
+  if (res.text !== 'ACCESS_CANCEL') return { ok:false, error:smsActivateTranslate(res.text) };
+  store.set('smsActivate.activeOrder', null);
+  return { ok:true, message:smsActivateTranslate(res.text) };
+}
+
+async function smsActivateHandle(action, payload = {}){
+  const name = String(action || '').trim();
+  try {
+    if (name === 'setApiKey') return setSmsActivateApiKey(payload.key || payload.apiKey || payload.value);
+    if (name === 'Catalog') return smsActivateCatalog(payload);
+    if (name === 'Balance') return smsActivateBalance();
+    if (name === 'Order') return smsActivateOrder(payload);
+    if (name === 'Check') return smsActivateCheck(payload);
+    if (name === 'Refund') return smsActivateRefund(payload);
+    if (name === 'GetState') return { ok:true, order:smsActivateGetActiveOrder() };
+    return { ok:false, error:'Неизвестное действие SMS Activate' };
+  } catch (e) {
+    return { ok:false, error:String(e?.message || e) };
+  }
+}
+
 function normalizeSettings(input){
   const raw = input && typeof input === 'object' ? input : {};
   const next = {
@@ -393,7 +637,7 @@ function normalizeSettings(input){
     graphicsMode: raw.graphicsMode === 'lite' ? 'lite' : 'ultra',
     contrastMode: !!raw.contrastMode,
     classicTrafficLights: !!raw.classicTrafficLights,
-    smsService: raw.smsService === 'herosms' ? 'herosms' : 'smspool'
+    smsService: ['herosms', 'smsactivate'].includes(raw.smsService) ? raw.smsService : 'smspool'
   };
   if (next.graphicsMode === 'lite' && next.theme !== 'dark-classic' && next.theme !== 'light-classic') {
     next.theme = 'dark-classic';
@@ -1292,6 +1536,7 @@ ipcMain.handle('sproutg:get-update-state', () => ({ ...updateState, version: app
 ipcMain.handle('sproutg:check-for-updates', () => checkForUpdates(true));
 ipcMain.handle('sproutg:download-update', () => downloadUpdate());
 ipcMain.handle('sproutg:install-update', () => installDownloadedUpdate());
+ipcMain.handle('sproutg:sms-activate', (_e, action, payload) => smsActivateHandle(action, payload || {}));
 ipcMain.handle('sproutg:get-settings', () => getSettings());
 ipcMain.handle('sproutg:set-setting', (_e, partial) => { const n = setSettings(partial); applySettings(n); return n; });
 ipcMain.handle('sproutg:zoom', (_e, dir) => zoom(dir));

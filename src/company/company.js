@@ -158,6 +158,18 @@ async function submitCompany() {
   try {
     const res = await window.sproutgCompany.apiCall('company.addRow', { values: vr.values }, { cache: false, timeoutMs: 18000 });
     if (!res || res.ok === false) throw new Error(res?.error || 'Ошибка сохранения');
+    window.sproutgCompany.addPoints?.({
+      kind: 'company',
+      page: 'COMPANY',
+      group: 'Компании',
+      workType: 'Компания',
+      key: 'Компания',
+      count: 1,
+      deltaClicks: 1,
+      deltaPoints: 10,
+      delta: 10,
+      ts: Date.now()
+    });
     getInputs().forEach((input) => {
       input.value = '';
       delete input.dataset.state;

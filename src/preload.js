@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld('sproutg', {
   checkForUpdates: () => ipcRenderer.invoke('sproutg:check-for-updates'),
   downloadUpdate: () => ipcRenderer.invoke('sproutg:download-update'),
   installUpdate: () => ipcRenderer.invoke('sproutg:install-update'),
+  smsActivate: (action, payload) => ipcRenderer.invoke('sproutg:sms-activate', action, payload),
   apiCall: (action, payload, opts) => ipcRenderer.invoke('sproutg:api-call', action, payload, opts),
   apiBatch: (calls, opts) => ipcRenderer.invoke('sproutg:api-batch', calls, opts),
   legacyCall: (action, payload, opts) => ipcRenderer.invoke('sproutg:legacy-call', action, payload, opts),

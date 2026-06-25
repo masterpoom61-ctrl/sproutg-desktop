@@ -36,14 +36,14 @@ let desktopSettings = { smsService: 'smspool' };
 function applyDesktopSettings(settings = {}){
   const prevSmsService = desktopSettings.smsService || 'smspool';
   desktopSettings = { ...desktopSettings, ...(settings || {}) };
-  desktopSettings.smsService = desktopSettings.smsService === 'herosms' ? 'herosms' : 'smspool';
+  desktopSettings.smsService = ['herosms', 'smsactivate'].includes(desktopSettings.smsService) ? desktopSettings.smsService : 'smspool';
   if (settings.theme) setTopbarTheme(settings.theme);
   document.documentElement.dataset.graphics = settings.graphicsMode === 'lite' ? 'lite' : 'ultra';
   document.documentElement.dataset.contrast = settings.contrastMode ? 'on' : 'off';
   document.documentElement.dataset.zjk = settings.classicTrafficLights ? 'on' : 'off';
   if(prevSmsService !== desktopSettings.smsService){
     try{
-      document.querySelectorAll('.smsServiceTitle').forEach((el)=>{ el.textContent = desktopSettings.smsService === 'herosms' ? 'HeroSMS' : 'SMSPool'; });
+      document.querySelectorAll('.smsServiceTitle').forEach((el)=>{ el.textContent = smsServiceLabel(); });
       if(typeof stopSmsPool === 'function' && typeof smsPoolInit === 'function' && typeof current !== 'undefined' && current?.row){
         stopSmsPool();
         smsPoolInit({ preserve:false });
@@ -68,7 +68,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
   applyDesktopSettings(s || { theme: 'dark-classic' });
 })();
 
-  const APP_VERSION = '2.1.5';
+  const APP_VERSION = '2.1.6';
   const PAGE_KEY = 'FarmA.page';
   const HOME_RETURN_KEY = 'FarmA.homeReturnPage';
   const THEME_KEY = 'sproutg.theme';
@@ -109,6 +109,9 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     apFillPending: false,
     codeText: 'Готов к заказу',
     codeValue: '',
+    selectedCountry: '0',
+    countryCatalog: [],
+    countryLoadedAt: 0,
     elements: null
   };
   const EXTRA_WORK_TYPES = {
@@ -2963,11 +2966,17 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
   }
 
   function smsServiceKey(){
-    return desktopSettings?.smsService === 'herosms' ? 'herosms' : 'smspool';
+    const key = desktopSettings?.smsService;
+    if(key === 'herosms') return 'herosms';
+    if(key === 'smsactivate') return 'smsactivate';
+    return 'smspool';
   }
 
   function smsServiceLabel(){
-    return smsServiceKey() === 'herosms' ? 'HeroSMS' : 'SMSPool';
+    const key = smsServiceKey();
+    if(key === 'herosms') return 'HeroSMS';
+    if(key === 'smsactivate') return 'SMS Activate';
+    return 'SMSPool';
   }
 
   function smsStateKey(row){
@@ -2980,7 +2989,30 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     return `${prefix}${action}O1`;
   }
 
+  function smsDirectPayload(action, args){
+    const list = Array.isArray(args) ? args : [];
+    if(action === 'Order') return { country: smsPoolUIState.selectedCountry || '0', service: 'go' };
+    if(action === 'Check' || action === 'Refund') return { orderId: list[0] };
+    if(action === 'Catalog') return { service: 'go', force: !!list[0]?.force };
+    return {};
+  }
+
   function smsRun(action, args, onSuccess, onFailure){
+    if(smsServiceKey() === 'smsactivate'){
+      if(!window.sproutg?.smsActivate){
+        const err = new Error('SMS Activate API is unavailable');
+        if(onFailure) onFailure(err);
+        else toast(err.message);
+        return;
+      }
+      window.sproutg.smsActivate(action, smsDirectPayload(action, args))
+        .then((res)=>{ if(onSuccess) onSuccess(res); })
+        .catch((err)=>{
+          if(onFailure) onFailure(err);
+          else toast(String(err?.message || err));
+        });
+      return;
+    }
     const method = smsApiMethod(action);
     const runner = google.script.run
       .withSuccessHandler(onSuccess)
@@ -3202,6 +3234,18 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
         <div class="value smsPoolCode">Готов к заказу</div>
         <div class="actions"></div>
       </div>
+      <div class="field smsActivateCatalogRow" hidden>
+        <div class="label">Страна</div>
+        <select class="value smsActivateCountry" aria-label="Страна SMS Activate"></select>
+        <div class="actions">
+          <button class="btn smsActivateRefreshBtn" type="button">↻</button>
+        </div>
+      </div>
+      <div class="field smsActivateCatalogRow" hidden>
+        <div class="label">Успешность</div>
+        <div class="value smsActivateCountryMeta">—</div>
+        <div class="actions"></div>
+      </div>
     `;
 
     const elements = {
@@ -3211,7 +3255,11 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
       timer: card.querySelector('.smsPoolTimer'),
       code: card.querySelector('.smsPoolCode'),
       price: card.querySelector('.smsPoolPrice'),
-      balance: card.querySelector('.smsPoolBalance')
+      balance: card.querySelector('.smsPoolBalance'),
+      countryRows: Array.from(card.querySelectorAll('.smsActivateCatalogRow')),
+      countrySelect: card.querySelector('.smsActivateCountry'),
+      countryMeta: card.querySelector('.smsActivateCountryMeta'),
+      countryRefreshBtn: card.querySelector('.smsActivateRefreshBtn')
     };
     smsPoolUIState.elements = elements;
 
@@ -3222,8 +3270,89 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
       const num = smsPoolNormalizeNumber(raw);
       if(num && num !== '—') copyText(num);
     });
+    elements.countrySelect?.addEventListener('change', ()=>{
+      smsPoolUIState.selectedCountry = String(elements.countrySelect.value || '0');
+      smsActivateRenderSelectedCountryMeta();
+    });
+    elements.countryRefreshBtn?.addEventListener('click', ()=>smsActivateLoadCatalog({ force:true }));
 
     return card;
+  }
+
+  function smsActivateSetCatalogVisible(visible){
+    const el = smsPoolUIState.elements;
+    if(!el?.countryRows) return;
+    for(const row of el.countryRows) row.hidden = !visible;
+  }
+
+  function smsActivateCountryLabel(item){
+    if(!item) return '—';
+    const name = item.rus || item.eng || item.name || `ID ${item.id}`;
+    const price = Number.isFinite(Number(item.cost)) ? `$${Number(item.cost).toFixed(2)}` : 'цена —';
+    const count = Number.isFinite(Number(item.count)) ? `${Number(item.count)} шт.` : 'наличие —';
+    const success = Number.isFinite(Number(item.success)) ? `${Math.round(Number(item.success))}%` : 'усп. —';
+    return `${name} · ${price} · ${count} · ${success}`;
+  }
+
+  function smsActivateSelectedCountry(){
+    const selected = String(smsPoolUIState.selectedCountry || '0');
+    return (smsPoolUIState.countryCatalog || []).find((item)=>String(item.id) === selected) || null;
+  }
+
+  function smsActivateRenderSelectedCountryMeta(){
+    const el = smsPoolUIState.elements;
+    if(!el) return;
+    const item = smsActivateSelectedCountry();
+    if(el.countryMeta) {
+      el.countryMeta.textContent = item
+        ? `Цена ${Number.isFinite(Number(item.cost)) ? `$${Number(item.cost).toFixed(2)}` : '—'} · Номеров ${Number.isFinite(Number(item.count)) ? item.count : '—'} · Успешность ${Number.isFinite(Number(item.success)) ? `${Math.round(Number(item.success))}%` : '—'}`
+        : 'Каталог не загружен';
+    }
+    if(item?.cost != null) smsPoolRenderPrice(item.cost);
+  }
+
+  function smsActivateRenderCatalog(list){
+    const el = smsPoolUIState.elements;
+    if(!el?.countrySelect) return;
+    const rows = Array.isArray(list) ? list : [];
+    smsPoolUIState.countryCatalog = rows;
+    el.countrySelect.innerHTML = '';
+    for(const item of rows){
+      const opt = document.createElement('option');
+      opt.value = String(item.id);
+      opt.textContent = smsActivateCountryLabel(item);
+      el.countrySelect.appendChild(opt);
+    }
+    const currentId = String(smsPoolUIState.selectedCountry || '0');
+    const hasCurrent = rows.some((item)=>String(item.id) === currentId);
+    smsPoolUIState.selectedCountry = hasCurrent ? currentId : String(rows[0]?.id ?? '0');
+    el.countrySelect.value = smsPoolUIState.selectedCountry;
+    smsActivateRenderSelectedCountryMeta();
+  }
+
+  function smsActivateLoadCatalog(opts = {}){
+    if(smsServiceKey() !== 'smsactivate') return;
+    const el = smsPoolUIState.elements;
+    if(!el) return;
+    const now = Date.now();
+    if(!opts.force && smsPoolUIState.countryCatalog.length && now - smsPoolUIState.countryLoadedAt < 5 * 60 * 1000){
+      smsActivateRenderCatalog(smsPoolUIState.countryCatalog);
+      return;
+    }
+    if(el.countryMeta) el.countryMeta.textContent = 'Загрузка стран...';
+    if(el.countryRefreshBtn) el.countryRefreshBtn.disabled = true;
+    smsRun('Catalog', [{ force: !!opts.force }], (res)=>{
+      if(el.countryRefreshBtn) el.countryRefreshBtn.disabled = false;
+      if(!res || res.ok === false){
+        if(el.countryMeta) el.countryMeta.textContent = res?.error || 'Не удалось загрузить страны';
+        return;
+      }
+      smsPoolUIState.countryLoadedAt = Date.now();
+      smsActivateRenderCatalog(res.countries || res.data?.countries || []);
+    }, (err)=>{
+      if(el.countryRefreshBtn) el.countryRefreshBtn.disabled = false;
+      if(el.countryMeta) el.countryMeta.textContent = String(err?.message || err || 'Ошибка загрузки');
+    });
   }
 
   function smsPoolNormalizeNumber(raw){
@@ -3475,6 +3604,9 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
   function smsPoolInit(opts = {}){
     const el = smsPoolUIState.elements;
     if(!el) return;
+    const isSmsActivate = smsServiceKey() === 'smsactivate';
+    smsActivateSetCatalogVisible(isSmsActivate);
+    if(isSmsActivate) smsActivateLoadCatalog();
     const preserve = opts.preserve === true;
     const profileRow = current?.row ? String(current.row) : '';
     if(!profileRow) return;
@@ -4010,7 +4142,8 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
         }
 
         // TEXT
-        if(editMode || (g.name==='Речек' && col==='BS')){
+        const isEmptyAccountGmail = g.name === 'Аккаунт' && col === 'X' && !String(f.value ?? '').trim();
+        if(editMode || (g.name==='Речек' && col==='BS') || isEmptyAccountGmail){
           const inp=document.createElement('input');
           inp.type='text';
           inp.className=('value '+proxyClass+truncClass+rsClass).trim();
@@ -4163,17 +4296,6 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
           btn.dataset.col = f.col;
           btn.dataset.row = String(res.row);
           btn.addEventListener('click', ()=>{
-            if(g.name === 'Аккаунт' && col === 'X'){
-              const curVal = String(f.value ?? '').trim();
-              if(!curVal){
-                const next = '0.00$';
-                f.value = next;
-                btn.textContent = next;
-                toast('Сохранение…');
-                saveCellInstant(res.row, 'X', next, ()=>toast('Сохранено'), (err)=>toast(err||'Ошибка'));
-                return;
-              }
-            }
             copyText(btn.textContent);
           });
 
@@ -6923,18 +7045,28 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
 
   function setupO1TopButton(){
     const btn = document.getElementById('o1ToTop');
-    const scroller = document.getElementById('mainScrollO1');
+    const scroller = getO1Scroller_() || document.getElementById('mainScrollO1');
     if(!btn || !scroller) return;
-    btn.addEventListener('click', ()=>{
-      scroller.scrollTo({ top:0, behavior:'smooth' });
-    });
-    scroller.addEventListener('scroll', updateO1TopButton);
+    if(btn.dataset.boundO1Scroll !== '1'){
+      btn.dataset.boundO1Scroll = '1';
+      btn.addEventListener('click', (event)=>{
+        event.preventDefault();
+        const localScroller = getO1Scroller_() || document.getElementById('mainScrollO1');
+        if(!localScroller) return;
+        sproutgProgrammaticScrollUntil = Date.now() + 800;
+        localScroller.scrollTo({ top:0, behavior:'smooth' });
+      });
+    }
+    if(scroller.dataset.boundO1TopScroll !== '1'){
+      scroller.dataset.boundO1TopScroll = '1';
+      scroller.addEventListener('scroll', updateO1TopButton);
+    }
     updateO1TopButton();
   }
 
   function updateO1TopButton(){
     const cluster = document.getElementById('o1TopCluster');
-    const scroller = document.getElementById('mainScrollO1');
+    const scroller = getO1Scroller_() || document.getElementById('mainScrollO1');
     if(!cluster || !scroller) return;
     cluster.classList.toggle('show', scroller.scrollTop > 200 && activePage === 'O1');
   }
@@ -7159,6 +7291,18 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     if(!vr.ok){ setCompanyError(vr.error); return; }
     google.script.run.withSuccessHandler((res)=>{
       if(!res || res.ok===false){ setCompanyError(res?.error || 'Ошибка сохранения'); return; }
+      sproutgPostToDesktop('POINT_EVENT', {
+        kind: 'company',
+        page: 'COMPANY',
+        group: 'Компании',
+        workType: 'Компания',
+        key: 'Компания',
+        count: 1,
+        deltaClicks: 1,
+        deltaPoints: 10,
+        delta: 10,
+        ts: Date.now()
+      });
       toast('Компания добавлена');
       inputs.forEach(i=>{ i.value = ''; });
     }).withFailureHandler((err)=>setCompanyError(String(err))).addCompanyRow(vr.values);

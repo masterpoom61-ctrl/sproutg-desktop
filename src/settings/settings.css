@@ -146,7 +146,7 @@ details,
   overflow-x:hidden;
   padding-right:2px;
   scrollbar-width:none;
-  overscroll-behavior-y:contain;
+  overscroll-behavior-y:auto;
   -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 14px, #000 calc(100% - 14px), transparent 100%);
   mask-image: linear-gradient(to bottom, transparent 0, #000 14px, #000 calc(100% - 14px), transparent 100%);
 }
@@ -177,7 +177,7 @@ details,
 }
 .input::placeholder{color:var(--muted);}
 .pill{font-size:12px;padding:6px 10px;border:1px solid var(--border);border-radius:999px;color:var(--muted);}
-.segmented{display:flex;border:1px solid var(--border);border-radius:12px;overflow:hidden;}
+.segmented{display:flex;min-width:0;border:1px solid var(--border);border-radius:12px;overflow:hidden;}
 .seg{height:32px;padding:0 10px;border:none;background:transparent;color:var(--muted);cursor:pointer;font-size:12px;font-weight:900;}
 .seg:hover{background:var(--btn);}
 .seg[data-active="true"]{background:var(--btn);color:var(--text);}
@@ -256,6 +256,49 @@ details,
 .updateStatus[data-state="available"],.pill[data-state="available"]{color:#128047;border-color:rgba(34,197,94,.46);background:rgba(34,197,94,.12);}
 .updateActions{gap:8px;}
 .updateActions .btn{flex:1;padding:0 8px;font-size:11px;}
+.releaseHistory{
+  margin-top:9px;
+  padding:8px;
+  border:1px solid var(--border);
+  border-radius:12px;
+  background:var(--btn);
+}
+.releaseHistory summary{
+  padding:0;
+  color:var(--text);
+  font-size:11px;
+}
+.releaseSelect{
+  width:100%;
+  height:32px;
+  margin-top:8px;
+  border:1px solid var(--border);
+  border-radius:10px;
+  background:var(--btn);
+  color:var(--text);
+  padding:0 9px;
+  outline:none;
+}
+.releaseSelect option{
+  background:var(--panel);
+  color:var(--text);
+}
+.releaseHistoryBody{
+  margin-top:8px;
+  color:var(--muted);
+  font-size:11px;
+  line-height:1.35;
+}
+.releaseHistoryTitle{
+  color:var(--text);
+  font-weight:900;
+  margin-bottom:5px;
+}
+.releaseHistoryBody ul{
+  margin:0;
+  padding-left:16px;
+}
+.releaseHistoryBody li{margin:3px 0;}
 .progress{height:7px;margin-top:8px;border:1px solid var(--border);border-radius:999px;overflow:hidden;background:var(--btn);}
 .progressBar{height:100%;width:0%;background:var(--text);opacity:.65;transition:width .18s ease;}
 .btn:disabled{opacity:.45;cursor:not-allowed;}

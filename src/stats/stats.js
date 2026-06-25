@@ -64,6 +64,10 @@ const monthPrevBtn = $('monthPrevBtn');
 const monthNextBtn = $('monthNextBtn');
 const weekTitle = $('weekTitle');
 const monthTitle = $('monthTitle');
+const leaguePrevBtn = $('leaguePrevBtn');
+const leagueNextBtn = $('leagueNextBtn');
+const leagueMonthTitle = $('leagueMonthTitle');
+const leagueMonthBoard = $('leagueMonthBoard');
 
 let __lastPoints = null;
 let closing = false;
@@ -378,6 +382,7 @@ const WORK_LABELS = {
   'Черновики MCC': 'Черновики',
   'Профиль Okto': 'Okto',
   'Номер': 'Номера',
+  'Компания': 'Компания',
 };
 function labelForType(t){
   return WORK_LABELS[t] || String(t||'').replace(/\s*\([^)]*\)\s*/g,'').trim();
@@ -397,6 +402,7 @@ const WORK_TYPES = [
   'Черновики MCC',
   'Профиль Okto',
   'Номер',
+  'Компания',
 ];
 
 const WORK_COLORS = {
@@ -439,12 +445,12 @@ function getWorkColors(){
 }
 
 const LEAGUE_LEVELS = [
-  { key:'none', name:'Без лиги', short:'Нет', icon:'·', colorVar:'--muted2' },
-  { key:'bronze', name:'Бронза', short:'BRZ', icon:'🥉', colorVar:'--chartC' },
-  { key:'silver', name:'Серебро', short:'SLV', icon:'🥈', colorVar:'--chartA' },
-  { key:'gold', name:'Золото', short:'GLD', icon:'👑', colorVar:'--chartB' },
-  { key:'diamond', name:'Алмаз', short:'DIA', icon:'💎', colorVar:'--chartD' },
-  { key:'legendary', name:'Легендарно', short:'LEG', icon:'🏆', colorVar:'--chartC' }
+  { key:'none', name:'Без лиги', short:'Нет', colorVar:'--muted2' },
+  { key:'bronze', name:'Бронза', short:'BRZ', colorVar:'--chartC' },
+  { key:'silver', name:'Серебро', short:'SLV', colorVar:'--chartA' },
+  { key:'gold', name:'Золото', short:'GLD', colorVar:'--chartB' },
+  { key:'diamond', name:'Алмаз', short:'DIA', colorVar:'--chartD' },
+  { key:'legendary', name:'Легендарно', short:'LEG', colorVar:'--chartC' }
 ];
 const LEAGUE_BY_KEY = LEAGUE_LEVELS.reduce((acc, item) => {
   acc[item.key] = item;
@@ -475,6 +481,160 @@ function emptyLeagueCounter(){
 function countLeague(counter, league){
   const key = league?.key;
   if (key && key !== 'none' && Object.prototype.hasOwnProperty.call(counter, key)) counter[key] += 1;
+}
+
+function escHtml(s){
+  return String(s ?? '').replace(/[&<>"]/g, (c)=>({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
+}
+
+function leagueRank(key){
+  return { none:0, bronze:1, silver:2, gold:3, diamond:4, legendary:5 }[key] || 0;
+}
+
+function highestLeagueFromCounter(counter){
+  let best = LEAGUE_BY_KEY.none;
+  for (const key of COUNTED_LEAGUES){
+    if (Number(counter?.[key] || 0) > 0 && leagueRank(key) > leagueRank(best.key)) {
+      best = LEAGUE_BY_KEY[key] || best;
+    }
+  }
+  return best;
+}
+
+function countLeagueValues(values, thresholds){
+  const counter = emptyLeagueCounter();
+  for (const value of values || []) countLeague(counter, leagueForValue(value, thresholds));
+  return counter;
+}
+
+function weekOverlapsMonth(record, monthKey){
+  return (record?.keys || []).some((key)=>String(key || '').slice(0, 7) === monthKey);
+}
+
+function selectedMonthRecord(monthRecords, monthKey){
+  return (monthRecords || []).find((record)=>record.monthKey === monthKey) || {
+    monthKey,
+    total: 0,
+    byType: {}
+  };
+}
+
+function achievementState(currentValue, bestValue){
+  const current = Number(currentValue || 0);
+  const best = Number(bestValue || 0);
+  if (!current || !best) return { type:'empty', label:'нет данных' };
+  if (current >= best) return { type:'record', label:'рекорд' };
+  if (current >= best * 0.9) return { type:'near', label:'близко к рекорду' };
+  return { type:'normal', label:'обычный результат' };
+}
+
+function buildLeagueMonthRows(days, weekRecords, monthRecords, monthKey){
+  const monthDayKeys = keysForMonth(monthKey);
+  const dayValues = monthDayKeys.map((key)=>Number(days?.[key]?.total || 0));
+  const selectedWeeks = (weekRecords || []).filter((record)=>weekOverlapsMonth(record, monthKey));
+  const monthRecord = selectedMonthRecord(monthRecords, monthKey);
+  const bestWeekAll = bestByTotal(weekRecords);
+  const bestWeekSelected = bestByTotal(selectedWeeks);
+  const bestMonthAll = bestByTotal(monthRecords);
+  const monthLeague = leagueForValue(monthRecord.total, MONTH_LEAGUE_THRESHOLDS);
+
+  const monthCounter = emptyLeagueCounter();
+  countLeague(monthCounter, monthLeague);
+
+  const weekAchievement = achievementState(bestWeekSelected?.total || 0, bestWeekAll?.total || 0);
+  const monthAchievement = achievementState(monthRecord.total, bestMonthAll?.total || 0);
+  const weekAchievementCounter = emptyLeagueCounter();
+  const monthAchievementCounter = emptyLeagueCounter();
+  if (weekAchievement.type === 'record') countLeague(weekAchievementCounter, leagueForValue(bestWeekSelected?.total || 0, WEEK_LEAGUE_THRESHOLDS));
+  if (monthAchievement.type === 'record') countLeague(monthAchievementCounter, monthLeague);
+
+  return [
+    {
+      key:'day',
+      title:'Дневные лиги',
+      subtitle:'по каждому дню выбранного месяца',
+      value: dayValues.reduce((sum, value)=>sum + value, 0),
+      counters: countLeagueValues(dayValues, DAY_LEAGUE_THRESHOLDS),
+      topLeague: highestLeagueFromCounter(countLeagueValues(dayValues, DAY_LEAGUE_THRESHOLDS)),
+      note: `${dayValues.filter(Boolean).length} активн. дней`
+    },
+    {
+      key:'week',
+      title:'Недельные лиги',
+      subtitle:'по продуктивным неделям месяца',
+      value: selectedWeeks.reduce((sum, record)=>sum + Number(record.total || 0), 0),
+      counters: countLeagueValues(selectedWeeks.map((record)=>record.total), WEEK_LEAGUE_THRESHOLDS),
+      topLeague: highestLeagueFromCounter(countLeagueValues(selectedWeeks.map((record)=>record.total), WEEK_LEAGUE_THRESHOLDS)),
+      note: `${selectedWeeks.length} нед.`
+    },
+    {
+      key:'month',
+      title:'Месячная лига',
+      subtitle:'по сумме выбранного месяца',
+      value: Number(monthRecord.total || 0),
+      counters: monthCounter,
+      topLeague: monthLeague,
+      note: monthLabel(monthKey)
+    },
+    {
+      key:'week-achievement',
+      title:'Достижение недели',
+      subtitle:'лучшая неделя против общего рекорда',
+      value: Number(bestWeekSelected?.total || 0),
+      counters: weekAchievementCounter,
+      topLeague: weekAchievement.type === 'record'
+        ? leagueForValue(bestWeekSelected?.total || 0, WEEK_LEAGUE_THRESHOLDS)
+        : (weekAchievement.type === 'near' ? LEAGUE_BY_KEY.silver : LEAGUE_BY_KEY.none),
+      note: weekAchievement.label
+    },
+    {
+      key:'month-achievement',
+      title:'Достижение месяца',
+      subtitle:'выбранный месяц против лучшего месяца',
+      value: Number(monthRecord.total || 0),
+      counters: monthAchievementCounter,
+      topLeague: monthAchievement.type === 'record' ? monthLeague : (monthAchievement.type === 'near' ? LEAGUE_BY_KEY.silver : LEAGUE_BY_KEY.none),
+      note: monthAchievement.label
+    }
+  ];
+}
+
+function renderLeagueCounters(counter){
+  return COUNTED_LEAGUES.map((key)=>{
+    const league = LEAGUE_BY_KEY[key];
+    const count = Number(counter?.[key] || 0);
+    return `
+      <span class="leagueCount league--${key}" title="${escHtml(league.name)}">
+        <span class="leagueMaskIcon" aria-hidden="true"></span>
+        <span>${count}</span>
+      </span>`;
+  }).join('');
+}
+
+function renderLeagueMonthBoard(days, weekRecords, monthRecords, monthKey){
+  if (!leagueMonthBoard) return;
+  const selected = String(monthKey || monthKeyFromDate(new Date()));
+  if (leagueMonthTitle) leagueMonthTitle.textContent = `Лиги месяца · ${monthLabel(selected)}`;
+  if (leagueNextBtn) leagueNextBtn.disabled = selected >= monthKeyFromDate(new Date());
+
+  const rows = buildLeagueMonthRows(days, weekRecords, monthRecords, selected);
+  leagueMonthBoard.innerHTML = rows.map((row)=>{
+    const league = row.topLeague || LEAGUE_BY_KEY.none;
+    const totalBadges = Object.values(row.counters || {}).reduce((sum, value)=>sum + Number(value || 0), 0);
+    return `
+      <div class="leagueMonthRow league--${league.key}" data-league="${league.key}">
+        <div class="leagueMonthRow__badge leagueBadge league--${league.key}" title="${escHtml(league.name)}">
+          <span class="leagueMaskIcon" aria-hidden="true"></span>
+        </div>
+        <div class="leagueMonthRow__main">
+          <div class="leagueMonthRow__title">${escHtml(row.title)}</div>
+          <div class="leagueMonthRow__sub">${escHtml(row.subtitle)}</div>
+          <div class="leagueMonthRow__note">${escHtml(row.note)} · ${escHtml(league.name)} · ${totalBadges} лиг</div>
+        </div>
+        <div class="leagueMonthRow__value">${Number(row.value || 0)}</div>
+        <div class="leagueMonthRow__counts">${renderLeagueCounters(row.counters)}</div>
+      </div>`;
+  }).join('');
 }
 
 function mergeTypeCounts(keys, workDays){
@@ -618,8 +778,9 @@ function applyLeagueCard(card, badge, leagueText, league, value, thresholds){
   card.dataset.league = next.key;
   card.style.setProperty('--stat-accent', `var(${next.colorVar})`);
   if (badge) {
-    badge.textContent = next.icon;
+    badge.className = `statCard__badge leagueBadge league--${next.key}`;
     badge.title = next.name;
+    badge.innerHTML = '<span class="leagueMaskIcon" aria-hidden="true"></span>';
   }
   if (leagueText) leagueText.textContent = `${next.name} · ${next.short}`;
 }
@@ -656,7 +817,7 @@ function bindHorizontalWheel(el){
     if(!delta) return;
     event.preventDefault();
     el.scrollBy({ left: delta, behavior:'smooth' });
-  }, { passive:false });
+  }, { passive:false, capture:true });
 }
 
 function setupElasticBounce(container, target){
@@ -878,6 +1039,29 @@ function bindPeriodNavigation(){
       selectedMonthKey = next;
       persistStatsSelection();
       if(monthSelect) monthSelect.value = selectedMonthKey;
+      animatePeriod('month', 1);
+      if(window.__lastStatsData) render(window.__lastStatsData);
+    });
+  }
+  if(leaguePrevBtn && leaguePrevBtn.dataset.bound !== '1'){
+    leaguePrevBtn.dataset.bound = '1';
+    leaguePrevBtn.addEventListener('click', () => {
+      selectedMonthKey = addMonthsToKey(selectedMonthKey || monthKeyFromDate(new Date()), -1);
+      persistStatsSelection();
+      if(monthSelect) monthSelect.value = selectedMonthKey;
+      animatePeriod('month', -1);
+      if(window.__lastStatsData) render(window.__lastStatsData);
+    });
+  }
+  if(leagueNextBtn && leagueNextBtn.dataset.bound !== '1'){
+    leagueNextBtn.dataset.bound = '1';
+    leagueNextBtn.addEventListener('click', () => {
+      const nowKey = monthKeyFromDate(new Date());
+      const next = addMonthsToKey(selectedMonthKey || nowKey, 1);
+      if(next > nowKey) return;
+      selectedMonthKey = next;
+      persistStatsSelection();
+      if(monthSelect) monthSelect.value = next;
       animatePeriod('month', 1);
       if(window.__lastStatsData) render(window.__lastStatsData);
     });
@@ -1417,6 +1601,7 @@ for (const [k,obj] of Object.entries(days || {})){
       monthLeague: MONTH_LEAGUE_THRESHOLDS
     }
   };
+  renderLeagueMonthBoard(days, weekRecords, monthRecords, selected);
 
   elMonthTotal.textContent = String(monthSum);
   elMonthHint.textContent = monthLabel(selected);

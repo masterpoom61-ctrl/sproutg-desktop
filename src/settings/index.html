@@ -91,17 +91,17 @@
             <button class="themeOption" data-theme-value="burgundy-club">Burgundy Club</button>
             <button class="themeOption" data-theme-value="swiss">Swiss</button>
             <button class="themeOption" data-theme-value="caviar">Caviar</button>
-            <button class="themeOption" data-theme-value="executive">Executive</button>
+            <button class="themeOption" data-theme-value="banking-green">Banking Green</button>
             <button class="themeOption" data-theme-value="deep-space">Deep Space</button>
-            <button class="themeOption" data-theme-value="rainy-day">Rainy Day</button>
+            <button class="themeOption" data-theme-value="typewriter">Typewriter</button>
             <button class="themeOption" data-theme-value="tokyo-night">Tokyo Night</button>
-            <button class="themeOption" data-theme-value="mountain">Mountain</button>
+            <button class="themeOption" data-theme-value="terracotta">Terracotta</button>
             <button class="themeOption" data-theme-value="aurora">Aurora</button>
             <button class="themeOption" data-theme-value="blueprint">Blueprint</button>
-            <button class="themeOption" data-theme-value="terracotta">Terracotta</button>
+            <button class="themeOption" data-theme-value="mountain">Mountain</button>
             <button class="themeOption" data-theme-value="slate-blue">Slate Blue</button>
-            <button class="themeOption" data-theme-value="banking-green">Banking Green</button>
-            <button class="themeOption" data-theme-value="typewriter">Typewriter</button>
+            <button class="themeOption" data-theme-value="executive">Executive</button>
+            <button class="themeOption" data-theme-value="rainy-day">Rainy Day</button>
             <button class="themeOption" data-theme-value="amber-terminal">Amber Terminal</button>
           </div>
         </details>
@@ -129,6 +129,11 @@
             <button class="btn" id="btnInstallUpdate" disabled>Установить</button>
           </div>
           <div class="hint compact">Фоновая установка отключена. Если новая версия найдена, SproutG покажет уведомление; установка запускается здесь.</div>
+          <details class="releaseHistory" id="releaseHistory">
+            <summary>История обновлений</summary>
+            <select class="releaseSelect" id="releaseHistorySelect" aria-label="Версия обновления"></select>
+            <div class="releaseHistoryBody" id="releaseHistoryBody"></div>
+          </details>
         </div>
 
         <div class="divider"></div>
@@ -153,6 +158,7 @@
               <div class="segmented">
                 <button class="seg" id="smsServiceSmsPool" type="button">SMSPool</button>
                 <button class="seg" id="smsServiceHeroSms" type="button">HeroSMS</button>
+                <button class="seg" id="smsServiceSmsActivate" type="button">SMS Activate</button>
               </div>
             </div>
             <div class="label label-strong">SMSPool</div>
@@ -165,7 +171,12 @@
               <input class="input" id="heroSmsApiKey" type="password" placeholder="HeroSMS API key" autocomplete="off" />
               <button class="btn" id="btnSaveHeroSmsKey">Сохранить</button>
             </div>
-            <div class="hint compact" id="smsPoolStatus">Ключи хранятся в ScriptProperties SproutG.Web.</div>
+            <div class="label label-strong">SMS Activate</div>
+            <div class="row">
+              <input class="input" id="smsActivateApiKey" type="password" placeholder="SMS Activate API key" autocomplete="off" />
+              <button class="btn" id="btnSaveSmsActivateKey">Сохранить</button>
+            </div>
+            <div class="hint compact" id="smsPoolStatus">SMSPool/HeroSMS хранятся в SproutG.Web, SMS Activate хранится локально в SproutG Desktop.</div>
           </div>
           <div class="techInfo" id="techInfo">
             <div>SproutG: <b id="techDesktopVersion">—</b></div>

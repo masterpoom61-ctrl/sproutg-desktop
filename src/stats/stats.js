@@ -429,28 +429,15 @@ function getWorkColors(){
     acc[type] = [hexToRgba(color, alpha), hexToRgba(color, 0.08)];
     return acc;
   }, {});
-  return {
-    'РђРєРєР°СѓРЅС‚ (O1)': [hexToRgba(p.a,0.62), hexToRgba(p.a,0.08)],
-    'Ads Р’РёРґРµРѕ (O1)': [hexToRgba(p.b,0.62), hexToRgba(p.b,0.08)],
-    'РџР»Р°С‚РµР¶РєР° (O1)': [hexToRgba(p.c,0.62), hexToRgba(p.c,0.08)],
-    'Р РµС‡РµРє (O1)': [hexToRgba(p.d,0.62), hexToRgba(p.d,0.08)],
-    'Р Рљ (O1)': [hexToRgba(p.d,0.56), hexToRgba(p.d,0.08)],
-    'РђРєРєР°СѓРЅС‚ MCC (MCC)': [hexToRgba(p.a,0.56), hexToRgba(p.a,0.08)],
-    'Р РµС‡РµРє (MCC)': [hexToRgba(p.b,0.56), hexToRgba(p.b,0.08)],
-    'Р’РµСЂРёС„РёРєР°С†РёРё (O1+MCC)': [hexToRgba(p.c,0.56), hexToRgba(p.c,0.08)],
-    'РђРїРµР»Р»СЏС†РёРё O1': [hexToRgba(p.a,0.50), hexToRgba(p.a,0.08)],
-    'РђРїРµР»Р»СЏС†РёРё MCC': [hexToRgba(p.b,0.50), hexToRgba(p.b,0.08)],
-    'РњРёРЅРё (O1+MCC)': [hexToRgba(p.c,0.50), hexToRgba(p.c,0.08)]
-  };
 }
 
 const LEAGUE_LEVELS = [
-  { key:'none', name:'Без лиги', short:'Нет', colorVar:'--muted2' },
-  { key:'bronze', name:'Бронза', short:'BRZ', colorVar:'--chartC' },
-  { key:'silver', name:'Серебро', short:'SLV', colorVar:'--chartA' },
-  { key:'gold', name:'Золото', short:'GLD', colorVar:'--chartB' },
-  { key:'diamond', name:'Алмаз', short:'DIA', colorVar:'--chartD' },
-  { key:'legendary', name:'Легендарно', short:'LEG', colorVar:'--chartC' }
+  { key:'none', name:'Без лиги', short:'Нет', colorVar:'--league-none' },
+  { key:'bronze', name:'Бронза', short:'BRZ', colorVar:'--league-bronze' },
+  { key:'silver', name:'Серебро', short:'SLV', colorVar:'--league-silver' },
+  { key:'gold', name:'Золото', short:'GLD', colorVar:'--league-gold' },
+  { key:'diamond', name:'Алмаз', short:'DIA', colorVar:'--league-diamond' },
+  { key:'legendary', name:'Легендарно', short:'LEG', colorVar:'--league-legendary' }
 ];
 const LEAGUE_BY_KEY = LEAGUE_LEVELS.reduce((acc, item) => {
   acc[item.key] = item;
@@ -1678,6 +1665,9 @@ function applySettingsUi(settings = {}){
   document.documentElement.dataset.graphics = settings.graphicsMode === 'lite' ? 'lite' : 'ultra';
   document.documentElement.dataset.contrast = settings.contrastMode ? 'on' : 'off';
   document.documentElement.dataset.zjk = settings.classicTrafficLights ? 'on' : 'off';
+  document.documentElement.dataset.statGlow = settings.statCardGlow === false ? 'off' : 'on';
+  document.documentElement.style.setProperty('--app-font-scale', String(settings.fontScale || 1));
+  applyStatsCustomThemeVars(settings);
 }
 
 function monthKeyFromDate(d){
@@ -1764,6 +1754,79 @@ function hexToRgba(hex, alpha){
   if(!m) return raw;
   const n = parseInt(m[1], 16);
   return `rgba(${(n>>16)&255},${(n>>8)&255},${n&255},${alpha})`;
+}
+
+const STATS_CUSTOM_THEME_PROPS = [
+  '--bg', '--bg-grad-1', '--bg-grad-2', '--bg-grad-3',
+  '--panel', '--panel2', '--surface', '--surface-alt',
+  '--btn', '--btnH', '--border', '--line', '--line-strong',
+  '--text', '--muted', '--muted2', '--accent',
+  '--chartA', '--chartB', '--chartC', '--chartD',
+  '--glassTop', '--glassFog', '--custom-bg-url'
+];
+const STATS_CUSTOM_THEME_DEFAULTS = {
+  bgA: '#0f172a',
+  bgB: '#111827',
+  panel: '#111827',
+  surface: '#1f2937',
+  text: '#f8fafc',
+  accent: '#38bdf8'
+};
+function normalizeStatsCustomVars(vars = {}){
+  const isHex = (value) => /^#[0-9a-f]{6}$/i.test(String(value || '').trim());
+  return Object.fromEntries(Object.entries(STATS_CUSTOM_THEME_DEFAULTS).map(([key, fallback]) => {
+    const raw = String(vars?.[key] || fallback).trim();
+    return [key, isHex(raw) ? raw : fallback];
+  }));
+}
+function statsSelectedCustomTheme(settings = {}){
+  const id = String(settings?.customThemeId || '').trim();
+  if(!id) return null;
+  return (Array.isArray(settings?.customThemes) ? settings.customThemes : []).find((item)=>item?.id === id) || null;
+}
+function statsCustomBgUrl(path){
+  const raw = String(path || '').trim();
+  if(!raw) return '';
+  const normalized = raw.replace(/\\/g, '/').replace(/"/g, '');
+  const withScheme = /^[a-z]+:/i.test(normalized) ? normalized : `file:///${normalized}`;
+  return `url("${withScheme}")`;
+}
+function applyStatsCustomThemeVars(settings = {}){
+  const root = document.documentElement;
+  for(const prop of STATS_CUSTOM_THEME_PROPS) root.style.removeProperty(prop);
+  const custom = statsSelectedCustomTheme(settings);
+  root.dataset.customTheme = custom ? 'on' : 'off';
+  root.dataset.customBg = 'off';
+  if(!custom) return;
+  const vars = normalizeStatsCustomVars(custom.vars);
+  root.style.setProperty('--bg', vars.bgA);
+  root.style.setProperty('--bg-grad-1', hexToRgba(vars.accent, .24));
+  root.style.setProperty('--bg-grad-2', hexToRgba(vars.surface, .28));
+  root.style.setProperty('--bg-grad-3', vars.bgB);
+  root.style.setProperty('--panel', hexToRgba(vars.panel, .94));
+  root.style.setProperty('--panel2', hexToRgba(vars.surface, .30));
+  root.style.setProperty('--surface', hexToRgba(vars.surface, .76));
+  root.style.setProperty('--surface-alt', hexToRgba(vars.panel, .72));
+  root.style.setProperty('--btn', hexToRgba(vars.surface, .48));
+  root.style.setProperty('--btnH', hexToRgba(vars.accent, .18));
+  root.style.setProperty('--border', hexToRgba(vars.accent, .30));
+  root.style.setProperty('--line', hexToRgba(vars.accent, .22));
+  root.style.setProperty('--line-strong', hexToRgba(vars.accent, .46));
+  root.style.setProperty('--text', vars.text);
+  root.style.setProperty('--muted', hexToRgba(vars.text, .70));
+  root.style.setProperty('--muted2', hexToRgba(vars.text, .54));
+  root.style.setProperty('--accent', vars.accent);
+  root.style.setProperty('--chartA', vars.accent);
+  root.style.setProperty('--chartB', vars.bgB);
+  root.style.setProperty('--chartC', vars.surface);
+  root.style.setProperty('--chartD', vars.text);
+  root.style.setProperty('--glassTop', hexToRgba(vars.surface, .38));
+  root.style.setProperty('--glassFog', hexToRgba(vars.bgB, .76));
+  const bg = statsCustomBgUrl(custom.backgroundImage);
+  if(bg){
+    root.style.setProperty('--custom-bg-url', bg);
+    root.dataset.customBg = 'on';
+  }
 }
 
 window.sproutgStats.onApplySettings((s) => { if (s) applySettingsUi(s); });

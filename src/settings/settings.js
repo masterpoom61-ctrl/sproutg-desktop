@@ -34,17 +34,17 @@ const THEMES = {
   'burgundy-club': 'Burgundy Club',
   swiss: 'Swiss',
   caviar: 'Caviar',
-  'banking-green': 'Banking Green',
+  executive: 'Executive',
   'deep-space': 'Deep Space',
-  typewriter: 'Typewriter',
+  'rainy-day': 'Rainy Day',
   'tokyo-night': 'Tokyo Night',
-  terracotta: 'Terracotta',
+  mountain: 'Mountain',
   aurora: 'Aurora',
   blueprint: 'Blueprint',
-  mountain: 'Mountain',
+  terracotta: 'Terracotta',
   'slate-blue': 'Slate Blue',
-  executive: 'Executive',
-  'rainy-day': 'Rainy Day',
+  'banking-green': 'Banking Green',
+  typewriter: 'Typewriter',
   'amber-terminal': 'Amber Terminal'
 };
 const THEME_ALIASES = { dark: 'dark-classic', light: 'light-classic', 'midnight-pro': 'dark-midnight-pro', forest: 'dark-forest', 'cyberpunk-neon': 'cyberpunk' };
@@ -53,6 +53,9 @@ const btnAOT = $('btnAOT');
 const btnZoomIn = $('btnZoomIn');
 const btnZoomOut = $('btnZoomOut');
 const zoomValue = $('zoomValue');
+const btnFontScaleIn = $('btnFontScaleIn');
+const btnFontScaleOut = $('btnFontScaleOut');
+const fontScaleValue = $('fontScaleValue');
 const themeList = $('themeList');
 const btnReload = $('btnReload');
 const btnClearCache = $('btnClearCache');
@@ -65,6 +68,18 @@ const contrastOff = $('contrastOff');
 const contrastOn = $('contrastOn');
 const trafficOff = $('trafficOff');
 const trafficOn = $('trafficOn');
+const statGlowOn = $('statGlowOn');
+const statGlowOff = $('statGlowOff');
+const customThemeName = $('customThemeName');
+const customBgA = $('customBgA');
+const customBgB = $('customBgB');
+const customPanel = $('customPanel');
+const customSurface = $('customSurface');
+const customText = $('customText');
+const customAccent = $('customAccent');
+const customBgImage = $('customBgImage');
+const btnSaveCustomTheme = $('btnSaveCustomTheme');
+const btnDeleteCustomTheme = $('btnDeleteCustomTheme');
 const appVersion = $('appVersion');
 const updateBadge = $('updateBadge');
 const updateStatus = $('updateStatus');
@@ -80,28 +95,35 @@ const smsPoolApiKey = $('smsPoolApiKey');
 const btnSaveSmsPoolKey = $('btnSaveSmsPoolKey');
 const heroSmsApiKey = $('heroSmsApiKey');
 const btnSaveHeroSmsKey = $('btnSaveHeroSmsKey');
-const smsActivateApiKey = $('smsActivateApiKey');
-const btnSaveSmsActivateKey = $('btnSaveSmsActivateKey');
 const smsServiceSmsPool = $('smsServiceSmsPool');
 const smsServiceHeroSms = $('smsServiceHeroSms');
-const smsServiceSmsActivate = $('smsServiceSmsActivate');
 const smsPoolStatus = $('smsPoolStatus');
 const techDesktopVersion = $('techDesktopVersion');
 const techWebVersion = $('techWebVersion');
 const techAppSize = $('techAppSize');
 const settingsCloseBtn = $('settingsCloseBtn');
 
-let current = { theme: 'dark-classic', zoom: 1.0, alwaysOnTop: false, graphicsMode: 'ultra', contrastMode: false, classicTrafficLights: false, smsService: 'smspool' };
+let current = { theme: 'dark-classic', zoom: 1.0, fontScale: 1.0, alwaysOnTop: false, graphicsMode: 'ultra', contrastMode: false, classicTrafficLights: false, statCardGlow: true, smsService: 'smspool', customThemeId: '', customThemes: [] };
 let closing = false;
 
 // RELEASE_HISTORY: при каждом публичном релизе добавляй новую запись сверху,
 // чтобы раздел "История обновлений" в настройках всегда был актуален для пользователей.
 const RELEASE_HISTORY = [
   {
+    version: '2.1.7',
+    date: '2026-06-26',
+    changes: [
+      'Раздел O1 "SMS Activate" переведен на HeroSMS: каталог стран, цены, количество и русские ответы сервиса.',
+      'Лиги статистики получили фиксированные бронзовые, серебряные, золотые, алмазные и легендарные цвета.',
+      'Добавлены настройка свечения карточек статистики, размер текста и редактор пользовательских тем.',
+      'Исправлены иконки навигации в "Лигах месяца" и первое сохранение Gmail/Аутентификатора в O1.'
+    ]
+  },
+  {
     version: '2.1.6',
     date: '2026-06-25',
     changes: [
-      'SMS Activate: выбор стран для Google/Gmail/YouTube с ценой, количеством и сортировкой по успешности.',
+      'Подготовлен каталог стран для SMS-сервиса O1 с ценой, количеством и сортировкой.',
       'Исправлена кнопка вверх на странице O1 и поведение пустого поля Gmail в колонке X.',
       'Лиги в статистике переведены с emoji на крупные кастомные SVG-иконки.',
       'Добавлена нижняя таблица лиг по дням, неделям, месяцу и рекордным достижениям.',
@@ -216,11 +238,158 @@ function normalizeTheme(theme) {
   return THEMES[next] ? next : 'dark-classic';
 }
 
+const CUSTOM_THEME_DEFAULTS = {
+  bgA: '#0f172a',
+  bgB: '#111827',
+  panel: '#111827',
+  surface: '#1f2937',
+  text: '#f8fafc',
+  accent: '#38bdf8'
+};
+const CUSTOM_THEME_PROPS = [
+  '--bg', '--bg-grad-1', '--bg-grad-2', '--bg-grad-3',
+  '--panel', '--panel2', '--surface', '--surface-alt',
+  '--btn', '--btnH', '--control-hover', '--control-active',
+  '--border', '--line', '--line-strong', '--text', '--muted', '--muted2',
+  '--accent', '--chartA', '--chartB', '--chartC', '--chartD',
+  '--topbar-bg', '--topbar-fg', '--glassTop', '--glassFog', '--custom-bg-url'
+];
+
+function clampNumber(value, min, max, fallback = 1) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(min, Math.min(max, n));
+}
+
+function isHexColor(value) {
+  return /^#[0-9a-f]{6}$/i.test(String(value || '').trim());
+}
+
+function normalizeThemeVars(vars = {}) {
+  return Object.fromEntries(Object.entries(CUSTOM_THEME_DEFAULTS).map(([key, fallback]) => {
+    const raw = String(vars?.[key] || fallback).trim();
+    return [key, isHexColor(raw) ? raw : fallback];
+  }));
+}
+
+function hexToRgba(hex, alpha) {
+  const value = String(hex || '').replace('#', '');
+  const n = parseInt(value, 16);
+  if (!Number.isFinite(n)) return `rgba(255,255,255,${alpha})`;
+  const r = (n >> 16) & 255;
+  const g = (n >> 8) & 255;
+  const b = n & 255;
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
+function customBgUrl(path) {
+  const raw = String(path || '').trim();
+  if (!raw) return '';
+  const normalized = raw.replace(/\\/g, '/').replace(/"/g, '');
+  const withScheme = /^[a-z]+:/i.test(normalized) ? normalized : `file:///${normalized}`;
+  return `url("${withScheme}")`;
+}
+
+function selectedCustomTheme(settings = current) {
+  const id = String(settings?.customThemeId || '').trim();
+  if (!id) return null;
+  return (Array.isArray(settings?.customThemes) ? settings.customThemes : []).find((item) => item?.id === id) || null;
+}
+
+function applyCustomThemeVars(settings = current) {
+  const root = document.documentElement;
+  for (const prop of CUSTOM_THEME_PROPS) root.style.removeProperty(prop);
+  const custom = selectedCustomTheme(settings);
+  root.dataset.customTheme = custom ? 'on' : 'off';
+  root.dataset.customBg = 'off';
+  if (!custom) return;
+  const vars = normalizeThemeVars(custom.vars);
+  root.style.setProperty('--bg', vars.bgA);
+  root.style.setProperty('--bg-grad-1', hexToRgba(vars.accent, .24));
+  root.style.setProperty('--bg-grad-2', hexToRgba(vars.surface, .28));
+  root.style.setProperty('--bg-grad-3', vars.bgB);
+  root.style.setProperty('--panel', hexToRgba(vars.panel, .92));
+  root.style.setProperty('--panel2', hexToRgba(vars.surface, .28));
+  root.style.setProperty('--surface', hexToRgba(vars.surface, .76));
+  root.style.setProperty('--surface-alt', hexToRgba(vars.panel, .72));
+  root.style.setProperty('--btn', hexToRgba(vars.surface, .48));
+  root.style.setProperty('--btnH', hexToRgba(vars.accent, .18));
+  root.style.setProperty('--control-hover', hexToRgba(vars.accent, .16));
+  root.style.setProperty('--control-active', hexToRgba(vars.accent, .24));
+  root.style.setProperty('--border', hexToRgba(vars.accent, .30));
+  root.style.setProperty('--line', hexToRgba(vars.accent, .22));
+  root.style.setProperty('--line-strong', hexToRgba(vars.accent, .46));
+  root.style.setProperty('--text', vars.text);
+  root.style.setProperty('--muted', hexToRgba(vars.text, .68));
+  root.style.setProperty('--muted2', hexToRgba(vars.text, .52));
+  root.style.setProperty('--accent', vars.accent);
+  root.style.setProperty('--chartA', vars.accent);
+  root.style.setProperty('--chartB', vars.bgB);
+  root.style.setProperty('--chartC', vars.surface);
+  root.style.setProperty('--chartD', vars.text);
+  root.style.setProperty('--topbar-bg', hexToRgba(vars.panel, .96));
+  root.style.setProperty('--topbar-fg', vars.text);
+  root.style.setProperty('--glassTop', hexToRgba(vars.surface, .34));
+  root.style.setProperty('--glassFog', hexToRgba(vars.bgB, .62));
+  const bg = customBgUrl(custom.backgroundImage);
+  if (bg) {
+    root.style.setProperty('--custom-bg-url', bg);
+    root.dataset.customBg = 'on';
+  }
+}
+
+function setFontScaleUi(fontScale) {
+  if (fontScaleValue) fontScaleValue.textContent = `${Math.round(clampNumber(fontScale, .75, 1.45, 1) * 100)}%`;
+}
+
+function setStatGlowUi(enabled) {
+  if (statGlowOn) statGlowOn.dataset.active = enabled ? 'true' : 'false';
+  if (statGlowOff) statGlowOff.dataset.active = enabled ? 'false' : 'true';
+}
+
+function renderCustomThemeOptions(settings = current) {
+  if (!themeList) return;
+  themeList.querySelectorAll('[data-custom-theme-id]').forEach((btn) => btn.remove());
+  const customThemes = Array.isArray(settings.customThemes) ? settings.customThemes : [];
+  for (const item of customThemes) {
+    const vars = normalizeThemeVars(item.vars);
+    const btn = document.createElement('button');
+    btn.className = 'themeOption themeOptionCustom';
+    btn.type = 'button';
+    btn.dataset.customThemeId = item.id;
+    btn.textContent = item.name || 'Своя тема';
+    btn.style.setProperty('--themeA', vars.bgA);
+    btn.style.setProperty('--themeB', vars.bgB);
+    btn.style.setProperty('--themeText', vars.text);
+    btn.style.setProperty('--themeBorder', hexToRgba(vars.accent, .42));
+    btn.style.setProperty('--themeRing', vars.accent);
+    themeList.appendChild(btn);
+  }
+}
+
+function hydrateCustomThemeEditor(settings = current) {
+  const custom = selectedCustomTheme(settings);
+  const vars = normalizeThemeVars(custom?.vars || {});
+  if (customThemeName) customThemeName.value = custom?.name || '';
+  if (customBgA) customBgA.value = vars.bgA;
+  if (customBgB) customBgB.value = vars.bgB;
+  if (customPanel) customPanel.value = vars.panel;
+  if (customSurface) customSurface.value = vars.surface;
+  if (customText) customText.value = vars.text;
+  if (customAccent) customAccent.value = vars.accent;
+  if (customBgImage) customBgImage.value = custom?.backgroundImage || '';
+  if (btnDeleteCustomTheme) btnDeleteCustomTheme.disabled = !custom;
+}
+
 function setThemeUi(theme) {
   const next = normalizeTheme(theme);
   document.documentElement.setAttribute('data-theme', next);
+  const selectedCustomId = String(current?.customThemeId || '');
   for (const btn of document.querySelectorAll('[data-theme-value]')) {
-    btn.dataset.active = btn.dataset.themeValue === next ? 'true' : 'false';
+    btn.dataset.active = !selectedCustomId && btn.dataset.themeValue === next ? 'true' : 'false';
+  }
+  for (const btn of document.querySelectorAll('[data-custom-theme-id]')) {
+    btn.dataset.active = btn.dataset.customThemeId === selectedCustomId ? 'true' : 'false';
   }
 }
 
@@ -241,10 +410,9 @@ function setGraphicsUi(mode) {
 }
 
 function setSmsServiceUi(service) {
-  const key = service === 'herosms' || service === 'smsactivate' ? service : 'smspool';
+  const key = service === 'herosms' ? 'herosms' : 'smspool';
   if (smsServiceSmsPool) smsServiceSmsPool.dataset.active = key === 'smspool' ? 'true' : 'false';
   if (smsServiceHeroSms) smsServiceHeroSms.dataset.active = key === 'herosms' ? 'true' : 'false';
-  if (smsServiceSmsActivate) smsServiceSmsActivate.dataset.active = key === 'smsactivate' ? 'true' : 'false';
 }
 
 function applySettingsUi(settings = {}) {
@@ -253,19 +421,30 @@ function applySettingsUi(settings = {}) {
     ...(settings || {}),
     theme: normalizeTheme(settings.theme || current.theme),
     graphicsMode: normalizeGraphics(settings.graphicsMode || current.graphicsMode),
-    smsService: settings.smsService === 'herosms' || settings.smsService === 'smsactivate' ? settings.smsService : 'smspool'
+    fontScale: clampNumber(settings.fontScale ?? current.fontScale, .75, 1.45, 1),
+    statCardGlow: settings.statCardGlow !== false,
+    customThemeId: String(settings.customThemeId || ''),
+    customThemes: Array.isArray(settings.customThemes) ? settings.customThemes : [],
+    smsService: settings.smsService === 'herosms' ? 'herosms' : 'smspool'
   };
   current = next;
+  renderCustomThemeOptions(next);
   setThemeUi(next.theme);
   setZoomUi(next.zoom);
+  setFontScaleUi(next.fontScale);
   setAotUi(!!next.alwaysOnTop);
   setGraphicsUi(next.graphicsMode);
   setSmsServiceUi(next.smsService);
+  setStatGlowUi(next.statCardGlow !== false);
   setPair(contrastOff, contrastOn, !!next.contrastMode);
   setPair(trafficOff, trafficOn, !!next.classicTrafficLights);
   document.documentElement.dataset.graphics = next.graphicsMode;
   document.documentElement.dataset.contrast = next.contrastMode ? 'on' : 'off';
   document.documentElement.dataset.zjk = next.classicTrafficLights ? 'on' : 'off';
+  document.documentElement.dataset.statGlow = next.statCardGlow === false ? 'off' : 'on';
+  document.documentElement.style.setProperty('--app-font-scale', String(next.fontScale || 1));
+  applyCustomThemeVars(next);
+  hydrateCustomThemeEditor(next);
 }
 
 function setZoomUi(zoom) {
@@ -455,11 +634,27 @@ btnZoomOut.addEventListener('click', async () => {
   setZoomUi(current.zoom);
 });
 
+btnFontScaleIn?.addEventListener('click', async () => {
+  current = await window.sproutgSettings.setSetting({ fontScale: clampNumber((current.fontScale || 1) + 0.05, .75, 1.45, 1) });
+  applySettingsUi(current);
+});
+
+btnFontScaleOut?.addEventListener('click', async () => {
+  current = await window.sproutgSettings.setSetting({ fontScale: clampNumber((current.fontScale || 1) - 0.05, .75, 1.45, 1) });
+  applySettingsUi(current);
+});
+
 themeList.addEventListener('click', async (event) => {
+  const customBtn = event.target.closest('[data-custom-theme-id]');
+  if (customBtn) {
+    current = await window.sproutgSettings.setSetting({ customThemeId: customBtn.dataset.customThemeId });
+    applySettingsUi(current);
+    return;
+  }
   const btn = event.target.closest('[data-theme-value]');
   if (!btn) return;
   const theme = normalizeTheme(btn.dataset.themeValue);
-  current = await window.sproutgSettings.setSetting({ theme });
+  current = await window.sproutgSettings.setSetting({ theme, customThemeId: '' });
   applySettingsUi(current);
 });
 
@@ -493,6 +688,52 @@ trafficOn?.addEventListener('click', async () => {
   applySettingsUi(current);
 });
 
+statGlowOn?.addEventListener('click', async () => {
+  current = await window.sproutgSettings.setSetting({ statCardGlow: true });
+  applySettingsUi(current);
+});
+
+statGlowOff?.addEventListener('click', async () => {
+  current = await window.sproutgSettings.setSetting({ statCardGlow: false });
+  applySettingsUi(current);
+});
+
+btnSaveCustomTheme?.addEventListener('click', async () => {
+  const selected = selectedCustomTheme(current);
+  const id = selected?.id || `custom-${Date.now().toString(36)}`;
+  const item = {
+    id,
+    name: String(customThemeName?.value || selected?.name || 'Своя тема').trim().slice(0, 40) || 'Своя тема',
+    vars: normalizeThemeVars({
+      bgA: customBgA?.value,
+      bgB: customBgB?.value,
+      panel: customPanel?.value,
+      surface: customSurface?.value,
+      text: customText?.value,
+      accent: customAccent?.value
+    }),
+    backgroundImage: String(customBgImage?.value || '').trim()
+  };
+  const nextThemes = (Array.isArray(current.customThemes) ? current.customThemes : []).filter((theme) => theme.id !== id);
+  nextThemes.push(item);
+  current = await window.sproutgSettings.setSetting({
+    customThemes: nextThemes,
+    customThemeId: id
+  });
+  applySettingsUi(current);
+});
+
+btnDeleteCustomTheme?.addEventListener('click', async () => {
+  const selected = selectedCustomTheme(current);
+  if (!selected) return;
+  const nextThemes = (Array.isArray(current.customThemes) ? current.customThemes : []).filter((theme) => theme.id !== selected.id);
+  current = await window.sproutgSettings.setSetting({
+    customThemes: nextThemes,
+    customThemeId: ''
+  });
+  applySettingsUi(current);
+});
+
 smsServiceSmsPool?.addEventListener('click', async () => {
   current = await window.sproutgSettings.setSetting({ smsService: 'smspool' });
   applySettingsUi(current);
@@ -500,11 +741,6 @@ smsServiceSmsPool?.addEventListener('click', async () => {
 
 smsServiceHeroSms?.addEventListener('click', async () => {
   current = await window.sproutgSettings.setSetting({ smsService: 'herosms' });
-  applySettingsUi(current);
-});
-
-smsServiceSmsActivate?.addEventListener('click', async () => {
-  current = await window.sproutgSettings.setSetting({ smsService: 'smsactivate' });
   applySettingsUi(current);
 });
 
@@ -551,30 +787,14 @@ btnSaveHeroSmsKey?.addEventListener('click', async () => {
   btnSaveHeroSmsKey.disabled = true;
   if (smsPoolStatus) smsPoolStatus.textContent = 'Сохранение HeroSMS...';
   try {
-    const res = await window.sproutgSettings.apiCall('herosms.setApiKey', { key }, { cache: false, timeoutMs: 15000 });
+    const res = await window.sproutgSettings.heroSms('setApiKey', { key });
     if (!res || res.ok === false) throw new Error(res?.error || 'Ошибка сохранения');
     if (heroSmsApiKey) heroSmsApiKey.value = '';
-    if (smsPoolStatus) smsPoolStatus.textContent = key ? 'HeroSMS API key сохранен.' : 'HeroSMS API key очищен.';
+    if (smsPoolStatus) smsPoolStatus.textContent = key ? 'HeroSMS API key сохранен локально.' : 'HeroSMS API key очищен.';
   } catch (e) {
     if (smsPoolStatus) smsPoolStatus.textContent = String(e?.message || e);
   } finally {
     btnSaveHeroSmsKey.disabled = false;
-  }
-});
-
-btnSaveSmsActivateKey?.addEventListener('click', async () => {
-  const key = String(smsActivateApiKey?.value || '').trim();
-  btnSaveSmsActivateKey.disabled = true;
-  if (smsPoolStatus) smsPoolStatus.textContent = 'Сохранение SMS Activate...';
-  try {
-    const res = await window.sproutgSettings.smsActivate('setApiKey', { key });
-    if (!res || res.ok === false) throw new Error(res?.error || 'Ошибка сохранения');
-    if (smsActivateApiKey) smsActivateApiKey.value = '';
-    if (smsPoolStatus) smsPoolStatus.textContent = key ? 'SMS Activate API key сохранен локально.' : 'SMS Activate API key очищен.';
-  } catch (e) {
-    if (smsPoolStatus) smsPoolStatus.textContent = String(e?.message || e);
-  } finally {
-    btnSaveSmsActivateKey.disabled = false;
   }
 });
 

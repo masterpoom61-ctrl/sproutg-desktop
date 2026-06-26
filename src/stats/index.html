@@ -2,7 +2,7 @@
 <html lang="ru" data-theme="dark">
 <head>
   <meta charset="UTF-8" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self';">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: file:; style-src 'self' 'unsafe-inline'; script-src 'self';">
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Статистика</title>
   <link rel="stylesheet" href="../renderer/assets/league-icons/league-icons.css" />
@@ -158,9 +158,13 @@
 
     <div class="section leagueMonthSection">
       <div class="sectionHead">
-        <button class="periodNav" id="leaguePrevBtn" type="button" aria-label="РџСЂРµРґС‹РґСѓС‰РёР№ РјРµСЃСЏС†">вЂ№</button>
-        <div class="section__title" id="leagueMonthTitle">Р›РёРіРё РјРµСЃСЏС†Р°</div>
-        <button class="periodNav" id="leagueNextBtn" type="button" aria-label="РЎР»РµРґСѓСЋС‰РёР№ РјРµСЃСЏС†">вЂє</button>
+        <button class="periodNav" id="leaguePrevBtn" type="button" aria-label="Предыдущий месяц">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6" /></svg>
+        </button>
+        <div class="section__title" id="leagueMonthTitle">Лиги месяца</div>
+        <button class="periodNav" id="leagueNextBtn" type="button" aria-label="Следующий месяц">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6" /></svg>
+        </button>
       </div>
       <div class="leagueMonthBoard" id="leagueMonthBoard"></div>
     </div>

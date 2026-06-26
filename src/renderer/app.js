@@ -21,6 +21,88 @@ const DESKTOP_THEME_ALIASES = { dark:'dark-classic', light:'light-classic', 'mid
 function normalizeDesktopTheme(theme){
   return DESKTOP_THEME_ALIASES[String(theme || '')] || String(theme || '') || 'dark-classic';
 }
+const CUSTOM_THEME_PROPS = [
+  '--bg', '--bg-grad-1', '--bg-grad-2', '--bg-grad-3',
+  '--panel', '--panel2', '--surface', '--surface-alt',
+  '--btn', '--btnH', '--control-hover', '--control-active',
+  '--border', '--line', '--line-strong', '--text', '--muted', '--muted2',
+  '--accent', '--chartA', '--chartB', '--chartC', '--chartD',
+  '--topbar-bg', '--topbar-fg', '--glassTop', '--glassFog', '--custom-bg-url'
+];
+const CUSTOM_THEME_DEFAULTS = {
+  bgA: '#0f172a',
+  bgB: '#111827',
+  panel: '#111827',
+  surface: '#1f2937',
+  text: '#f8fafc',
+  accent: '#38bdf8'
+};
+function normalizeCustomVars(vars = {}){
+  const isHex = (value) => /^#[0-9a-f]{6}$/i.test(String(value || '').trim());
+  return Object.fromEntries(Object.entries(CUSTOM_THEME_DEFAULTS).map(([key, fallback]) => {
+    const raw = String(vars?.[key] || fallback).trim();
+    return [key, isHex(raw) ? raw : fallback];
+  }));
+}
+function hexToRgba(hex, alpha){
+  const value = String(hex || '').replace('#', '');
+  const n = parseInt(value, 16);
+  if (!Number.isFinite(n)) return `rgba(255,255,255,${alpha})`;
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${alpha})`;
+}
+function customBgUrl(path){
+  const raw = String(path || '').trim();
+  if(!raw) return '';
+  const normalized = raw.replace(/\\/g, '/').replace(/"/g, '');
+  const withScheme = /^[a-z]+:/i.test(normalized) ? normalized : `file:///${normalized}`;
+  return `url("${withScheme}")`;
+}
+function selectedCustomTheme(settings = {}){
+  const id = String(settings?.customThemeId || '').trim();
+  if(!id) return null;
+  return (Array.isArray(settings?.customThemes) ? settings.customThemes : []).find((item)=>item?.id === id) || null;
+}
+function applyCustomThemeVars(settings = {}){
+  const root = document.documentElement;
+  for(const prop of CUSTOM_THEME_PROPS) root.style.removeProperty(prop);
+  const custom = selectedCustomTheme(settings);
+  root.dataset.customTheme = custom ? 'on' : 'off';
+  root.dataset.customBg = 'off';
+  if(!custom) return;
+  const vars = normalizeCustomVars(custom.vars);
+  root.style.setProperty('--bg', vars.bgA);
+  root.style.setProperty('--bg-grad-1', hexToRgba(vars.accent, .24));
+  root.style.setProperty('--bg-grad-2', hexToRgba(vars.surface, .28));
+  root.style.setProperty('--bg-grad-3', vars.bgB);
+  root.style.setProperty('--panel', hexToRgba(vars.panel, .92));
+  root.style.setProperty('--panel2', hexToRgba(vars.surface, .28));
+  root.style.setProperty('--surface', hexToRgba(vars.surface, .76));
+  root.style.setProperty('--surface-alt', hexToRgba(vars.panel, .72));
+  root.style.setProperty('--btn', hexToRgba(vars.surface, .48));
+  root.style.setProperty('--btnH', hexToRgba(vars.accent, .18));
+  root.style.setProperty('--control-hover', hexToRgba(vars.accent, .16));
+  root.style.setProperty('--control-active', hexToRgba(vars.accent, .24));
+  root.style.setProperty('--border', hexToRgba(vars.accent, .30));
+  root.style.setProperty('--line', hexToRgba(vars.accent, .22));
+  root.style.setProperty('--line-strong', hexToRgba(vars.accent, .46));
+  root.style.setProperty('--text', vars.text);
+  root.style.setProperty('--muted', hexToRgba(vars.text, .68));
+  root.style.setProperty('--muted2', hexToRgba(vars.text, .52));
+  root.style.setProperty('--accent', vars.accent);
+  root.style.setProperty('--chartA', vars.accent);
+  root.style.setProperty('--chartB', vars.bgB);
+  root.style.setProperty('--chartC', vars.surface);
+  root.style.setProperty('--chartD', vars.text);
+  root.style.setProperty('--topbar-bg', hexToRgba(vars.panel, .96));
+  root.style.setProperty('--topbar-fg', vars.text);
+  root.style.setProperty('--glassTop', hexToRgba(vars.surface, .34));
+  root.style.setProperty('--glassFog', hexToRgba(vars.bgB, .62));
+  const bg = customBgUrl(custom.backgroundImage);
+  if(bg){
+    root.style.setProperty('--custom-bg-url', bg);
+    root.dataset.customBg = 'on';
+  }
+}
 function setTopbarTheme(theme){
   const normalized = normalizeDesktopTheme(theme);
   document.documentElement.style.removeProperty('--topbar-bg');
@@ -36,11 +118,14 @@ let desktopSettings = { smsService: 'smspool' };
 function applyDesktopSettings(settings = {}){
   const prevSmsService = desktopSettings.smsService || 'smspool';
   desktopSettings = { ...desktopSettings, ...(settings || {}) };
-  desktopSettings.smsService = ['herosms', 'smsactivate'].includes(desktopSettings.smsService) ? desktopSettings.smsService : 'smspool';
+  desktopSettings.smsService = desktopSettings.smsService === 'herosms' ? 'herosms' : 'smspool';
   if (settings.theme) setTopbarTheme(settings.theme);
   document.documentElement.dataset.graphics = settings.graphicsMode === 'lite' ? 'lite' : 'ultra';
   document.documentElement.dataset.contrast = settings.contrastMode ? 'on' : 'off';
   document.documentElement.dataset.zjk = settings.classicTrafficLights ? 'on' : 'off';
+  document.documentElement.dataset.statGlow = desktopSettings.statCardGlow === false ? 'off' : 'on';
+  document.documentElement.style.setProperty('--app-font-scale', String(desktopSettings.fontScale || 1));
+  applyCustomThemeVars(desktopSettings);
   if(prevSmsService !== desktopSettings.smsService){
     try{
       document.querySelectorAll('.smsServiceTitle').forEach((el)=>{ el.textContent = smsServiceLabel(); });
@@ -68,7 +153,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
   applyDesktopSettings(s || { theme: 'dark-classic' });
 })();
 
-  const APP_VERSION = '2.1.6';
+  const APP_VERSION = '2.1.7';
   const PAGE_KEY = 'FarmA.page';
   const HOME_RETURN_KEY = 'FarmA.homeReturnPage';
   const THEME_KEY = 'sproutg.theme';
@@ -2250,6 +2335,15 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     }, opts.saveOptions || {});
   }
 
+  function rerenderCurrentO1Soft(row, reason = 'inline-save'){
+    if(!row || !isActiveO1Row_(row) || !current) return;
+    const scrollSnap = captureSproutScroll_(reason);
+    setTimeout(()=>{
+      if(!isActiveO1Row_(row) || !current) return;
+      renderProfile(current, { preserveScrollSnapshot: scrollSnap });
+    }, 0);
+  }
+
   function saveO1RechekExpenseInstant(row, nextValue, fieldMap, uiContext = {}){
     const nextBS = String(nextValue ?? '');
     const hasExpense = !!nextBS.trim();
@@ -2968,14 +3062,12 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
   function smsServiceKey(){
     const key = desktopSettings?.smsService;
     if(key === 'herosms') return 'herosms';
-    if(key === 'smsactivate') return 'smsactivate';
     return 'smspool';
   }
 
   function smsServiceLabel(){
     const key = smsServiceKey();
-    if(key === 'herosms') return 'HeroSMS';
-    if(key === 'smsactivate') return 'SMS Activate';
+    if(key === 'herosms') return 'SMS Activate';
     return 'SMSPool';
   }
 
@@ -2984,9 +3076,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
   }
 
   function smsApiMethod(action){
-    const hero = smsServiceKey() === 'herosms';
-    const prefix = hero ? 'heroSms' : 'smsPool';
-    return `${prefix}${action}O1`;
+    return `smsPool${action}O1`;
   }
 
   function smsDirectPayload(action, args){
@@ -2998,14 +3088,14 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
   }
 
   function smsRun(action, args, onSuccess, onFailure){
-    if(smsServiceKey() === 'smsactivate'){
-      if(!window.sproutg?.smsActivate){
-        const err = new Error('SMS Activate API is unavailable');
+    if(smsServiceKey() === 'herosms'){
+      if(!window.sproutg?.heroSms){
+        const err = new Error('HeroSMS API недоступен');
         if(onFailure) onFailure(err);
         else toast(err.message);
         return;
       }
-      window.sproutg.smsActivate(action, smsDirectPayload(action, args))
+      window.sproutg.heroSms(action, smsDirectPayload(action, args))
         .then((res)=>{ if(onSuccess) onSuccess(res); })
         .catch((err)=>{
           if(onFailure) onFailure(err);
@@ -3205,14 +3295,15 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
   function renderSmsPoolCard(){
     const card = document.createElement('div');
     card.className = 'card';
-    card.dataset.group = 'SMSPool';
-      card.dataset.section = 'SMSPool';
+    card.dataset.group = 'SMS Activate';
+      card.dataset.section = 'SMS Activate';
       card.innerHTML = `
         <div class="title">
           <h3><span class="smsServiceTitle">${smsServiceLabel()}</span> • One-time</h3>
           <div class="meta2">
+            <button class="btn smsActivateConnectBtn" type="button">Подключить</button>
             <button class="btn btnPrimary smsPoolOrderBtn" type="button">Заказать номер</button>
-            <button class="btn smsPoolRefundBtn" type="button" disabled>Refund</button>
+            <button class="btn smsPoolRefundBtn" type="button" disabled>Отмена</button>
         </div>
       </div>
       <div class="field">
@@ -3242,13 +3333,14 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
         </div>
       </div>
       <div class="field smsActivateCatalogRow" hidden>
-        <div class="label">Успешность</div>
+        <div class="label">Качество</div>
         <div class="value smsActivateCountryMeta">—</div>
         <div class="actions"></div>
       </div>
     `;
 
     const elements = {
+      connectBtn: card.querySelector('.smsActivateConnectBtn'),
       orderBtn: card.querySelector('.smsPoolOrderBtn'),
       refundBtn: card.querySelector('.smsPoolRefundBtn'),
       number: card.querySelector('.smsPoolNumber'),
@@ -3263,6 +3355,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     };
     smsPoolUIState.elements = elements;
 
+    elements.connectBtn?.addEventListener('click', ()=>smsActivateConnect());
     elements.orderBtn.addEventListener('click', smsPoolOrder);
     elements.refundBtn.addEventListener('click', smsPoolRefund);
     elements.number.addEventListener('click', ()=>{
@@ -3283,6 +3376,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     const el = smsPoolUIState.elements;
     if(!el?.countryRows) return;
     for(const row of el.countryRows) row.hidden = !visible;
+    if(el.connectBtn) el.connectBtn.hidden = !visible;
   }
 
   function smsActivateCountryLabel(item){
@@ -3330,13 +3424,47 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     smsActivateRenderSelectedCountryMeta();
   }
 
-  function smsActivateLoadCatalog(opts = {}){
-    if(smsServiceKey() !== 'smsactivate') return;
+  function smsActivateConnect(){
     const el = smsPoolUIState.elements;
     if(!el) return;
+    if(smsServiceKey() !== 'herosms'){
+      smsPoolUpdateBalance({ force:true });
+      return;
+    }
+    if(el.connectBtn){
+      el.connectBtn.disabled = true;
+      el.connectBtn.textContent = 'Подключение…';
+    }
+    if(!smsPoolUIState.activeOrder) smsPoolSetCodeDisplay('', 'Подключение…');
+    smsPoolUpdateBalance({ force:true });
+    smsActivateLoadCatalog({
+      force:true,
+      onDone:()=>{
+        if(el.connectBtn){
+          el.connectBtn.disabled = false;
+          el.connectBtn.textContent = 'Подключить';
+        }
+        if(!smsPoolUIState.activeOrder && !smsPoolUIState.codeValue){
+          smsPoolSetCodeDisplay('', smsPoolUIState.countryCatalog.length ? 'Готов к заказу' : 'Каталог не загружен');
+        }
+      }
+    });
+  }
+
+  function smsActivateLoadCatalog(opts = {}){
+    if(smsServiceKey() !== 'herosms') {
+      opts.onDone?.();
+      return;
+    }
+    const el = smsPoolUIState.elements;
+    if(!el) {
+      opts.onDone?.();
+      return;
+    }
     const now = Date.now();
     if(!opts.force && smsPoolUIState.countryCatalog.length && now - smsPoolUIState.countryLoadedAt < 5 * 60 * 1000){
       smsActivateRenderCatalog(smsPoolUIState.countryCatalog);
+      opts.onDone?.();
       return;
     }
     if(el.countryMeta) el.countryMeta.textContent = 'Загрузка стран...';
@@ -3345,13 +3473,16 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
       if(el.countryRefreshBtn) el.countryRefreshBtn.disabled = false;
       if(!res || res.ok === false){
         if(el.countryMeta) el.countryMeta.textContent = res?.error || 'Не удалось загрузить страны';
+        opts.onDone?.();
         return;
       }
       smsPoolUIState.countryLoadedAt = Date.now();
       smsActivateRenderCatalog(res.countries || res.data?.countries || []);
+      opts.onDone?.();
     }, (err)=>{
       if(el.countryRefreshBtn) el.countryRefreshBtn.disabled = false;
       if(el.countryMeta) el.countryMeta.textContent = String(err?.message || err || 'Ошибка загрузки');
+      opts.onDone?.();
     });
   }
 
@@ -3604,7 +3735,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
   function smsPoolInit(opts = {}){
     const el = smsPoolUIState.elements;
     if(!el) return;
-    const isSmsActivate = smsServiceKey() === 'smsactivate';
+    const isSmsActivate = smsServiceKey() === 'herosms';
     smsActivateSetCatalogVisible(isSmsActivate);
     if(isSmsActivate) smsActivateLoadCatalog();
     const preserve = opts.preserve === true;
@@ -4142,8 +4273,8 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
         }
 
         // TEXT
-        const isEmptyAccountGmail = g.name === 'Аккаунт' && col === 'X' && !String(f.value ?? '').trim();
-        if(editMode || (g.name==='Речек' && col==='BS') || isEmptyAccountGmail){
+        const isEmptyAccountInlineText = g.name === 'Аккаунт' && (col === 'X' || col === 'AD') && !String(f.value ?? '').trim();
+        if(editMode || (g.name==='Речек' && col==='BS') || isEmptyAccountInlineText){
           const inp=document.createElement('input');
           inp.type='text';
           inp.className=('value '+proxyClass+truncClass+rsClass).trim();
@@ -4257,9 +4388,13 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
               el: inp,
               field: f,
               saveOptions: { tabKey: getTabKey(res.row), profileName: res.profileName || '' },
-              onSaved: ()=>{
+              onSaved: (_r, applied)=>{
                 toast('Сохранено');
                 if(isProxyMain) updateProxyFieldsFromServer('O1', res.row, nextValue);
+                const finalValue = String(applied ?? nextValue).trim();
+                if(isEmptyAccountInlineText && finalValue){
+                  rerenderCurrentO1Soft(res.row, `inline-${col}-locked`);
+                }
               },
               onFailed: (err)=>{ toast(err||'Ошибка'); }
             });

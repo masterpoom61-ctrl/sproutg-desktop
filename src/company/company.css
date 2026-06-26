@@ -1,4 +1,5 @@
 :root{
+  --app-font-scale:1;
   --bg:rgba(12,18,32,0.72);
   --panel:rgba(17,24,39,0.91);
   --panel2:rgba(255,255,255,0.07);
@@ -164,8 +165,18 @@ body{
   font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial;
   overflow:hidden;
   user-select:none;
+  font-size:calc(13px * var(--app-font-scale));
 }
 input,textarea,select{user-select:text;}
+html[data-custom-theme="on"][data-custom-bg="on"] body::before{
+  content:"";
+  position:fixed;
+  inset:0;
+  pointer-events:none;
+  background:var(--custom-bg-url) center/cover no-repeat;
+  opacity:.20;
+  filter:saturate(1.08);
+}
 .companyShell{width:100vw;height:100vh;padding:6px;}
 .card{
   width:100%;

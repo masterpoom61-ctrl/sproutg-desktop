@@ -1,4 +1,5 @@
 ﻿:root{
+  --app-font-scale:1;
   --topbar-bg:#151922;
   --topbar-fg:#e9edf5;
   --border:rgba(255,255,255,0.10);
@@ -17,7 +18,7 @@ html[data-theme="light"],html[data-theme="light-classic"],html[data-theme="light
   --control-glow:0 8px 20px rgba(31,41,55,.14);
 }
 *{box-sizing:border-box;}
-body{margin:0;height:100vh;overflow:hidden;background:transparent;font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;font-synthesis:none;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;user-select:none;}
+body{margin:0;height:100vh;overflow:hidden;background:transparent;font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;font-synthesis:none;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;user-select:none;font-size:calc(14px * var(--app-font-scale));}
 input,textarea,select{user-select:text;}
 .topbar{
   height:38px;
@@ -83,6 +84,13 @@ html,body{height:100%;overflow:hidden;}
     linear-gradient(126deg, transparent 6%, var(--bg-grad-5, transparent) 48%, transparent 84%);
   opacity:var(--bg-far-opacity,.9);
   contain:paint;
+}
+html[data-custom-theme="on"][data-custom-bg="on"] #sproutgAppRoot::before{
+  background:
+    linear-gradient(155deg, rgba(0,0,0,.18), rgba(0,0,0,.04)),
+    var(--custom-bg-url) center/cover no-repeat;
+  opacity:.82;
+  filter:saturate(1.08);
 }
 #sproutgAppRoot::after{
   content:"";

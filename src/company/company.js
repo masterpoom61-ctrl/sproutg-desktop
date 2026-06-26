@@ -25,6 +25,85 @@ function normalizeTheme(theme) {
   return THEMES.has(next) ? next : 'dark-classic';
 }
 
+const CUSTOM_THEME_PROPS = [
+  '--bg', '--bg-grad-1', '--bg-grad-2', '--bg-grad-3',
+  '--panel', '--panel2', '--surface', '--surface-alt',
+  '--btn', '--btnH', '--border', '--line', '--line-strong',
+  '--text', '--muted', '--muted2', '--accent',
+  '--chartA', '--chartB', '--chartC', '--chartD',
+  '--glassTop', '--glassFog', '--custom-bg-url'
+];
+const CUSTOM_THEME_DEFAULTS = {
+  bgA: '#0f172a',
+  bgB: '#111827',
+  panel: '#111827',
+  surface: '#1f2937',
+  text: '#f8fafc',
+  accent: '#38bdf8'
+};
+function hexToRgba(hex, alpha) {
+  const value = String(hex || '').replace('#', '');
+  const n = parseInt(value, 16);
+  if (!Number.isFinite(n)) return `rgba(255,255,255,${alpha})`;
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${alpha})`;
+}
+function normalizeCustomVars(vars = {}) {
+  const isHex = (value) => /^#[0-9a-f]{6}$/i.test(String(value || '').trim());
+  return Object.fromEntries(Object.entries(CUSTOM_THEME_DEFAULTS).map(([key, fallback]) => {
+    const raw = String(vars?.[key] || fallback).trim();
+    return [key, isHex(raw) ? raw : fallback];
+  }));
+}
+function selectedCustomTheme(settings = {}) {
+  const id = String(settings?.customThemeId || '').trim();
+  if (!id) return null;
+  return (Array.isArray(settings?.customThemes) ? settings.customThemes : []).find((item) => item?.id === id) || null;
+}
+function customBgUrl(path) {
+  const raw = String(path || '').trim();
+  if (!raw) return '';
+  const normalized = raw.replace(/\\/g, '/').replace(/"/g, '');
+  const withScheme = /^[a-z]+:/i.test(normalized) ? normalized : `file:///${normalized}`;
+  return `url("${withScheme}")`;
+}
+function applyCustomThemeVars(settings = {}) {
+  const root = document.documentElement;
+  for (const prop of CUSTOM_THEME_PROPS) root.style.removeProperty(prop);
+  const custom = selectedCustomTheme(settings);
+  root.dataset.customTheme = custom ? 'on' : 'off';
+  root.dataset.customBg = 'off';
+  if (!custom) return;
+  const vars = normalizeCustomVars(custom.vars);
+  root.style.setProperty('--bg', vars.bgA);
+  root.style.setProperty('--bg-grad-1', hexToRgba(vars.accent, .24));
+  root.style.setProperty('--bg-grad-2', hexToRgba(vars.surface, .28));
+  root.style.setProperty('--bg-grad-3', vars.bgB);
+  root.style.setProperty('--panel', hexToRgba(vars.panel, .92));
+  root.style.setProperty('--panel2', hexToRgba(vars.surface, .28));
+  root.style.setProperty('--surface', hexToRgba(vars.surface, .76));
+  root.style.setProperty('--surface-alt', hexToRgba(vars.panel, .72));
+  root.style.setProperty('--btn', hexToRgba(vars.surface, .48));
+  root.style.setProperty('--btnH', hexToRgba(vars.accent, .18));
+  root.style.setProperty('--border', hexToRgba(vars.accent, .30));
+  root.style.setProperty('--line', hexToRgba(vars.accent, .22));
+  root.style.setProperty('--line-strong', hexToRgba(vars.accent, .46));
+  root.style.setProperty('--text', vars.text);
+  root.style.setProperty('--muted', hexToRgba(vars.text, .68));
+  root.style.setProperty('--muted2', hexToRgba(vars.text, .52));
+  root.style.setProperty('--accent', vars.accent);
+  root.style.setProperty('--chartA', vars.accent);
+  root.style.setProperty('--chartB', vars.bgB);
+  root.style.setProperty('--chartC', vars.surface);
+  root.style.setProperty('--chartD', vars.text);
+  root.style.setProperty('--glassTop', hexToRgba(vars.surface, .34));
+  root.style.setProperty('--glassFog', hexToRgba(vars.bgB, .62));
+  const bg = customBgUrl(custom.backgroundImage);
+  if (bg) {
+    root.style.setProperty('--custom-bg-url', bg);
+    root.dataset.customBg = 'on';
+  }
+}
+
 function setTheme(theme) {
   document.documentElement.setAttribute('data-theme', normalizeTheme(theme));
 }
@@ -34,6 +113,8 @@ function applySettingsUi(settings = {}) {
   document.documentElement.dataset.graphics = settings.graphicsMode === 'lite' ? 'lite' : 'ultra';
   document.documentElement.dataset.contrast = settings.contrastMode ? 'on' : 'off';
   document.documentElement.dataset.zjk = settings.classicTrafficLights ? 'on' : 'off';
+  document.documentElement.style.setProperty('--app-font-scale', String(settings.fontScale || 1));
+  applyCustomThemeVars(settings);
 }
 
 function setError(msg) {

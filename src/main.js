@@ -18,8 +18,8 @@ const store = new Store({
     ui: { statsBounds: null, companyBounds: null },
     points: { days: {}, workDays: {} },
     statusState: {},
-    settings: { theme: 'dark-classic', zoom: 1.0, alwaysOnTop: false, graphicsMode: 'ultra', contrastMode: false, classicTrafficLights: false, smsService: 'smspool' },
-    smsActivate: { apiKey: '', activeOrder: null, country: '0', catalog: null, catalogTs: 0 },
+    settings: { theme: 'dark-classic', zoom: 1.0, fontScale: 1.0, alwaysOnTop: false, graphicsMode: 'ultra', contrastMode: false, classicTrafficLights: false, statCardGlow: true, smsService: 'smspool', customThemeId: '', customThemes: [] },
+    heroSms: { apiKey: '', activeOrder: null, country: '0', service: 'go', catalog: null, catalogTs: 0 },
     window: { bounds: null, isMaximized: false },
     web: { url: null }
   }
@@ -385,21 +385,22 @@ function installDownloadedUpdate(){
   return updateState;
 }
 
-const SMS_ACTIVATE_API_BASE = 'https://api.sms-activate.org/stubs/handler_api.php';
-const SMS_ACTIVATE_GOOGLE_SERVICE = 'go';
-const SMS_ACTIVATE_ERRORS_RU = {
-  BAD_KEY: 'Неверный API ключ SMS Activate',
-  BAD_ACTION: 'Некорректный метод SMS Activate',
+const HERO_SMS_API_BASE = 'https://hero-sms.com/api/v1';
+const HERO_SMS_HANDLER_BASE = 'https://hero-sms.com/stubs/handler_api.php';
+const HERO_SMS_GOOGLE_SERVICE = 'go';
+const HERO_SMS_ERRORS_RU = {
+  BAD_KEY: 'Неверный API ключ HeroSMS',
+  BAD_ACTION: 'Некорректный метод HeroSMS',
   BAD_SERVICE: 'Сервис Google/Gmail/YouTube недоступен',
   BAD_STATUS: 'Некорректный статус активации',
-  NO_BALANCE: 'Недостаточно баланса SMS Activate',
+  NO_BALANCE: 'Недостаточно баланса HeroSMS',
   NO_NUMBERS: 'Нет доступных номеров для выбранной страны',
   NO_ACTIVATION: 'Активация не найдена или уже закрыта',
   STATUS_CANCEL: 'Активация отменена',
-  ACCOUNT_INACTIVE: 'Аккаунт SMS Activate неактивен',
-  BANNED: 'Аккаунт SMS Activate временно заблокирован',
-  ERROR_SQL: 'Ошибка SMS Activate: один из параметров не принят',
-  SQL_ERROR: 'Ошибка SMS Activate: один из параметров не принят',
+  ACCOUNT_INACTIVE: 'Аккаунт HeroSMS неактивен',
+  BANNED: 'Аккаунт HeroSMS временно заблокирован',
+  ERROR_SQL: 'Ошибка HeroSMS: один из параметров не принят',
+  SQL_ERROR: 'Ошибка HeroSMS: один из параметров не принят',
   WRONG_SERVICE: 'Этот сервис не поддерживает запрошенную операцию',
   WRONG_SECURITY: 'Операция недоступна для этой активации',
   ACCESS_CANCEL: 'Активация отменена',
@@ -412,69 +413,73 @@ const SMS_ACTIVATE_ERRORS_RU = {
   STATUS_OK: 'Код получен'
 };
 
-function smsActivateTranslate(text){
+function heroSmsTranslate(text){
   const raw = String(text || '').trim();
   const key = raw.split(':')[0];
-  return SMS_ACTIVATE_ERRORS_RU[key] || raw || 'Неизвестный ответ SMS Activate';
+  return HERO_SMS_ERRORS_RU[key] || raw || 'Неизвестный ответ HeroSMS';
 }
 
-function smsActivateApiKey(){
-  return String(store.get('smsActivate.apiKey') || '').trim();
+function heroSmsApiKey(){
+  return String(store.get('heroSms.apiKey') || '').trim();
 }
 
-function setSmsActivateApiKey(key){
+function setHeroSmsApiKey(key){
   const clean = String(key || '').trim();
-  store.set('smsActivate.apiKey', clean);
+  store.set('heroSms.apiKey', clean);
   if (!clean) {
-    store.set('smsActivate.activeOrder', null);
-    store.set('smsActivate.catalog', null);
-    store.set('smsActivate.catalogTs', 0);
+    store.set('heroSms.activeOrder', null);
+    store.set('heroSms.catalog', null);
+    store.set('heroSms.catalogTs', 0);
   }
   return { ok: true, hasKey: !!clean };
 }
 
-async function smsActivateFetch(params = {}, opts = {}){
-  const key = smsActivateApiKey();
-  if (!key) return { ok:false, error:'Укажи SMS Activate API key в настройках' };
+function heroSmsHeaders(json = false){
+  const key = heroSmsApiKey();
+  return {
+    Accept: json ? 'application/json,text/plain,*/*' : 'text/plain,*/*',
+    Authorization: `Bearer ${key}`,
+    'X-Api-Key': key
+  };
+}
+
+async function heroSmsHandlerFetch(params = {}, opts = {}){
+  const key = heroSmsApiKey();
+  if (!key) return { ok:false, error:'Укажи HeroSMS API key в настройках' };
   const query = new URLSearchParams({ ...params, api_key: key });
-  const res = await fetch(`${SMS_ACTIVATE_API_BASE}?${query.toString()}`, {
+  const res = await fetch(`${HERO_SMS_HANDLER_BASE}?${query.toString()}`, {
     method: 'GET',
-    headers: { 'Accept': opts.json ? 'application/json,text/plain,*/*' : 'text/plain,*/*' }
+    headers: heroSmsHeaders(!!opts.json)
   });
   const text = String(await res.text() || '').trim();
-  if (!res.ok) return { ok:false, error:`SMS Activate HTTP ${res.status}: ${text || res.statusText}` };
+  if (!res.ok) return { ok:false, error:`HeroSMS HTTP ${res.status}: ${text || res.statusText}` };
   if (!opts.json) return { ok:true, text };
   try {
     return { ok:true, text, data: JSON.parse(text) };
   } catch (e) {
-    return { ok:false, error:smsActivateTranslate(text) };
+    return { ok:false, error:heroSmsTranslate(text) };
   }
 }
 
-function smsActivateTopMap(raw){
-  const map = new Map();
-  const put = (id, value) => {
-    const countryId = String(id ?? '').trim();
-    if (!countryId) return;
-    const src = value && typeof value === 'object' ? value : {};
-    const rawSuccess = src.success ?? src.successRate ?? src.rate ?? src.percent ?? src.conversion ?? src.rating;
-    const successNum = Number.parseFloat(String(rawSuccess ?? '').replace(',', '.'));
-    const success = Number.isFinite(successNum) && successNum > 0 && successNum <= 1 ? successNum * 100 : successNum;
-    const count = Number(src.count ?? src.qty ?? src.available);
-    map.set(countryId, {
-      success: Number.isFinite(success) ? success : null,
-      count: Number.isFinite(count) ? count : null
-    });
-  };
-  if (Array.isArray(raw)) {
-    for (const item of raw) put(item?.country ?? item?.countryId ?? item?.country_id ?? item?.id, item);
-  } else if (raw && typeof raw === 'object') {
-    for (const [id, value] of Object.entries(raw)) put(value?.country ?? value?.countryId ?? value?.country_id ?? value?.id ?? id, value);
+async function heroSmsApiFetch(pathname, params = {}){
+  const key = heroSmsApiKey();
+  if (!key) return { ok:false, error:'Укажи HeroSMS API key в настройках' };
+  const query = new URLSearchParams(params);
+  const suffix = query.toString() ? `?${query.toString()}` : '';
+  const res = await fetch(`${HERO_SMS_API_BASE}${pathname}${suffix}`, {
+    method: 'GET',
+    headers: heroSmsHeaders(true)
+  });
+  const text = String(await res.text() || '').trim();
+  if (!res.ok) return { ok:false, error:`HeroSMS HTTP ${res.status}: ${heroSmsTranslate(text || res.statusText)}` };
+  try {
+    return { ok:true, text, data: JSON.parse(text) };
+  } catch (e) {
+    return { ok:false, error:heroSmsTranslate(text) };
   }
-  return map;
 }
 
-function smsActivateCountryName(countries, id){
+function heroSmsCountryName(countries, id){
   const src = countries?.[id] || countries?.[String(Number(id))] || {};
   return {
     id: String(src.id ?? id),
@@ -483,88 +488,154 @@ function smsActivateCountryName(countries, id){
   };
 }
 
-async function smsActivateCatalog(payload = {}){
+function normalizeHeroSmsTopRows(raw){
+  const rows = Array.isArray(raw)
+    ? raw.flatMap((item) => {
+        if (item && typeof item === 'object' && !Object.prototype.hasOwnProperty.call(item, 'country')) {
+          return Object.values(item).flat();
+        }
+        return [item];
+      })
+    : [];
+  const map = new Map();
+  rows.forEach((row, index) => {
+    if (!row || typeof row !== 'object') return;
+    const id = String(row.country ?? row.countryId ?? row.country_id ?? row.id ?? '').trim();
+    if (!id) return;
+    const rawSuccess = row.success ?? row.successRate ?? row.rate ?? row.percent ?? row.conversion ?? row.rating;
+    const successNum = Number.parseFloat(String(rawSuccess ?? '').replace(',', '.'));
+    const success = Number.isFinite(successNum) && successNum > 0 && successNum <= 1 ? successNum * 100 : successNum;
+    const count = Number(row.physicalTotalCount ?? row.count ?? row.available ?? row.qty);
+    const price = Number(row.retail_price ?? row.price);
+    map.set(id, {
+      rank: index + 1,
+      success: Number.isFinite(success) ? success : null,
+      count: Number.isFinite(count) ? count : null,
+      cost: Number.isFinite(price) ? price : null
+    });
+  });
+  return map;
+}
+
+function qualityFromRank(rank, total){
+  const r = Number(rank || 0);
+  const t = Math.max(1, Number(total || 1));
+  if (!r) return null;
+  return Math.max(1, Math.round((1 - ((r - 1) / t)) * 100));
+}
+
+async function heroSmsCatalog(payload = {}){
   const force = !!payload.force;
-  const cached = store.get('smsActivate.catalog');
-  const cachedTs = Number(store.get('smsActivate.catalogTs') || 0);
+  const cached = store.get('heroSms.catalog');
+  const cachedTs = Number(store.get('heroSms.catalogTs') || 0);
   if (!force && Array.isArray(cached) && cached.length && Date.now() - cachedTs < 5 * 60 * 1000) {
     return { ok:true, countries: cached };
   }
 
-  const service = String(payload.service || SMS_ACTIVATE_GOOGLE_SERVICE).trim() || SMS_ACTIVATE_GOOGLE_SERVICE;
-  const [countriesRes, pricesRes, topRes] = await Promise.all([
-    smsActivateFetch({ action:'getCountries' }, { json:true }),
-    smsActivateFetch({ action:'getPrices', service }, { json:true }),
-    smsActivateFetch({ action:'getTopCountriesByService', service }, { json:true }).catch((e) => ({ ok:false, error:String(e?.message || e) }))
+  const service = String(payload.service || store.get('heroSms.service') || HERO_SMS_GOOGLE_SERVICE).trim() || HERO_SMS_GOOGLE_SERVICE;
+  store.set('heroSms.service', service);
+  const [offersRes, countriesRes] = await Promise.all([
+    heroSmsApiFetch('/activations/offers', { services: service }),
+    heroSmsHandlerFetch({ action:'getCountries' }, { json:true })
   ]);
+  let topRes = await heroSmsHandlerFetch({ action:'getTopCountriesByServiceRank', service }, { json:true })
+    .catch((e) => ({ ok:false, error:String(e?.message || e) }));
+  if (!topRes.ok) {
+    topRes = await heroSmsHandlerFetch({ action:'getTopCountriesByService', service }, { json:true })
+      .catch((e) => ({ ok:false, error:String(e?.message || e) }));
+  }
 
   if (!countriesRes.ok) return countriesRes;
-  if (!pricesRes.ok) return pricesRes;
-
-  const countries = countriesRes.data || {};
-  const prices = pricesRes.data || {};
-  const top = smsActivateTopMap(topRes.ok ? topRes.data : null);
+  const countries = Array.isArray(countriesRes.data)
+    ? countriesRes.data.reduce((acc, item) => { acc[String(item.id)] = item; return acc; }, {})
+    : (countriesRes.data || {});
+  const top = normalizeHeroSmsTopRows(topRes.ok ? topRes.data : null);
   const rows = [];
+  const offers = offersRes.ok ? (offersRes.data?.data?.[service] || offersRes.data?.[service] || {}) : {};
 
-  for (const [countryId, services] of Object.entries(prices || {})) {
-    const info = services?.[service];
-    if (!info) continue;
-    const name = smsActivateCountryName(countries, countryId);
+  for (const [countryId, info] of Object.entries(offers || {})) {
+    const name = heroSmsCountryName(countries, countryId);
     const topInfo = top.get(String(countryId)) || {};
-    const count = Number(info.count ?? topInfo.count ?? 0);
-    const cost = Number(info.cost ?? info.price ?? 0);
-    const success = Number(topInfo.success);
+    const cost = Number(info?.prices?.retail ?? info?.prices?.default ?? info?.prices?.min ?? topInfo.cost);
+    const count = Number(info?.counts?.total ?? info?.counts?.physical ?? topInfo.count ?? 0);
     rows.push({
       id: String(name.id || countryId),
       rus: name.rus,
       eng: name.eng,
       cost: Number.isFinite(cost) ? cost : null,
       count: Number.isFinite(count) ? count : 0,
-      success: Number.isFinite(success) ? success : null
+      success: Number.isFinite(Number(topInfo.success)) ? Number(topInfo.success) : null,
+      quality: qualityFromRank(topInfo.rank, top.size || Object.keys(offers || {}).length),
+      rank: topInfo.rank || null
     });
   }
 
+  if (!rows.length) {
+    const pricesRes = await heroSmsHandlerFetch({ action:'getPrices', service }, { json:true });
+    if (!pricesRes.ok) return pricesRes;
+    const prices = pricesRes.data || {};
+    for (const [countryId, services] of Object.entries(prices || {})) {
+      const info = services?.[service] || services;
+      if (!info) continue;
+      const name = heroSmsCountryName(countries, countryId);
+      const topInfo = top.get(String(countryId)) || {};
+      const cost = Number(info.cost ?? info.price ?? topInfo.cost);
+      const count = Number(info.count ?? info.physicalCount ?? topInfo.count ?? 0);
+      rows.push({
+        id: String(name.id || countryId),
+        rus: name.rus,
+        eng: name.eng,
+        cost: Number.isFinite(cost) ? cost : null,
+        count: Number.isFinite(count) ? count : 0,
+        success: Number.isFinite(Number(topInfo.success)) ? Number(topInfo.success) : null,
+        quality: qualityFromRank(topInfo.rank, top.size || Object.keys(prices || {}).length),
+        rank: topInfo.rank || null
+      });
+    }
+  }
+
   rows.sort((a, b) => {
-    const as = Number.isFinite(Number(a.success)) ? Number(a.success) : -1;
-    const bs = Number.isFinite(Number(b.success)) ? Number(b.success) : -1;
-    if (bs !== as) return bs - as;
+    const aq = Number.isFinite(Number(a.success)) ? Number(a.success) : Number(a.quality || -1);
+    const bq = Number.isFinite(Number(b.success)) ? Number(b.success) : Number(b.quality || -1);
+    if (bq !== aq) return bq - aq;
     const bc = Number(b.count || 0) - Number(a.count || 0);
     if (bc !== 0) return bc;
     return Number(a.cost || 9999) - Number(b.cost || 9999);
   });
 
-  store.set('smsActivate.catalog', rows);
-  store.set('smsActivate.catalogTs', Date.now());
-  return { ok:true, countries: rows, topAvailable: !!topRes.ok };
+  store.set('heroSms.catalog', rows);
+  store.set('heroSms.catalogTs', Date.now());
+  return { ok:true, countries: rows, source: offersRes.ok ? 'offers' : 'handler' };
 }
 
-function smsActivateGetActiveOrder(){
-  const order = store.get('smsActivate.activeOrder') || null;
+function heroSmsGetActiveOrder(){
+  const order = store.get('heroSms.activeOrder') || null;
   if (order?.expiresAtMs && Number(order.expiresAtMs) <= Date.now()) {
-    store.set('smsActivate.activeOrder', null);
+    store.set('heroSms.activeOrder', null);
     return null;
   }
   return order;
 }
 
-async function smsActivateBalance(){
-  const res = await smsActivateFetch({ action:'getBalance' });
+async function heroSmsBalance(){
+  const res = await heroSmsHandlerFetch({ action:'getBalance' });
   if (!res.ok) return res;
   const text = res.text;
   if (text.startsWith('ACCESS_BALANCE:')) return { ok:true, balance: text.slice('ACCESS_BALANCE:'.length) };
-  return { ok:false, error:smsActivateTranslate(text) };
+  return { ok:false, error:heroSmsTranslate(text) };
 }
 
-async function smsActivateOrder(payload = {}){
-  const country = String(payload.country || store.get('smsActivate.country') || '0').trim() || '0';
-  const service = String(payload.service || SMS_ACTIVATE_GOOGLE_SERVICE).trim() || SMS_ACTIVATE_GOOGLE_SERVICE;
-  store.set('smsActivate.country', country);
-  const res = await smsActivateFetch({ action:'getNumber', service, country });
+async function heroSmsOrder(payload = {}){
+  const country = String(payload.country || store.get('heroSms.country') || '0').trim() || '0';
+  const service = String(payload.service || store.get('heroSms.service') || HERO_SMS_GOOGLE_SERVICE).trim() || HERO_SMS_GOOGLE_SERVICE;
+  store.set('heroSms.country', country);
+  store.set('heroSms.service', service);
+  const res = await heroSmsHandlerFetch({ action:'getNumber', service, country });
   if (!res.ok) return res;
   const text = res.text;
   const parts = text.split(':');
-  if (parts[0] !== 'ACCESS_NUMBER' || parts.length < 3) return { ok:false, error:smsActivateTranslate(text) };
-  const catalog = Array.isArray(store.get('smsActivate.catalog')) ? store.get('smsActivate.catalog') : [];
+  if (parts[0] !== 'ACCESS_NUMBER' || parts.length < 3) return { ok:false, error:heroSmsTranslate(text) };
+  const catalog = Array.isArray(store.get('heroSms.catalog')) ? store.get('heroSms.catalog') : [];
   const countryInfo = catalog.find((item) => String(item.id) === country) || {};
   const now = Date.now();
   const order = {
@@ -574,18 +645,18 @@ async function smsActivateOrder(payload = {}){
     country,
     countryName: countryInfo.rus || countryInfo.eng || '',
     service,
-    provider: 'smsactivate',
+    provider: 'herosms',
     expiresAtMs: now + 20 * 60 * 1000,
     createdAtMs: now
   };
-  store.set('smsActivate.activeOrder', order);
+  store.set('heroSms.activeOrder', order);
   return { ok:true, order };
 }
 
-async function smsActivateCheck(payload = {}){
+async function heroSmsCheck(payload = {}){
   const id = String(payload.orderId || payload.order_id || '').trim();
   if (!id) return { ok:false, error:'Не указан ID активации' };
-  const res = await smsActivateFetch({ action:'getStatus', id });
+  const res = await heroSmsHandlerFetch({ action:'getStatus', id });
   if (!res.ok) return res;
   const text = res.text;
   if (text.startsWith('STATUS_OK:')) {
@@ -593,36 +664,36 @@ async function smsActivateCheck(payload = {}){
     return { ok:true, status:'completed', sms, full_sms:sms };
   }
   if (text === 'STATUS_CANCEL') {
-    store.set('smsActivate.activeOrder', null);
-    return { ok:true, status:text, sms:'0', full_sms:'', message:smsActivateTranslate(text) };
+    store.set('heroSms.activeOrder', null);
+    return { ok:true, status:text, sms:'0', full_sms:'', message:heroSmsTranslate(text) };
   }
   if (text.startsWith('STATUS_WAIT')) {
-    return { ok:true, status:text, sms:'0', full_sms:'', message:smsActivateTranslate(text) };
+    return { ok:true, status:text, sms:'0', full_sms:'', message:heroSmsTranslate(text) };
   }
-  return { ok:false, error:smsActivateTranslate(text) };
+  return { ok:false, error:heroSmsTranslate(text) };
 }
 
-async function smsActivateRefund(payload = {}){
+async function heroSmsRefund(payload = {}){
   const id = String(payload.orderId || payload.order_id || '').trim();
   if (!id) return { ok:false, error:'Не указан ID активации' };
-  const res = await smsActivateFetch({ action:'setStatus', id, status:8 });
+  const res = await heroSmsHandlerFetch({ action:'setStatus', id, status:8 });
   if (!res.ok) return res;
-  if (res.text !== 'ACCESS_CANCEL') return { ok:false, error:smsActivateTranslate(res.text) };
-  store.set('smsActivate.activeOrder', null);
-  return { ok:true, message:smsActivateTranslate(res.text) };
+  if (res.text !== 'ACCESS_CANCEL') return { ok:false, error:heroSmsTranslate(res.text) };
+  store.set('heroSms.activeOrder', null);
+  return { ok:true, message:heroSmsTranslate(res.text) };
 }
 
-async function smsActivateHandle(action, payload = {}){
+async function heroSmsHandle(action, payload = {}){
   const name = String(action || '').trim();
   try {
-    if (name === 'setApiKey') return setSmsActivateApiKey(payload.key || payload.apiKey || payload.value);
-    if (name === 'Catalog') return smsActivateCatalog(payload);
-    if (name === 'Balance') return smsActivateBalance();
-    if (name === 'Order') return smsActivateOrder(payload);
-    if (name === 'Check') return smsActivateCheck(payload);
-    if (name === 'Refund') return smsActivateRefund(payload);
-    if (name === 'GetState') return { ok:true, order:smsActivateGetActiveOrder() };
-    return { ok:false, error:'Неизвестное действие SMS Activate' };
+    if (name === 'setApiKey') return setHeroSmsApiKey(payload.key || payload.apiKey || payload.value);
+    if (name === 'Catalog') return heroSmsCatalog(payload);
+    if (name === 'Balance') return heroSmsBalance();
+    if (name === 'Order') return heroSmsOrder(payload);
+    if (name === 'Check') return heroSmsCheck(payload);
+    if (name === 'Refund') return heroSmsRefund(payload);
+    if (name === 'GetState') return { ok:true, order:heroSmsGetActiveOrder() };
+    return { ok:false, error:'Неизвестное действие HeroSMS' };
   } catch (e) {
     return { ok:false, error:String(e?.message || e) };
   }
@@ -633,11 +704,20 @@ function normalizeSettings(input){
   const next = {
     theme: normalizeTheme(raw.theme),
     zoom: clamp(Number(raw.zoom || 1), 0.7, 1.6),
+    fontScale: clamp(Number(raw.fontScale || 1), 0.75, 1.45),
     alwaysOnTop: !!raw.alwaysOnTop,
     graphicsMode: raw.graphicsMode === 'lite' ? 'lite' : 'ultra',
     contrastMode: !!raw.contrastMode,
     classicTrafficLights: !!raw.classicTrafficLights,
-    smsService: ['herosms', 'smsactivate'].includes(raw.smsService) ? raw.smsService : 'smspool'
+    statCardGlow: raw.statCardGlow !== false,
+    smsService: raw.smsService === 'herosms' ? 'herosms' : 'smspool',
+    customThemeId: String(raw.customThemeId || '').trim(),
+    customThemes: Array.isArray(raw.customThemes) ? raw.customThemes.slice(0, 24).map((item) => ({
+      id: String(item?.id || '').trim(),
+      name: String(item?.name || 'Своя тема').trim().slice(0, 40),
+      vars: item?.vars && typeof item.vars === 'object' ? item.vars : {},
+      backgroundImage: String(item?.backgroundImage || '').trim()
+    })).filter((item) => item.id) : []
   };
   if (next.graphicsMode === 'lite' && next.theme !== 'dark-classic' && next.theme !== 'light-classic') {
     next.theme = 'dark-classic';
@@ -1536,7 +1616,7 @@ ipcMain.handle('sproutg:get-update-state', () => ({ ...updateState, version: app
 ipcMain.handle('sproutg:check-for-updates', () => checkForUpdates(true));
 ipcMain.handle('sproutg:download-update', () => downloadUpdate());
 ipcMain.handle('sproutg:install-update', () => installDownloadedUpdate());
-ipcMain.handle('sproutg:sms-activate', (_e, action, payload) => smsActivateHandle(action, payload || {}));
+ipcMain.handle('sproutg:hero-sms', (_e, action, payload) => heroSmsHandle(action, payload || {}));
 ipcMain.handle('sproutg:get-settings', () => getSettings());
 ipcMain.handle('sproutg:set-setting', (_e, partial) => { const n = setSettings(partial); applySettings(n); return n; });
 ipcMain.handle('sproutg:zoom', (_e, dir) => zoom(dir));

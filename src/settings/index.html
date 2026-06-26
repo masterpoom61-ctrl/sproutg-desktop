@@ -2,7 +2,7 @@
 <html lang="ru" data-theme="dark-classic">
 <head>
   <meta charset="UTF-8" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self';">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: file:; style-src 'self' 'unsafe-inline'; script-src 'self';">
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Настройки</title>
   <link rel="stylesheet" href="./settings.css" />
@@ -25,9 +25,9 @@
         <div class="row">
           <div class="label">Масштаб</div>
           <div class="group">
-            <button class="btn" id="btnZoomOut" title="Ctrl+-">-</button>
-            <button class="btn" id="btnZoomIn" title="Ctrl++">+</button>
             <div class="pill" id="zoomValue">100%</div>
+            <button class="btn" id="btnZoomIn" title="Ctrl++">+</button>
+            <button class="btn" id="btnZoomOut" title="Ctrl+-">-</button>
           </div>
         </div>
 
@@ -48,10 +48,19 @@
         </div>
 
         <div class="row">
-          <div class="label">З-Ж-К</div>
+          <div class="label">RGY</div>
           <div class="segmented">
-            <button class="seg" id="trafficOff" type="button">Выкл</button>
             <button class="seg" id="trafficOn" type="button">Вкл</button>
+            <button class="seg" id="trafficOff" type="button">Выкл</button>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="label">Размер текста</div>
+          <div class="group">
+            <div class="pill" id="fontScaleValue">100%</div>
+            <button class="btn" id="btnFontScaleIn" title="Увеличить текст">+</button>
+            <button class="btn" id="btnFontScaleOut" title="Уменьшить текст">-</button>
           </div>
         </div>
 
@@ -91,18 +100,44 @@
             <button class="themeOption" data-theme-value="burgundy-club">Burgundy Club</button>
             <button class="themeOption" data-theme-value="swiss">Swiss</button>
             <button class="themeOption" data-theme-value="caviar">Caviar</button>
-            <button class="themeOption" data-theme-value="banking-green">Banking Green</button>
+            <button class="themeOption" data-theme-value="executive">Executive</button>
             <button class="themeOption" data-theme-value="deep-space">Deep Space</button>
-            <button class="themeOption" data-theme-value="typewriter">Typewriter</button>
+            <button class="themeOption" data-theme-value="rainy-day">Rainy Day</button>
             <button class="themeOption" data-theme-value="tokyo-night">Tokyo Night</button>
-            <button class="themeOption" data-theme-value="terracotta">Terracotta</button>
+            <button class="themeOption" data-theme-value="mountain">Mountain</button>
             <button class="themeOption" data-theme-value="aurora">Aurora</button>
             <button class="themeOption" data-theme-value="blueprint">Blueprint</button>
-            <button class="themeOption" data-theme-value="mountain">Mountain</button>
+            <button class="themeOption" data-theme-value="terracotta">Terracotta</button>
             <button class="themeOption" data-theme-value="slate-blue">Slate Blue</button>
-            <button class="themeOption" data-theme-value="executive">Executive</button>
-            <button class="themeOption" data-theme-value="rainy-day">Rainy Day</button>
+            <button class="themeOption" data-theme-value="banking-green">Banking Green</button>
+            <button class="themeOption" data-theme-value="typewriter">Typewriter</button>
             <button class="themeOption" data-theme-value="amber-terminal">Amber Terminal</button>
+          </div>
+          <div class="themeTools">
+            <div class="row">
+              <div class="label">Свечение карточек</div>
+              <div class="segmented">
+                <button class="seg" id="statGlowOn" type="button">Вкл</button>
+                <button class="seg" id="statGlowOff" type="button">Выкл</button>
+              </div>
+            </div>
+            <div class="themeEditor">
+              <div class="themeEditorTitle">Своя тема</div>
+              <input class="input" id="customThemeName" type="text" placeholder="Название темы" autocomplete="off" />
+              <div class="themeColorGrid">
+                <label class="colorField"><span>Фон A</span><input id="customBgA" type="color" value="#0f172a" /></label>
+                <label class="colorField"><span>Фон B</span><input id="customBgB" type="color" value="#111827" /></label>
+                <label class="colorField"><span>Окна</span><input id="customPanel" type="color" value="#111827" /></label>
+                <label class="colorField"><span>Карточки</span><input id="customSurface" type="color" value="#1f2937" /></label>
+                <label class="colorField"><span>Текст</span><input id="customText" type="color" value="#f8fafc" /></label>
+                <label class="colorField"><span>Иконки</span><input id="customAccent" type="color" value="#38bdf8" /></label>
+              </div>
+              <input class="input" id="customBgImage" type="text" placeholder="Путь к картинке фона (необязательно)" autocomplete="off" />
+              <div class="row customThemeActions">
+                <button class="btn btn-wide" id="btnSaveCustomTheme" type="button">Сохранить тему</button>
+                <button class="btn" id="btnDeleteCustomTheme" type="button">Удалить</button>
+              </div>
+            </div>
           </div>
         </details>
 
@@ -158,7 +193,6 @@
               <div class="segmented">
                 <button class="seg" id="smsServiceSmsPool" type="button">SMSPool</button>
                 <button class="seg" id="smsServiceHeroSms" type="button">HeroSMS</button>
-                <button class="seg" id="smsServiceSmsActivate" type="button">SMS Activate</button>
               </div>
             </div>
             <div class="label label-strong">SMSPool</div>
@@ -171,12 +205,7 @@
               <input class="input" id="heroSmsApiKey" type="password" placeholder="HeroSMS API key" autocomplete="off" />
               <button class="btn" id="btnSaveHeroSmsKey">Сохранить</button>
             </div>
-            <div class="label label-strong">SMS Activate</div>
-            <div class="row">
-              <input class="input" id="smsActivateApiKey" type="password" placeholder="SMS Activate API key" autocomplete="off" />
-              <button class="btn" id="btnSaveSmsActivateKey">Сохранить</button>
-            </div>
-            <div class="hint compact" id="smsPoolStatus">SMSPool/HeroSMS хранятся в SproutG.Web, SMS Activate хранится локально в SproutG Desktop.</div>
+            <div class="hint compact" id="smsPoolStatus">SMSPool хранится в SproutG.Web, HeroSMS хранится локально в SproutG Desktop.</div>
           </div>
           <div class="techInfo" id="techInfo">
             <div>SproutG: <b id="techDesktopVersion">—</b></div>

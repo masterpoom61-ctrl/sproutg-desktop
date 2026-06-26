@@ -77,7 +77,12 @@ const customPanel = $('customPanel');
 const customSurface = $('customSurface');
 const customText = $('customText');
 const customAccent = $('customAccent');
+const customGlow = $('customGlow');
+const customSelectBg = $('customSelectBg');
+const customCalendarBg = $('customCalendarBg');
 const customBgImage = $('customBgImage');
+const btnBrowseCustomBg = $('btnBrowseCustomBg');
+const btnClearCustomBg = $('btnClearCustomBg');
 const btnSaveCustomTheme = $('btnSaveCustomTheme');
 const btnDeleteCustomTheme = $('btnDeleteCustomTheme');
 const appVersion = $('appVersion');
@@ -105,10 +110,24 @@ const settingsCloseBtn = $('settingsCloseBtn');
 
 let current = { theme: 'dark-classic', zoom: 1.0, fontScale: 1.0, alwaysOnTop: false, graphicsMode: 'ultra', contrastMode: false, classicTrafficLights: false, statCardGlow: true, smsService: 'smspool', customThemeId: '', customThemes: [] };
 let closing = false;
+let colorClipboard = '';
+let liveThemeTimer = null;
 
 // RELEASE_HISTORY: при каждом публичном релизе добавляй новую запись сверху,
 // чтобы раздел "История обновлений" в настройках всегда был актуален для пользователей.
 const RELEASE_HISTORY = [
+  {
+    version: '2.1.8',
+    date: '2026-06-26',
+    changes: [
+      'Кастомные темы применяются сразу при настройке, добавлены копирование/вставка цветов и выбор фоновой картинки через проводник.',
+      'Расширены цвета пользовательской темы: свечение, выпадающие списки и календарь; текст и TOTP лучше подчиняются выбранному цвету.',
+      'Размер текста масштабирует основные элементы интерфейса, а переключатель контраста приведен к порядку Вкл/Выкл.',
+      'BAN-статусы в O1/MCC окрашиваются в красный при любом написании ban/бан.',
+      'Карточки Сегодня, Этот месяц и Среднее в день получили лиги, а счетчики лиг стали цветными и читаемыми.',
+      'Авто-проверка обновлений запускается быстрее после старта и чаще в фоне.'
+    ]
+  },
   {
     version: '2.1.7',
     date: '2026-06-26',
@@ -244,12 +263,16 @@ const CUSTOM_THEME_DEFAULTS = {
   panel: '#111827',
   surface: '#1f2937',
   text: '#f8fafc',
-  accent: '#38bdf8'
+  accent: '#38bdf8',
+  glow: '#38bdf8',
+  selectBg: '#111827',
+  calendarBg: '#1f2937'
 };
 const CUSTOM_THEME_PROPS = [
   '--bg', '--bg-grad-1', '--bg-grad-2', '--bg-grad-3',
   '--panel', '--panel2', '--surface', '--surface-alt',
   '--btn', '--btnH', '--control-hover', '--control-active',
+  '--custom-glow', '--select-bg', '--select-option-bg', '--calendar-bg',
   '--border', '--line', '--line-strong', '--text', '--muted', '--muted2',
   '--accent', '--chartA', '--chartB', '--chartC', '--chartD',
   '--topbar-bg', '--topbar-fg', '--glassTop', '--glassFog', '--custom-bg-url'
@@ -316,6 +339,10 @@ function applyCustomThemeVars(settings = current) {
   root.style.setProperty('--btnH', hexToRgba(vars.accent, .18));
   root.style.setProperty('--control-hover', hexToRgba(vars.accent, .16));
   root.style.setProperty('--control-active', hexToRgba(vars.accent, .24));
+  root.style.setProperty('--custom-glow', vars.glow);
+  root.style.setProperty('--select-bg', hexToRgba(vars.selectBg, .92));
+  root.style.setProperty('--select-option-bg', vars.selectBg);
+  root.style.setProperty('--calendar-bg', vars.calendarBg);
   root.style.setProperty('--border', hexToRgba(vars.accent, .30));
   root.style.setProperty('--line', hexToRgba(vars.accent, .22));
   root.style.setProperty('--line-strong', hexToRgba(vars.accent, .46));
@@ -324,12 +351,12 @@ function applyCustomThemeVars(settings = current) {
   root.style.setProperty('--muted2', hexToRgba(vars.text, .52));
   root.style.setProperty('--accent', vars.accent);
   root.style.setProperty('--chartA', vars.accent);
-  root.style.setProperty('--chartB', vars.bgB);
+  root.style.setProperty('--chartB', vars.glow);
   root.style.setProperty('--chartC', vars.surface);
-  root.style.setProperty('--chartD', vars.text);
+  root.style.setProperty('--chartD', vars.calendarBg);
   root.style.setProperty('--topbar-bg', hexToRgba(vars.panel, .96));
   root.style.setProperty('--topbar-fg', vars.text);
-  root.style.setProperty('--glassTop', hexToRgba(vars.surface, .34));
+  root.style.setProperty('--glassTop', hexToRgba(vars.glow, .20));
   root.style.setProperty('--glassFog', hexToRgba(vars.bgB, .62));
   const bg = customBgUrl(custom.backgroundImage);
   if (bg) {
@@ -367,6 +394,107 @@ function renderCustomThemeOptions(settings = current) {
   }
 }
 
+function customColorInputs() {
+  return [
+    customBgA,
+    customBgB,
+    customPanel,
+    customSurface,
+    customText,
+    customAccent,
+    customGlow,
+    customSelectBg,
+    customCalendarBg
+  ].filter(Boolean);
+}
+
+function customThemeIdForEdit() {
+  return selectedCustomTheme(current)?.id || String(current.customThemeId || '') || `custom-${Date.now().toString(36)}`;
+}
+
+function buildCustomThemeFromEditor(id) {
+  const vars = {};
+  for (const input of customColorInputs()) {
+    const key = input.dataset.colorKey;
+    if (key) vars[key] = input.value;
+  }
+  const selected = selectedCustomTheme(current);
+  const name = String(customThemeName?.value || selected?.name || 'Своя тема').trim().slice(0, 40) || 'Своя тема';
+  return {
+    id,
+    name,
+    vars: normalizeThemeVars(vars),
+    backgroundImage: String(customBgImage?.value || '').trim()
+  };
+}
+
+function upsertCustomTheme(themeItem) {
+  const list = Array.isArray(current.customThemes) ? current.customThemes : [];
+  const next = list.filter((theme) => theme.id !== themeItem.id);
+  next.push(themeItem);
+  return next;
+}
+
+function scheduleLiveCustomThemePersist(nextSettings) {
+  clearTimeout(liveThemeTimer);
+  liveThemeTimer = setTimeout(async () => {
+    try {
+      current = await window.sproutgSettings.setSetting({
+        customThemes: nextSettings.customThemes,
+        customThemeId: nextSettings.customThemeId
+      });
+      applySettingsUi(current);
+    } catch (e) {}
+  }, 120);
+}
+
+function livePreviewCustomTheme() {
+  const id = customThemeIdForEdit();
+  const item = buildCustomThemeFromEditor(id);
+  const nextSettings = {
+    ...current,
+    customThemeId: id,
+    customThemes: upsertCustomTheme(item)
+  };
+  current = nextSettings;
+  applySettingsUi(nextSettings, { skipEditorHydrate: true });
+  scheduleLiveCustomThemePersist(nextSettings);
+}
+
+function setupColorTools() {
+  for (const input of customColorInputs()) {
+    const field = input.closest('.colorField');
+    if (!field || field.dataset.toolsReady === '1') continue;
+    field.dataset.toolsReady = '1';
+    const tools = document.createElement('span');
+    tools.className = 'colorTools';
+    const copy = document.createElement('button');
+    copy.type = 'button';
+    copy.className = 'colorToolBtn';
+    copy.title = 'Скопировать цвет';
+    copy.setAttribute('aria-label', 'Скопировать цвет');
+    copy.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="10" height="10" rx="2"></rect><path d="M5 15V7a2 2 0 0 1 2-2h8"></path></svg>';
+    copy.addEventListener('click', (event) => {
+      event.preventDefault();
+      colorClipboard = input.value;
+    });
+    const paste = document.createElement('button');
+    paste.type = 'button';
+    paste.className = 'colorToolBtn';
+    paste.title = 'Вставить цвет';
+    paste.setAttribute('aria-label', 'Вставить цвет');
+    paste.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5h8l1 3H7l1-3Z"></path><rect x="6" y="8" width="12" height="12" rx="2"></rect><path d="M10 12h4"></path></svg>';
+    paste.addEventListener('click', (event) => {
+      event.preventDefault();
+      if (!colorClipboard) return;
+      input.value = colorClipboard;
+      livePreviewCustomTheme();
+    });
+    tools.append(copy, paste);
+    field.appendChild(tools);
+  }
+}
+
 function hydrateCustomThemeEditor(settings = current) {
   const custom = selectedCustomTheme(settings);
   const vars = normalizeThemeVars(custom?.vars || {});
@@ -377,6 +505,9 @@ function hydrateCustomThemeEditor(settings = current) {
   if (customSurface) customSurface.value = vars.surface;
   if (customText) customText.value = vars.text;
   if (customAccent) customAccent.value = vars.accent;
+  if (customGlow) customGlow.value = vars.glow;
+  if (customSelectBg) customSelectBg.value = vars.selectBg;
+  if (customCalendarBg) customCalendarBg.value = vars.calendarBg;
   if (customBgImage) customBgImage.value = custom?.backgroundImage || '';
   if (btnDeleteCustomTheme) btnDeleteCustomTheme.disabled = !custom;
 }
@@ -415,7 +546,7 @@ function setSmsServiceUi(service) {
   if (smsServiceHeroSms) smsServiceHeroSms.dataset.active = key === 'herosms' ? 'true' : 'false';
 }
 
-function applySettingsUi(settings = {}) {
+function applySettingsUi(settings = {}, options = {}) {
   const next = {
     ...current,
     ...(settings || {}),
@@ -442,9 +573,10 @@ function applySettingsUi(settings = {}) {
   document.documentElement.dataset.contrast = next.contrastMode ? 'on' : 'off';
   document.documentElement.dataset.zjk = next.classicTrafficLights ? 'on' : 'off';
   document.documentElement.dataset.statGlow = next.statCardGlow === false ? 'off' : 'on';
+  document.documentElement.dataset.textScale = Math.abs((next.fontScale || 1) - 1) > 0.001 ? 'on' : 'off';
   document.documentElement.style.setProperty('--app-font-scale', String(next.fontScale || 1));
   applyCustomThemeVars(next);
-  hydrateCustomThemeEditor(next);
+  if (!options.skipEditorHydrate) hydrateCustomThemeEditor(next);
 }
 
 function setZoomUi(zoom) {
@@ -698,24 +830,28 @@ statGlowOff?.addEventListener('click', async () => {
   applySettingsUi(current);
 });
 
+customThemeName?.addEventListener('input', livePreviewCustomTheme);
+for (const input of customColorInputs()) {
+  input.addEventListener('input', livePreviewCustomTheme);
+  input.addEventListener('change', livePreviewCustomTheme);
+}
+
+btnBrowseCustomBg?.addEventListener('click', async () => {
+  const res = await window.sproutgSettings.chooseCustomThemeBg();
+  if (!res || res.canceled || !res.path) return;
+  if (customBgImage) customBgImage.value = res.path;
+  livePreviewCustomTheme();
+});
+
+btnClearCustomBg?.addEventListener('click', () => {
+  if (customBgImage) customBgImage.value = '';
+  livePreviewCustomTheme();
+});
+
 btnSaveCustomTheme?.addEventListener('click', async () => {
-  const selected = selectedCustomTheme(current);
-  const id = selected?.id || `custom-${Date.now().toString(36)}`;
-  const item = {
-    id,
-    name: String(customThemeName?.value || selected?.name || 'Своя тема').trim().slice(0, 40) || 'Своя тема',
-    vars: normalizeThemeVars({
-      bgA: customBgA?.value,
-      bgB: customBgB?.value,
-      panel: customPanel?.value,
-      surface: customSurface?.value,
-      text: customText?.value,
-      accent: customAccent?.value
-    }),
-    backgroundImage: String(customBgImage?.value || '').trim()
-  };
-  const nextThemes = (Array.isArray(current.customThemes) ? current.customThemes : []).filter((theme) => theme.id !== id);
-  nextThemes.push(item);
+  const id = customThemeIdForEdit();
+  const item = buildCustomThemeFromEditor(id);
+  const nextThemes = upsertCustomTheme(item);
   current = await window.sproutgSettings.setSetting({
     customThemes: nextThemes,
     customThemeId: id
@@ -830,6 +966,7 @@ document.addEventListener('keydown', (event) => {
   if (event.key === 'Escape') closeSettingsSoon();
 });
 
+setupColorTools();
 refresh();
 setupElasticBounce(document.getElementById('scrollableContent') || settingsCard);
 

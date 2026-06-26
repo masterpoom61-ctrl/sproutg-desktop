@@ -570,7 +570,7 @@ html[data-graphics="ultra"] .profileReveal{
     input[type="text"], input[type="date"], select{
       width:100%;max-width:100%;
       border:1px solid var(--line-strong);
-      background:var(--surface-alt);
+      background:var(--select-bg, var(--surface-alt));
       color:var(--text);
       border-radius:12px;
       padding:10px 12px;
@@ -1042,14 +1042,14 @@ html[data-graphics="ultra"] .profileReveal{
       max-width:100%;
       border:1px solid var(--line);
       border-radius:12px;
-      background:var(--surface-alt);
+      background:var(--select-bg, var(--surface-alt));
       color:var(--text);
       padding:6px 9px;
       font-weight:900;
       outline:none;
     }
     .smsActivateCountry option{
-      background:var(--panel, #111827);
+      background:var(--select-option-bg, var(--panel, #111827));
       color:var(--text);
     }
     .smsActivateCountryMeta{
@@ -1105,7 +1105,7 @@ html[data-graphics="ultra"] .profileReveal{
     .toast{
       position:fixed;bottom:72px;left:50%;
       background:var(--toast-bg);
-      color:#fff;
+      color:var(--toast-fg, var(--text, #fff));
       min-width:38px;
       min-height:38px;
       padding:10px 12px;
@@ -2347,4 +2347,31 @@ html.theme-switching *::after{
   --pink-br:rgba(190,24,93,.30);
   --pink-tx:#831843;
 }
+
+html[data-custom-theme="on"] :where(#sproutgAppRoot,.card,.panel,.title,.label,.value,.btn,button,input,select,textarea,.meta2,.bridgeBadge,.bridgeStatusPopup,.selectorCard,.fhMeta,.namePill,.mccAccountName,.mccFieldLabel,.totpCodeBtn,.totpMeta,.smsPoolMeta,.smsActivateCountry,.smsActivateCountryMeta,.toast,.desktopNotice){
+  color:var(--text);
+}
+html[data-custom-theme="on"] :where(.meta2,.label,.mccFieldLabel,.totpMeta,.smsPoolMeta,.smsActivateCountryMeta,.selectorCard p,.fhMeta,.desktopNotice span){
+  color:var(--muted);
+}
+html[data-custom-theme="on"] :where(input[type="text"],input[type="date"],select,textarea,.smsActivateCountry){
+  background:var(--select-bg, var(--surface-alt));
+  color:var(--text);
+}
+html[data-custom-theme="on"] select option{
+  background:var(--select-option-bg, var(--panel));
+  color:var(--text);
+}
+html[data-custom-theme="on"] input[type="date"]::-webkit-calendar-picker-indicator{
+  border-radius:7px;
+  background-color:var(--calendar-bg);
+}
+
+html[data-text-scale="on"] :where(.apptitle){font-size:calc(13px * var(--app-font-scale));}
+html[data-text-scale="on"] :where(.tbbtn,.bridgeBadge,.selectorCard p,.panelCaret,.btn,.value,.label,.meta2,.mccFieldLabel,.totpMeta,.desktopNotice b,.desktopNotice span){font-size:calc(12px * var(--app-font-scale));}
+html[data-text-scale="on"] :where(.winbtn,input[type="text"],input[type="date"],select,.panel h3,.panelHeader h3,.smsPoolMeta){font-size:calc(14px * var(--app-font-scale));}
+html[data-text-scale="on"] :where(.title h3){font-size:calc(15px * var(--app-font-scale));}
+html[data-text-scale="on"] :where(.mccAccountName,.selectorCard h2){font-size:calc(20px * var(--app-font-scale))!important;}
+html[data-text-scale="on"] :where(.totpCodeBtn,.smsPoolCode,.bgCodeBtn){font-size:calc(13px * var(--app-font-scale));}
+html[data-text-scale="on"] :where(.toast,.accountDeleteBtn,.namePill,.smsActivateCountry){font-size:calc(12px * var(--app-font-scale));}
 

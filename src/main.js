@@ -1,4 +1,4 @@
-﻿const { app, BrowserWindow, ipcMain, Menu, session, screen, globalShortcut, Notification } = require('electron');
+﻿const { app, BrowserWindow, ipcMain, Menu, session, screen, globalShortcut, Notification, dialog } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const path = require('path');
 const fs = require('fs');
@@ -346,11 +346,9 @@ function scheduleBootUpdateNoticeCheck(){
   if (!app.isPackaged) return;
   const cfg = getUpdatesConfig();
   if (!cfg.enabled) return;
-  const bootKey = currentBootKey();
-  const last = store.get('updates.lastBootNoticeCheck');
-  if (last === bootKey) return;
-  store.set('updates.lastBootNoticeCheck', bootKey);
   setTimeout(() => { checkForUpdates(false, 'boot').catch(() => {}); }, 1800);
+  setTimeout(() => { checkForUpdates(false, 'scheduled').catch(() => {}); }, 90 * 1000);
+  setTimeout(() => { checkForUpdates(false, 'scheduled').catch(() => {}); }, 5 * 60 * 1000);
 }
 
 function schedulePeriodicUpdateChecks(){
@@ -359,7 +357,7 @@ function schedulePeriodicUpdateChecks(){
   if (!cfg.enabled) return;
   updateReminderTimer = setInterval(() => {
     checkForUpdates(false, 'scheduled').catch(() => {});
-  }, 30 * 60 * 1000);
+  }, 5 * 60 * 1000);
 }
 
 async function downloadUpdate(){
@@ -1041,6 +1039,19 @@ function setSettings(partial){
   return next;
 }
 
+async function chooseCustomThemeBackground(){
+  const owner = (settingsWindow && !settingsWindow.isDestroyed()) ? settingsWindow : mainWindow;
+  const res = await dialog.showOpenDialog(owner, {
+    title: 'Выбери фон темы',
+    properties: ['openFile'],
+    filters: [
+      { name: 'Картинки', extensions: ['jpg', 'jpeg', 'png'] }
+    ]
+  });
+  if (res.canceled || !Array.isArray(res.filePaths) || !res.filePaths[0]) return { ok:true, canceled:true, path:'' };
+  return { ok:true, canceled:false, path:res.filePaths[0] };
+}
+
 function applySettings(next){
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.setAlwaysOnTop(!!next.alwaysOnTop);
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -1619,6 +1630,7 @@ ipcMain.handle('sproutg:install-update', () => installDownloadedUpdate());
 ipcMain.handle('sproutg:hero-sms', (_e, action, payload) => heroSmsHandle(action, payload || {}));
 ipcMain.handle('sproutg:get-settings', () => getSettings());
 ipcMain.handle('sproutg:set-setting', (_e, partial) => { const n = setSettings(partial); applySettings(n); return n; });
+ipcMain.handle('sproutg:choose-custom-theme-bg', () => chooseCustomThemeBackground());
 ipcMain.handle('sproutg:zoom', (_e, dir) => zoom(dir));
 ipcMain.handle('sproutg:toggle-aot', () => toggleAOT());
 ipcMain.handle('sproutg:reload-web', () => { reloadWeb(); return true; });

@@ -315,14 +315,14 @@ body.sgClosing .card{animation:windowOut .38s ease-in both;pointer-events:none;}
   height:32px;
   border:1px solid var(--tooltipBorder);
   border-radius:10px;
-  background:var(--panel2);
+  background:var(--select-bg, var(--panel2));
   color:var(--text);
   padding:0 9px;
   outline:none;
 }
 .monthPicker select option,
 select option{
-  background:var(--panel);
+  background:var(--select-option-bg, var(--panel));
   color:var(--text);
 }
 .pickerApply{
@@ -845,13 +845,25 @@ canvas{ display:block; width:100%; }
   font-size:11px;
   font-weight:1000;
 }
+.leagueCount.league--none{--league-accent:var(--league-none);}
+.leagueCount.league--bronze{--league-accent:var(--league-bronze);}
+.leagueCount.league--silver{--league-accent:var(--league-silver);}
+.leagueCount.league--gold{--league-accent:var(--league-gold);}
+.leagueCount.league--diamond{--league-accent:var(--league-diamond);}
+.leagueCount.league--legendary{
+  --league-accent:var(--league-legendary);
+  background:
+    radial-gradient(circle at 20% 10%, color-mix(in srgb, var(--league-legendary-gold) 24%, transparent), transparent 48%),
+    radial-gradient(circle at 85% 80%, color-mix(in srgb, var(--league-legendary-diamond) 20%, transparent), transparent 44%),
+    color-mix(in srgb, var(--league-legendary) 16%, transparent);
+}
 .leagueCount .leagueMaskIcon{
-  width:17px;
-  height:17px;
+  width:19px;
+  height:19px;
 }
 .leagueCount span:last-child{
   color:var(--text);
-  font-size:12px;
+  font-size:13px;
   text-shadow:0 0 10px color-mix(in srgb, var(--league-accent) 30%, transparent);
 }
 @keyframes legendaryPulse{
@@ -901,3 +913,33 @@ html[data-graphics="lite"] .monthPicker{
 html[data-graphics="lite"] .leagueMonthRow[data-league="legendary"]{
   animation:none;
 }
+
+html[data-custom-theme="on"] :where(.card,.title,.periodButton,.monthPicker,.monthPicker input,.monthPicker select,.pickerApply,.monthTab,.kpi__label,.kpi__value,.kpi__hint,.statCard__league,.statChip,.section__title,.charttitle,.worktable,.leagueMonthRow__title,.leagueMonthRow__sub,.leagueMonthRow__note,.leagueMonthRow__value,.leagueCount){
+  color:var(--text);
+}
+html[data-custom-theme="on"] :where(.kpi__hint,.leagueMonthRow__sub,.leagueMonthRow__note,.monthTab){
+  color:var(--muted);
+}
+html[data-custom-theme="on"] .leagueCount{
+  color:var(--league-accent);
+}
+html[data-custom-theme="on"] :where(.monthPicker input,.monthPicker select){
+  background:var(--select-bg, var(--panel2));
+  color:var(--text);
+}
+html[data-custom-theme="on"] select option{
+  background:var(--select-option-bg, var(--panel));
+  color:var(--text);
+}
+html[data-custom-theme="on"] input[type="number"]::-webkit-calendar-picker-indicator,
+html[data-custom-theme="on"] input[type="date"]::-webkit-calendar-picker-indicator{
+  border-radius:7px;
+  background-color:var(--calendar-bg);
+}
+
+html[data-text-scale="on"] :where(.title){font-size:calc(17px * var(--app-font-scale));}
+html[data-text-scale="on"] :where(.periodButton,.pickerApply,.monthTab,.kpi__label,.section__title,.charttitle){font-size:calc(12px * var(--app-font-scale));}
+html[data-text-scale="on"] :where(.kpi__value){font-size:calc(38px * var(--app-font-scale));}
+html[data-text-scale="on"] :where(.kpi__hint,.statChip,.worktable,.leagueMonthRow__sub,.leagueMonthRow__note,.leagueCount){font-size:calc(11px * var(--app-font-scale));}
+html[data-text-scale="on"] :where(.leagueMonthRow__title){font-size:calc(13px * var(--app-font-scale));}
+html[data-text-scale="on"] :where(.leagueMonthRow__value){font-size:calc(20px * var(--app-font-scale));}

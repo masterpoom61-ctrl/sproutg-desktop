@@ -28,7 +28,8 @@ function normalizeTheme(theme) {
 const CUSTOM_THEME_PROPS = [
   '--bg', '--bg-grad-1', '--bg-grad-2', '--bg-grad-3',
   '--panel', '--panel2', '--surface', '--surface-alt',
-  '--btn', '--btnH', '--border', '--line', '--line-strong',
+  '--btn', '--btnH', '--custom-glow', '--select-bg', '--select-option-bg', '--calendar-bg',
+  '--border', '--line', '--line-strong',
   '--text', '--muted', '--muted2', '--accent',
   '--chartA', '--chartB', '--chartC', '--chartD',
   '--glassTop', '--glassFog', '--custom-bg-url'
@@ -39,7 +40,10 @@ const CUSTOM_THEME_DEFAULTS = {
   panel: '#111827',
   surface: '#1f2937',
   text: '#f8fafc',
-  accent: '#38bdf8'
+  accent: '#38bdf8',
+  glow: '#38bdf8',
+  selectBg: '#111827',
+  calendarBg: '#1f2937'
 };
 function hexToRgba(hex, alpha) {
   const value = String(hex || '').replace('#', '');
@@ -84,6 +88,10 @@ function applyCustomThemeVars(settings = {}) {
   root.style.setProperty('--surface-alt', hexToRgba(vars.panel, .72));
   root.style.setProperty('--btn', hexToRgba(vars.surface, .48));
   root.style.setProperty('--btnH', hexToRgba(vars.accent, .18));
+  root.style.setProperty('--custom-glow', vars.glow);
+  root.style.setProperty('--select-bg', hexToRgba(vars.selectBg, .92));
+  root.style.setProperty('--select-option-bg', vars.selectBg);
+  root.style.setProperty('--calendar-bg', vars.calendarBg);
   root.style.setProperty('--border', hexToRgba(vars.accent, .30));
   root.style.setProperty('--line', hexToRgba(vars.accent, .22));
   root.style.setProperty('--line-strong', hexToRgba(vars.accent, .46));
@@ -92,10 +100,10 @@ function applyCustomThemeVars(settings = {}) {
   root.style.setProperty('--muted2', hexToRgba(vars.text, .52));
   root.style.setProperty('--accent', vars.accent);
   root.style.setProperty('--chartA', vars.accent);
-  root.style.setProperty('--chartB', vars.bgB);
+  root.style.setProperty('--chartB', vars.glow);
   root.style.setProperty('--chartC', vars.surface);
-  root.style.setProperty('--chartD', vars.text);
-  root.style.setProperty('--glassTop', hexToRgba(vars.surface, .34));
+  root.style.setProperty('--chartD', vars.calendarBg);
+  root.style.setProperty('--glassTop', hexToRgba(vars.glow, .20));
   root.style.setProperty('--glassFog', hexToRgba(vars.bgB, .62));
   const bg = customBgUrl(custom.backgroundImage);
   if (bg) {
@@ -113,6 +121,7 @@ function applySettingsUi(settings = {}) {
   document.documentElement.dataset.graphics = settings.graphicsMode === 'lite' ? 'lite' : 'ultra';
   document.documentElement.dataset.contrast = settings.contrastMode ? 'on' : 'off';
   document.documentElement.dataset.zjk = settings.classicTrafficLights ? 'on' : 'off';
+  document.documentElement.dataset.textScale = Math.abs((Number(settings.fontScale || 1)) - 1) > 0.001 ? 'on' : 'off';
   document.documentElement.style.setProperty('--app-font-scale', String(settings.fontScale || 1));
   applyCustomThemeVars(settings);
 }

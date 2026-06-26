@@ -294,3 +294,16 @@ body.sgClosing .card{animation:windowOut .38s ease-in both;pointer-events:none;}
   -webkit-app-region:no-drag;
 }
 .err:empty{display:none;}
+
+html[data-custom-theme="on"] :where(.companyCard,.title,.subtitle,.label,.input,.btn,.err){
+  color:var(--text);
+}
+html[data-custom-theme="on"] :where(.subtitle,.label){
+  color:var(--muted);
+}
+html[data-custom-theme="on"] :where(.input){
+  background:var(--select-bg, var(--panel2));
+  color:var(--text);
+}
+html[data-text-scale="on"] :where(.title){font-size:calc(16px * var(--app-font-scale));}
+html[data-text-scale="on"] :where(.subtitle,.label,.input,.btn,.err){font-size:calc(12px * var(--app-font-scale));}

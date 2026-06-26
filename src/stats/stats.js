@@ -18,9 +18,15 @@ const elWeekRecordBreakdown = $('weekRecordBreakdown');
 const elBestMonthRecord = $('bestMonthRecord');
 const elBestMonthRecordHint = $('bestMonthRecordHint');
 const elBestMonthBreakdown = $('bestMonthBreakdown');
+const cardToday = $('cardToday');
+const cardMonth = $('cardMonth');
+const cardAverage = $('cardAverage');
 const cardDayRecord = $('cardDayRecord');
 const cardWeekRecord = $('cardWeekRecord');
 const cardBestMonth = $('cardBestMonth');
+const todayBadge = $('todayBadge');
+const monthBadge = $('monthBadge');
+const avgBadge = $('avgBadge');
 const dayRecordBadge = $('dayRecordBadge');
 const weekRecordBadge = $('weekRecordBadge');
 const bestMonthBadge = $('bestMonthBadge');
@@ -1504,6 +1510,7 @@ function render(points){
   elToday.textContent = String(today);
   elTodayHint.textContent = `${pad2(now.getHours())}:${pad2(now.getMinutes())} · 00:00–23:59`;
   renderTypeChips(elTodayBreakdown, workDays?.[todayKey]?.byType || {}, 4);
+  applyLeagueCard(cardToday, todayBadge, null, leagueForValue(today, DAY_LEAGUE_THRESHOLDS), today, DAY_LEAGUE_THRESHOLDS);
 
   clampSelectedDay();
   const chartDayKey = selectedDayKey || todayKey;
@@ -1596,6 +1603,7 @@ for (const [k,obj] of Object.entries(days || {})){
   if (monthProgress?.firstElementChild) {
     monthProgress.firstElementChild.style.width = `${nextLeagueProgress(monthSum, MONTH_LEAGUE_THRESHOLDS)}%`;
   }
+  applyLeagueCard(cardMonth, monthBadge, null, leagueForValue(monthSum, MONTH_LEAGUE_THRESHOLDS), monthSum, MONTH_LEAGUE_THRESHOLDS);
   elMonthRecord.textContent = String(recordMax);
   elMonthRecordHint.textContent = recordKey ? formatDayKey(recordKey) : '—';
   renderTypeChips(elDayRecordBreakdown, recordKey ? workDays?.[recordKey]?.byType || {} : {}, 4);
@@ -1613,6 +1621,7 @@ for (const [k,obj] of Object.entries(days || {})){
   elMonthAvg.textContent = String(avg);
   elMonthAvgHint.textContent = `за ${activeDays} активн. дн.`;
   renderTypeChips(elAvgBreakdown, avgTypeCounts, 4);
+  applyLeagueCard(cardAverage, avgBadge, null, leagueForValue(avg, DAY_LEAGUE_THRESHOLDS), avg, DAY_LEAGUE_THRESHOLDS);
 
   if (bestWeek) {
     elWeekRecord.textContent = String(bestWeek.total || 0);
@@ -1666,6 +1675,7 @@ function applySettingsUi(settings = {}){
   document.documentElement.dataset.contrast = settings.contrastMode ? 'on' : 'off';
   document.documentElement.dataset.zjk = settings.classicTrafficLights ? 'on' : 'off';
   document.documentElement.dataset.statGlow = settings.statCardGlow === false ? 'off' : 'on';
+  document.documentElement.dataset.textScale = Math.abs((Number(settings.fontScale || 1)) - 1) > 0.001 ? 'on' : 'off';
   document.documentElement.style.setProperty('--app-font-scale', String(settings.fontScale || 1));
   applyStatsCustomThemeVars(settings);
 }
@@ -1759,7 +1769,8 @@ function hexToRgba(hex, alpha){
 const STATS_CUSTOM_THEME_PROPS = [
   '--bg', '--bg-grad-1', '--bg-grad-2', '--bg-grad-3',
   '--panel', '--panel2', '--surface', '--surface-alt',
-  '--btn', '--btnH', '--border', '--line', '--line-strong',
+  '--btn', '--btnH', '--custom-glow', '--select-bg', '--select-option-bg', '--calendar-bg',
+  '--border', '--line', '--line-strong',
   '--text', '--muted', '--muted2', '--accent',
   '--chartA', '--chartB', '--chartC', '--chartD',
   '--glassTop', '--glassFog', '--custom-bg-url'
@@ -1770,7 +1781,10 @@ const STATS_CUSTOM_THEME_DEFAULTS = {
   panel: '#111827',
   surface: '#1f2937',
   text: '#f8fafc',
-  accent: '#38bdf8'
+  accent: '#38bdf8',
+  glow: '#38bdf8',
+  selectBg: '#111827',
+  calendarBg: '#1f2937'
 };
 function normalizeStatsCustomVars(vars = {}){
   const isHex = (value) => /^#[0-9a-f]{6}$/i.test(String(value || '').trim());
@@ -1809,6 +1823,10 @@ function applyStatsCustomThemeVars(settings = {}){
   root.style.setProperty('--surface-alt', hexToRgba(vars.panel, .72));
   root.style.setProperty('--btn', hexToRgba(vars.surface, .48));
   root.style.setProperty('--btnH', hexToRgba(vars.accent, .18));
+  root.style.setProperty('--custom-glow', vars.glow);
+  root.style.setProperty('--select-bg', hexToRgba(vars.selectBg, .92));
+  root.style.setProperty('--select-option-bg', vars.selectBg);
+  root.style.setProperty('--calendar-bg', vars.calendarBg);
   root.style.setProperty('--border', hexToRgba(vars.accent, .30));
   root.style.setProperty('--line', hexToRgba(vars.accent, .22));
   root.style.setProperty('--line-strong', hexToRgba(vars.accent, .46));
@@ -1817,10 +1835,10 @@ function applyStatsCustomThemeVars(settings = {}){
   root.style.setProperty('--muted2', hexToRgba(vars.text, .54));
   root.style.setProperty('--accent', vars.accent);
   root.style.setProperty('--chartA', vars.accent);
-  root.style.setProperty('--chartB', vars.bgB);
+  root.style.setProperty('--chartB', vars.glow);
   root.style.setProperty('--chartC', vars.surface);
-  root.style.setProperty('--chartD', vars.text);
-  root.style.setProperty('--glassTop', hexToRgba(vars.surface, .38));
+  root.style.setProperty('--chartD', vars.calendarBg);
+  root.style.setProperty('--glassTop', hexToRgba(vars.glow, .20));
   root.style.setProperty('--glassFog', hexToRgba(vars.bgB, .76));
   const bg = statsCustomBgUrl(custom.backgroundImage);
   if(bg){

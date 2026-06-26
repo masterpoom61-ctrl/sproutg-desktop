@@ -25,6 +25,7 @@ const CUSTOM_THEME_PROPS = [
   '--bg', '--bg-grad-1', '--bg-grad-2', '--bg-grad-3',
   '--panel', '--panel2', '--surface', '--surface-alt',
   '--btn', '--btnH', '--control-hover', '--control-active',
+  '--custom-glow', '--select-bg', '--select-option-bg', '--calendar-bg',
   '--border', '--line', '--line-strong', '--text', '--muted', '--muted2',
   '--accent', '--chartA', '--chartB', '--chartC', '--chartD',
   '--topbar-bg', '--topbar-fg', '--glassTop', '--glassFog', '--custom-bg-url'
@@ -35,7 +36,10 @@ const CUSTOM_THEME_DEFAULTS = {
   panel: '#111827',
   surface: '#1f2937',
   text: '#f8fafc',
-  accent: '#38bdf8'
+  accent: '#38bdf8',
+  glow: '#38bdf8',
+  selectBg: '#111827',
+  calendarBg: '#1f2937'
 };
 function normalizeCustomVars(vars = {}){
   const isHex = (value) => /^#[0-9a-f]{6}$/i.test(String(value || '').trim());
@@ -82,6 +86,10 @@ function applyCustomThemeVars(settings = {}){
   root.style.setProperty('--btnH', hexToRgba(vars.accent, .18));
   root.style.setProperty('--control-hover', hexToRgba(vars.accent, .16));
   root.style.setProperty('--control-active', hexToRgba(vars.accent, .24));
+  root.style.setProperty('--custom-glow', vars.glow);
+  root.style.setProperty('--select-bg', hexToRgba(vars.selectBg, .92));
+  root.style.setProperty('--select-option-bg', vars.selectBg);
+  root.style.setProperty('--calendar-bg', vars.calendarBg);
   root.style.setProperty('--border', hexToRgba(vars.accent, .30));
   root.style.setProperty('--line', hexToRgba(vars.accent, .22));
   root.style.setProperty('--line-strong', hexToRgba(vars.accent, .46));
@@ -90,12 +98,12 @@ function applyCustomThemeVars(settings = {}){
   root.style.setProperty('--muted2', hexToRgba(vars.text, .52));
   root.style.setProperty('--accent', vars.accent);
   root.style.setProperty('--chartA', vars.accent);
-  root.style.setProperty('--chartB', vars.bgB);
+  root.style.setProperty('--chartB', vars.glow);
   root.style.setProperty('--chartC', vars.surface);
-  root.style.setProperty('--chartD', vars.text);
+  root.style.setProperty('--chartD', vars.calendarBg);
   root.style.setProperty('--topbar-bg', hexToRgba(vars.panel, .96));
   root.style.setProperty('--topbar-fg', vars.text);
-  root.style.setProperty('--glassTop', hexToRgba(vars.surface, .34));
+  root.style.setProperty('--glassTop', hexToRgba(vars.glow, .20));
   root.style.setProperty('--glassFog', hexToRgba(vars.bgB, .62));
   const bg = customBgUrl(custom.backgroundImage);
   if(bg){
@@ -124,6 +132,7 @@ function applyDesktopSettings(settings = {}){
   document.documentElement.dataset.contrast = settings.contrastMode ? 'on' : 'off';
   document.documentElement.dataset.zjk = settings.classicTrafficLights ? 'on' : 'off';
   document.documentElement.dataset.statGlow = desktopSettings.statCardGlow === false ? 'off' : 'on';
+  document.documentElement.dataset.textScale = Math.abs((Number(desktopSettings.fontScale || 1)) - 1) > 0.001 ? 'on' : 'off';
   document.documentElement.style.setProperty('--app-font-scale', String(desktopSettings.fontScale || 1));
   applyCustomThemeVars(desktopSettings);
   if(prevSmsService !== desktopSettings.smsService){
@@ -153,7 +162,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
   applyDesktopSettings(s || { theme: 'dark-classic' });
 })();
 
-  const APP_VERSION = '2.1.7';
+  const APP_VERSION = '2.1.8';
   const PAGE_KEY = 'FarmA.page';
   const HOME_RETURN_KEY = 'FarmA.homeReturnPage';
   const THEME_KEY = 'sproutg.theme';
@@ -427,6 +436,12 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     'Взять в работу','Подозрительные платежи',
     'Не оплаченный баланс','Будущие платежи','PrePaid'
   ]);
+  function isBanRedValue(value){
+    const s = String(value || '').trim();
+    if(!s) return false;
+    const lower = s.toLocaleLowerCase('ru-RU');
+    return BAN_RED_VALUES.has(s) || lower.includes('бан') || lower.includes('ban');
+  }
   const O1_WORK_GROUPS = ['Ads Видео', 'Платежка', 'Речек'];
   const O1_GROUP_DATE_COL = { 'Ads Видео':'AQ', 'Платежка':'BC', 'Речек':'BQ' };
   const O1_GROUP_DONE_COL = { 'Ads Видео':'AZ', 'Платежка':'BI', 'Речек':'BW' };
@@ -2510,6 +2525,11 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     el.classList.remove('greenLight','yellowLight','redLight','blueLight','pinkLight');
     delete el.dataset.appcolor;
     const v=String(value||'').trim();
+    if(isBanRedValue(v)){
+      el.classList.add('redLight');
+      el.dataset.appcolor = '1';
+      return;
+    }
 
     if(col==='AE'){
       const greenSet=new Set(['Без 1','Без 2','Номер С 1','Номер С 2']);
@@ -2555,7 +2575,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     // ✅ FarmA_0.3.9.6_dev FIX: BAN-reasons dropdown coloring (Verification BX and also BA/BJ/CG)
     if(['BA','BJ','BX','CG'].includes(col)){
       if(!v) return;
-      if(BAN_RED_VALUES.has(v)) el.classList.add('redLight');
+      if(isBanRedValue(v)) el.classList.add('redLight');
       else if(BAN_YELLOW_VALUES.has(v)) el.classList.add('yellowLight');
       if(el.classList.contains('yellowLight') || el.classList.contains('redLight')) el.dataset.appcolor = '1';
       return;
@@ -3859,7 +3879,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
   function banClassForValue(v){
     const s=String(v||'').trim();
     if(!s) return '';
-    if(BAN_RED_VALUES.has(s)) return 'banRed';
+    if(isBanRedValue(s)) return 'banRed';
     if(BAN_YELLOW_VALUES.has(s)) return 'banYellow';
     return '';
   }
@@ -5337,7 +5357,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
 
   function isBannedForMccAccount(row){
     const oVal = String(row?.values?.O || '').trim();
-    return BAN_RED_VALUES.has(oVal) || BAN_YELLOW_VALUES.has(oVal);
+    return isBanRedValue(oVal) || BAN_YELLOW_VALUES.has(oVal);
   }
 
   function mccScrollToAccountSection(idx){
@@ -6151,6 +6171,11 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     el.classList.remove('greenLight','yellowLight','redLight','blueLight','orangeLight');
     delete el.dataset.appcolor;
     const v = String(value || '').trim();
+    if(isBanRedValue(v)){
+      el.classList.add('redLight');
+      el.dataset.appcolor = '1';
+      return;
+    }
 
     if(col === 'N'){
       if(v === '+') el.classList.add('greenLight');
@@ -6162,7 +6187,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     }
 
     if(col === 'O'){
-      if(BAN_RED_VALUES.has(v)) el.classList.add('redLight');
+      if(isBanRedValue(v)) el.classList.add('redLight');
       else if(BAN_YELLOW_VALUES.has(v)) el.classList.add('yellowLight');
       if(el.classList.contains('yellowLight') || el.classList.contains('redLight')) el.dataset.appcolor = '1';
       return;
@@ -6178,7 +6203,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
   function getMccGroupColorClass(nVal, oVal){
     const n = String(nVal || '').trim();
     const o = String(oVal || '').trim();
-    const isORed = BAN_RED_VALUES.has(o);
+    const isORed = isBanRedValue(o);
     const isOYellow = BAN_YELLOW_VALUES.has(o);
 
     if(n === 'Не вышел') return 'redLight';
@@ -6903,19 +6928,19 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
 
     if(u === 'На рассмотрении'){
       uSelect.classList.add('blueLight');
-      if(BAN_RED_VALUES.has(v)) vSelect.classList.add('redLight');
+      if(isBanRedValue(v)) vSelect.classList.add('redLight');
       else if(BAN_YELLOW_VALUES.has(v)) vSelect.classList.add('yellowLight');
       return;
     }
     if(u === 'Взять в работу' || BAN_YELLOW_VALUES.has(u)){
       uSelect.classList.add('yellowLight');
-      if(BAN_RED_VALUES.has(v)) vSelect.classList.add('redLight');
+      if(isBanRedValue(v)) vSelect.classList.add('redLight');
       else if(BAN_YELLOW_VALUES.has(v)) vSelect.classList.add('yellowLight');
       return;
     }
-    if(u === 'Отказ' || BAN_RED_VALUES.has(u)){
+    if(u === 'Отказ' || isBanRedValue(u)){
       uSelect.classList.add('redLight');
-      if(v === 'Бан аккаунта' || BAN_RED_VALUES.has(v)) vSelect.classList.add('redLight');
+      if(v === 'Бан аккаунта' || isBanRedValue(v)) vSelect.classList.add('redLight');
       else if(BAN_YELLOW_VALUES.has(v)) vSelect.classList.add('yellowLight');
       return;
     }
@@ -6924,7 +6949,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
       vSelect.classList.add('greenLight');
       return;
     }
-    if(BAN_RED_VALUES.has(v)) vSelect.classList.add('redLight');
+    if(isBanRedValue(v)) vSelect.classList.add('redLight');
     else if(BAN_YELLOW_VALUES.has(v)) vSelect.classList.add('yellowLight');
   }
 

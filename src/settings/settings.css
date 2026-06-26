@@ -300,6 +300,46 @@ details,
   background:transparent;
   cursor:pointer;
 }
+.colorTools{
+  display:inline-flex;
+  align-items:center;
+  gap:4px;
+  margin-left:auto;
+}
+.colorToolBtn{
+  width:24px;
+  height:24px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  border:1px solid var(--border);
+  border-radius:8px;
+  background:var(--btn);
+  color:var(--text);
+  cursor:pointer;
+}
+.colorToolBtn:hover{background:var(--btnH);}
+.colorToolBtn svg{
+  width:14px;
+  height:14px;
+  fill:none;
+  stroke:currentColor;
+  stroke-width:2;
+  stroke-linecap:round;
+  stroke-linejoin:round;
+}
+.bgImageRow{
+  align-items:center;
+  gap:7px;
+}
+.bgImageRow .input{
+  min-width:0;
+  flex:1 1 auto;
+}
+.bgImageRow .btn{
+  flex:0 0 auto;
+  padding:0 10px;
+}
 .customThemeActions{gap:8px;}
 .hint{margin-top:8px;font-size:11px;color:var(--muted);line-height:1.35;}
 .techInfo{
@@ -346,13 +386,13 @@ details,
   margin-top:8px;
   border:1px solid var(--border);
   border-radius:10px;
-  background:var(--btn);
+  background:var(--select-bg, var(--btn));
   color:var(--text);
   padding:0 9px;
   outline:none;
 }
 .releaseSelect option{
-  background:var(--panel);
+  background:var(--select-option-bg, var(--panel));
   color:var(--text);
 }
 .releaseHistoryBody{
@@ -378,3 +418,28 @@ html[data-theme="dark-ios"] .card{
   -webkit-backdrop-filter:blur(38px) saturate(1.16);
   backdrop-filter:blur(38px) saturate(1.16);
 }
+
+html[data-custom-theme="on"] :where(.card,.title,.label,.pill,.btn,.seg,.input,.hint,.details summary,.themeEditorTitle,.colorField,.techInfo,.releaseHistory,.releaseHistoryBody,.releaseSelect,.updateStatus){
+  color:var(--text);
+}
+html[data-custom-theme="on"] :where(.hint,.techInfo,.releaseHistoryBody,.colorField,.details summary){
+  color:var(--muted);
+}
+html[data-custom-theme="on"] :where(.input,.releaseSelect,select,textarea){
+  background:var(--select-bg, var(--btn));
+  color:var(--text);
+}
+html[data-custom-theme="on"] select option{
+  background:var(--select-option-bg, var(--panel));
+  color:var(--text);
+}
+html[data-custom-theme="on"] input[type="date"]::-webkit-calendar-picker-indicator{
+  border-radius:7px;
+  background-color:var(--calendar-bg);
+}
+
+html[data-text-scale="on"] :where(.title){font-size:calc(14px * var(--app-font-scale));}
+html[data-text-scale="on"] :where(.label,.themeEditorTitle){font-size:calc(12px * var(--app-font-scale));}
+html[data-text-scale="on"] :where(.btn,.seg,.input,.pill,.releaseSelect,.updateActions .btn){font-size:calc(11px * var(--app-font-scale));}
+html[data-text-scale="on"] :where(.hint,.techInfo,.releaseHistory summary,.releaseHistoryBody,.details summary,.colorField){font-size:calc(11px * var(--app-font-scale));}
+html[data-text-scale="on"] :where(.releaseHistoryTitle){font-size:calc(12px * var(--app-font-scale));}

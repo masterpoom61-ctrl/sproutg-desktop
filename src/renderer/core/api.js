@@ -83,9 +83,8 @@
       clearTimeout(savedTimer);
       document.documentElement.classList.remove('api-saved');
     } else if (wasBusy) {
-      document.documentElement.classList.add('api-saved');
       clearTimeout(savedTimer);
-      savedTimer = setTimeout(() => document.documentElement.classList.remove('api-saved'), 850);
+      document.documentElement.classList.remove('api-saved');
     }
   }
 
@@ -141,7 +140,7 @@
     const opts = name === 'addCompanyRow' ? { cache: false, timeoutMs: 60000 } : {};
     setLoading(1);
     try {
-      return await window.sproutg.apiCall(spec.action, spec.payload(Array.from(args || [])), opts);
+      return await window.sproutg.legacyCall(spec.action, spec.payload(Array.from(args || [])), opts);
     } catch (err) {
       return normalizeError(err);
     } finally {

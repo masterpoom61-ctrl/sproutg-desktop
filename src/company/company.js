@@ -130,6 +130,57 @@ function setError(msg) {
   errEl.textContent = msg || '';
 }
 
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isBridgeTimeout(error) {
+  const text = String(error?.code || error?.message || error || '').toLowerCase();
+  return text.includes('bridge_timeout') || text.includes('timeout') || text.includes('слишком долго') || text.includes('too long');
+}
+
+async function confirmCompanyStored(companyName) {
+  const value = String(companyName || '').trim();
+  if (!value) return false;
+  const delays = [350, 700, 1200, 1800];
+  for (const delay of delays) {
+    await wait(delay);
+    try {
+      const res = await window.sproutgCompany.apiCall('company.checkDuplicate', { value }, { timeoutMs: 3000 });
+      const payload = res?.data && typeof res.data === 'object' ? res.data : res;
+      if (res && res.ok !== false && payload?.duplicate) return true;
+    } catch (error) {
+      if (!isBridgeTimeout(error)) throw error;
+    }
+  }
+  return false;
+}
+
+function emitCompanyPoints() {
+  window.sproutgCompany.addPoints?.({
+    kind: 'company',
+    page: 'COMPANY',
+    group: 'Компании',
+    workType: 'Компания',
+    key: 'Компания',
+    count: 1,
+    deltaClicks: 1,
+    deltaPoints: 10,
+    delta: 10,
+    ts: Date.now()
+  });
+}
+
+function resetCompanyForm(message) {
+  getInputs().forEach((input) => {
+    input.value = '';
+    delete input.dataset.state;
+  });
+  duplicateState = { value: '', duplicate: false, checking: false };
+  setError(message || 'Компания добавлена');
+  setTimeout(() => setError(''), 1300);
+}
+
 function setSubmitEnabled() {
   const values = getValues();
   const full = values.length === 6 && values.every(Boolean);
@@ -167,11 +218,12 @@ async function checkDuplicate(input) {
     const current = String(input.value || '').trim().toLowerCase();
     if (current !== expected.toLowerCase()) return;
     if (!res || res.ok === false) throw new Error(res?.error || 'Ошибка проверки компании');
+    const payload = res?.data && typeof res.data === 'object' ? res.data : res;
 
-    duplicateState = { value: current, duplicate: !!res.duplicate, checking: false };
-    input.dataset.state = res.duplicate ? 'bad' : 'ok';
-    if (res.duplicate) {
-      setError(`Компания уже есть в колонке A${res.row ? `, строка ${res.row}` : ''}`);
+    duplicateState = { value: current, duplicate: !!payload?.duplicate, checking: false };
+    input.dataset.state = payload?.duplicate ? 'bad' : 'ok';
+    if (payload?.duplicate) {
+      setError(`Компания уже есть в колонке A${payload.row ? `, строка ${payload.row}` : ''}`);
     } else {
       setError('');
     }
@@ -246,27 +298,18 @@ async function submitCompany() {
   submitBtn.disabled = true;
   setError('');
   try {
-    const res = await window.sproutgCompany.apiCall('company.addRow', { values: vr.values }, { cache: false, timeoutMs: 60000 });
-    if (!res || res.ok === false) throw new Error(res?.error || 'Ошибка сохранения');
-    window.sproutgCompany.addPoints?.({
-      kind: 'company',
-      page: 'COMPANY',
-      group: 'Компании',
-      workType: 'Компания',
-      key: 'Компания',
-      count: 1,
-      deltaClicks: 1,
-      deltaPoints: 10,
-      delta: 10,
-      ts: Date.now()
-    });
-    getInputs().forEach((input) => {
-      input.value = '';
-      delete input.dataset.state;
-    });
-    duplicateState = { value: '', duplicate: false, checking: false };
-    setError('Компания добавлена');
-    setTimeout(() => setError(''), 1300);
+    let stored = false;
+    try {
+      const res = await window.sproutgCompany.apiCall('company.addRow', { values: vr.values }, { cache: false, timeoutMs: 3500 });
+      if (!res || res.ok === false) throw new Error(res?.error || 'Ошибка сохранения');
+      stored = true;
+    } catch (error) {
+      if (!isBridgeTimeout(error)) throw error;
+      stored = await confirmCompanyStored(vr.values[0]);
+      if (!stored) throw error;
+    }
+    emitCompanyPoints();
+    resetCompanyForm(stored ? 'Компания добавлена' : 'Компания добавлена, синхронизация продолжается');
   } catch (error) {
     setError(String(error?.message || error));
   } finally {

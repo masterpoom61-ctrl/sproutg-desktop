@@ -119,6 +119,17 @@ let liveThemeTimer = null;
 // чтобы раздел "История обновлений" в настройках всегда был актуален для пользователей.
 const RELEASE_HISTORY = [
   {
+    version: '2.2.0',
+    date: '2026-07-01',
+    changes: [
+      'Исправлен поиск O1/MCC после 2.1.9: desktop снова получает legacy-форму ответа Google Script без ошибки values.',
+      'Окно компаний быстрее подтверждает запись: если CM2-синхронизация задерживает ответ, приложение проверяет появление компании в таблице и не висит по 30 секунд.',
+      'Убран второй нижний значок готовности после загрузки/сохранения.',
+      'Усилена drag-зона окна настроек после прокрутки.',
+      'Пружинка скролла в окнах стала плавнее и меньше дергается от колесика мыши.'
+    ]
+  },
+  {
     version: '2.1.9',
     date: '2026-07-01',
     changes: [
@@ -698,16 +709,38 @@ function setupElasticBounce(container, target){
   if(!container || container.dataset.elasticBound === '1') return;
   container.dataset.elasticBound = '1';
   const moving = target || container;
-  let offset = 0;
+  let targetOffset = 0;
+  let renderedOffset = 0;
   let timer = null;
+  let raf = null;
+  const setElasticTransform = (value, transition = 'none') => {
+    moving.style.transition = transition;
+    moving.style.transform = `translateY(${value}px)`;
+  };
+  const renderElastic = () => {
+    raf = null;
+    renderedOffset += (targetOffset - renderedOffset) * 0.38;
+    if (Math.abs(targetOffset - renderedOffset) < .35) renderedOffset = targetOffset;
+    setElasticTransform(renderedOffset, 'none');
+    if (Math.abs(targetOffset - renderedOffset) >= .35) {
+      raf = requestAnimationFrame(renderElastic);
+    }
+  };
+  const scheduleElastic = () => {
+    if (!raf) raf = requestAnimationFrame(renderElastic);
+  };
   const settle = ()=>{
     clearTimeout(timer);
     timer = setTimeout(()=>{
-      offset = 0;
-      moving.style.transition = 'transform .46s cubic-bezier(.18,.9,.22,1.18)';
-      moving.style.transform = 'translateY(0)';
+      targetOffset = 0;
+      renderedOffset = 0;
+      if (raf) {
+        cancelAnimationFrame(raf);
+        raf = null;
+      }
+      setElasticTransform(0, 'transform .46s cubic-bezier(.18,.9,.22,1.18)');
       setTimeout(()=>{ moving.style.transition = ''; }, 480);
-    }, 28);
+    }, 70);
   };
   container.addEventListener('wheel', (event)=>{
     const maxScroll = Math.max(0, container.scrollHeight - container.clientHeight);
@@ -717,11 +750,10 @@ function setupElasticBounce(container, target){
     if(!shouldElastic) return;
     event.preventDefault();
     const maxOffset = 76;
-    const resistance = 1 - Math.min(.72, Math.abs(offset) / (maxOffset * 1.25));
-    offset += -event.deltaY * .22 * resistance;
-    offset = Math.max(-maxOffset, Math.min(maxOffset, offset));
-    moving.style.transition = 'none';
-    moving.style.transform = `translateY(${offset}px)`;
+    const resistance = 1 - Math.min(.72, Math.abs(targetOffset) / (maxOffset * 1.25));
+    targetOffset += -event.deltaY * .18 * resistance;
+    targetOffset = Math.max(-maxOffset, Math.min(maxOffset, targetOffset));
+    scheduleElastic();
     settle();
   }, { passive:false, capture:true });
 }

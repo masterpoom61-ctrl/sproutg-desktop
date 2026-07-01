@@ -173,7 +173,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
   applyDesktopSettings(s || { theme: 'dark-classic' });
 })();
 
-  const APP_VERSION = '2.1.9';
+  const APP_VERSION = '2.2.0';
   const PAGE_KEY = 'FarmA.page';
   const HOME_RETURN_KEY = 'FarmA.homeReturnPage';
   const THEME_KEY = 'sproutg.theme';
@@ -7599,14 +7599,38 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     }, 260);
   }
 
-  function submitCompanyForm(){
+  function isCompanyBridgeTimeout_(error){
+    const text = String(error?.code || error?.message || error || '').toLowerCase();
+    return text.includes('bridge_timeout') || text.includes('timeout') || text.includes('слишком долго') || text.includes('too long');
+  }
+
+  function companyWait_(ms){
+    return new Promise((resolve)=>setTimeout(resolve, ms));
+  }
+
+  async function confirmCompanyStored_(companyName){
+    const value = String(companyName || '').trim();
+    if(!value) return false;
+    for(const delay of [350, 700, 1200, 1800]){
+      await companyWait_(delay);
+      try{
+        const res = await window.sproutgApi.callApi('company.checkDuplicate', { value }, { timeoutMs: 3000 });
+        if(res && res.ok !== false && res.data?.duplicate) return true;
+        if(res && res.ok !== false && res.duplicate) return true;
+      }catch(error){
+        if(!isCompanyBridgeTimeout_(error)) throw error;
+      }
+    }
+    return false;
+  }
+
+  async function submitCompanyForm(){
     setCompanyError('');
     const inputs = getCompanyInputs();
     const values = inputs.map(i=>String(i.value || '').trim());
     const vr = validateCompanyValues(values);
     if(!vr.ok){ setCompanyError(vr.error); return; }
-    google.script.run.withSuccessHandler((res)=>{
-      if(!res || res.ok===false){ setCompanyError(res?.error || 'Ошибка сохранения'); return; }
+    const finish = ()=>{
       sproutgPostToDesktop('POINT_EVENT', {
         kind: 'company',
         page: 'COMPANY',
@@ -7621,7 +7645,22 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
       });
       toast('Компания добавлена');
       inputs.forEach(i=>{ i.value = ''; });
-    }).withFailureHandler((err)=>setCompanyError(String(err))).addCompanyRow(vr.values);
+    };
+    try{
+      let stored = false;
+      try{
+        const res = await window.sproutgApi.callApi('company.addRow', { values: vr.values }, { cache:false, timeoutMs:3500 });
+        if(!res || res.ok===false){ setCompanyError(res?.error || 'Ошибка сохранения'); return; }
+        stored = true;
+      }catch(error){
+        if(!isCompanyBridgeTimeout_(error)) throw error;
+        stored = await confirmCompanyStored_(vr.values[0]);
+        if(!stored) throw error;
+      }
+      finish();
+    }catch(error){
+      setCompanyError(String(error?.message || error));
+    }
   }
 
   function setupDesktopIntegration(){

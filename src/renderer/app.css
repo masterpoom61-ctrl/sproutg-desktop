@@ -1712,8 +1712,7 @@ html[data-graphics="ultra"] .profileReveal{
   pointer-events:none;
   transition:opacity .18s ease, transform .18s ease;
 }
-.api-busy .apiLoading,
-.api-saved .apiLoading{opacity:1;transform:translate(-50%, 0);}
+.api-busy .apiLoading{opacity:1;transform:translate(-50%, 0);}
 .apiSpinner{
   width:16px;
   height:16px;

@@ -11,6 +11,7 @@ const TOPBAR_HEIGHT = 38;
 const PARTITION = 'persist:sproutg';
 const MIN_WIDTH = 420;   // allow 9:16 portrait-like
 const MIN_HEIGHT = 560;
+const RUNTIME_SESSION_ID = String(Date.now());
 
 const store = new Store({
   name: 'sproutg-desktop',
@@ -18,7 +19,7 @@ const store = new Store({
     ui: { statsBounds: null, companyBounds: null },
     points: { days: {}, workDays: {} },
     statusState: {},
-    settings: { theme: 'dark-classic', zoom: 1.0, fontScale: 1.0, alwaysOnTop: false, graphicsMode: 'ultra', contrastMode: false, classicTrafficLights: false, statCardGlow: true, smsService: 'smspool', customThemeId: '', customThemes: [] },
+    settings: { theme: 'dark-classic', zoom: 1.0, fontScale: 1.0, alwaysOnTop: false, graphicsMode: 'ultra', contrastMode: false, classicTrafficLights: false, mccVerificationInline: true, statCardGlow: true, smsService: 'smspool', customThemeId: '', customThemes: [] },
     heroSms: { apiKey: '', activeOrder: null, country: '0', service: 'go', catalog: null, catalogTs: 0 },
     window: { bounds: null, isMaximized: false },
     web: { url: null }
@@ -707,6 +708,7 @@ function normalizeSettings(input){
     graphicsMode: raw.graphicsMode === 'lite' ? 'lite' : 'ultra',
     contrastMode: !!raw.contrastMode,
     classicTrafficLights: !!raw.classicTrafficLights,
+    mccVerificationInline: raw.mccVerificationInline !== false,
     statCardGlow: raw.statCardGlow !== false,
     smsService: raw.smsService === 'herosms' ? 'herosms' : 'smspool',
     customThemeId: String(raw.customThemeId || '').trim(),
@@ -727,7 +729,7 @@ function getSettings(){
   const settings = store.get('settings') || {};
   const next = normalizeSettings(settings);
   if (JSON.stringify(settings) !== JSON.stringify(next)) store.set('settings', next);
-  return next;
+  return { ...next, runtimeSessionId: RUNTIME_SESSION_ID };
 }
 function clampToWorkArea(bounds){
   try{
@@ -1057,10 +1059,11 @@ function applySettings(next){
   if (mainWindow && !mainWindow.isDestroyed()) {
     try { mainWindow.webContents.setZoomFactor(next.zoom || 1); } catch(e) {}
   }
-  safeSend(mainWindow, 'sproutg:apply-settings', next);
-  safeSend(settingsWindow, 'sproutg:apply-settings', next);
-  safeSend(statsWindow, 'sproutg:apply-settings', next);
-  safeSend(companyWindow, 'sproutg:apply-settings', next);
+  const payload = { ...next, runtimeSessionId: RUNTIME_SESSION_ID };
+  safeSend(mainWindow, 'sproutg:apply-settings', payload);
+  safeSend(settingsWindow, 'sproutg:apply-settings', payload);
+  safeSend(statsWindow, 'sproutg:apply-settings', payload);
+  safeSend(companyWindow, 'sproutg:apply-settings', payload);
 }
 
 
@@ -1629,7 +1632,7 @@ ipcMain.handle('sproutg:download-update', () => downloadUpdate());
 ipcMain.handle('sproutg:install-update', () => installDownloadedUpdate());
 ipcMain.handle('sproutg:hero-sms', (_e, action, payload) => heroSmsHandle(action, payload || {}));
 ipcMain.handle('sproutg:get-settings', () => getSettings());
-ipcMain.handle('sproutg:set-setting', (_e, partial) => { const n = setSettings(partial); applySettings(n); return n; });
+ipcMain.handle('sproutg:set-setting', (_e, partial) => { const n = setSettings(partial); applySettings(n); return getSettings(); });
 ipcMain.handle('sproutg:choose-custom-theme-bg', () => chooseCustomThemeBackground());
 ipcMain.handle('sproutg:zoom', (_e, dir) => zoom(dir));
 ipcMain.handle('sproutg:toggle-aot', () => toggleAOT());

@@ -246,7 +246,7 @@ async function submitCompany() {
   submitBtn.disabled = true;
   setError('');
   try {
-    const res = await window.sproutgCompany.apiCall('company.addRow', { values: vr.values }, { cache: false, timeoutMs: 18000 });
+    const res = await window.sproutgCompany.apiCall('company.addRow', { values: vr.values }, { cache: false, timeoutMs: 60000 });
     if (!res || res.ok === false) throw new Error(res?.error || 'Ошибка сохранения');
     window.sproutgCompany.addPoints?.({
       kind: 'company',

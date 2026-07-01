@@ -619,6 +619,10 @@ html[data-stat-glow="off"] .statCard::after{opacity:.38;}
 
 ::-webkit-scrollbar{width:0;height:0}
 .card::-webkit-scrollbar{width:0;height:0}
+.card.isElasticBouncing > :not(.windowClose):not(.dragbar){
+  transition:var(--elastic-transition, none);
+  transform:translateY(var(--elastic-offset, 0px));
+}
 /* draggable area for frameless window */
 .dragbar{
   height: 30px;

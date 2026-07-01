@@ -130,6 +130,15 @@ body.sgClosing .card{animation:windowOut .38s ease-in both;pointer-events:none;}
   justify-content:center;
 }
 .windowClose:hover{background:var(--btnH);}
+.dragbar{
+  position:absolute;
+  left:44px;
+  right:44px;
+  top:0;
+  height:32px;
+  z-index:4;
+  -webkit-app-region:drag;
+}
 .header{margin-bottom:10px;padding-right:34px;}
 button,
 input,

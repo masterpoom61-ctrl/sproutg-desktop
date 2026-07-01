@@ -138,9 +138,10 @@
   async function legacyCall(name, args) {
     const spec = LEGACY_TO_ACTION[name];
     if (!spec) return { ok: false, error: `Unknown legacy API method: ${name}`, code: 'UNKNOWN_LEGACY_METHOD' };
+    const opts = name === 'addCompanyRow' ? { cache: false, timeoutMs: 60000 } : {};
     setLoading(1);
     try {
-      return await window.sproutg.legacyCall(spec.action, spec.payload(Array.from(args || [])));
+      return await window.sproutg.apiCall(spec.action, spec.payload(Array.from(args || [])), opts);
     } catch (err) {
       return normalizeError(err);
     } finally {
@@ -203,7 +204,7 @@
     getMccVerificationDropdownPools: () => callApi('mcc.verificationPools', {}),
     getCompanyFormMeta: () => callApi('company.formMeta', {}),
     checkCompanyDuplicate: (value) => callApi('company.checkDuplicate', { value }),
-    addCompanyRow: (values) => callApi('company.addRow', { values }, { cache: false }),
+    addCompanyRow: (values) => callApi('company.addRow', { values }, { cache: false, timeoutMs: 60000 }),
     smsPoolOrderO1: () => callApi('smspool.orderO1', {}, { cache: false }),
     smsPoolCheckO1: (orderId) => callApi('smspool.checkO1', { orderId }, { cache: false }),
     smsPoolRefundO1: (orderId) => callApi('smspool.refundO1', { orderId }, { cache: false }),

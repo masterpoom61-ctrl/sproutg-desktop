@@ -68,6 +68,8 @@ const contrastOff = $('contrastOff');
 const contrastOn = $('contrastOn');
 const trafficOff = $('trafficOff');
 const trafficOn = $('trafficOn');
+const mccVerifOff = $('mccVerifOff');
+const mccVerifOn = $('mccVerifOn');
 const statGlowOn = $('statGlowOn');
 const statGlowOff = $('statGlowOff');
 const customThemeName = $('customThemeName');
@@ -108,7 +110,7 @@ const techWebVersion = $('techWebVersion');
 const techAppSize = $('techAppSize');
 const settingsCloseBtn = $('settingsCloseBtn');
 
-let current = { theme: 'dark-classic', zoom: 1.0, fontScale: 1.0, alwaysOnTop: false, graphicsMode: 'ultra', contrastMode: false, classicTrafficLights: false, statCardGlow: true, smsService: 'smspool', customThemeId: '', customThemes: [] };
+let current = { theme: 'dark-classic', zoom: 1.0, fontScale: 1.0, alwaysOnTop: false, graphicsMode: 'ultra', contrastMode: false, classicTrafficLights: false, mccVerificationInline: true, statCardGlow: true, smsService: 'smspool', customThemeId: '', customThemes: [] };
 let closing = false;
 let colorClipboard = '';
 let liveThemeTimer = null;
@@ -116,6 +118,17 @@ let liveThemeTimer = null;
 // RELEASE_HISTORY: при каждом публичном релизе добавляй новую запись сверху,
 // чтобы раздел "История обновлений" в настройках всегда был актуален для пользователей.
 const RELEASE_HISTORY = [
+  {
+    version: '2.1.9',
+    date: '2026-07-01',
+    changes: [
+      'Окно компании дольше ждет ответ Google Таблицы и не показывает ложный timeout после успешной записи; начисление компании остается +10 поинтов.',
+      'В MCC добавлен переключатель "Вериф в MCC", строка верифа показывает ФИО из S вместо AW, а аккаунты и блоки верификаций получили взаимные кнопки перехода.',
+      'QR теперь подсвечивается красным как бан-статус, исправлена кнопка вверх в O1 и очередь открытия O1 во вкладки.',
+      'Фильтры O1 получили кнопку "Во вкладки", статистика после перезапуска открывается на текущих периодах, а пружинка скролла не задевает кнопку закрытия.',
+      'Из HeroSMS убран бесполезный процент успешности, а toast больше не рисует второй loading-значок над основным нижним индикатором.'
+    ]
+  },
   {
     version: '2.1.8',
     date: '2026-06-26',
@@ -553,6 +566,7 @@ function applySettingsUi(settings = {}, options = {}) {
     theme: normalizeTheme(settings.theme || current.theme),
     graphicsMode: normalizeGraphics(settings.graphicsMode || current.graphicsMode),
     fontScale: clampNumber(settings.fontScale ?? current.fontScale, .75, 1.45, 1),
+    mccVerificationInline: settings.mccVerificationInline !== false,
     statCardGlow: settings.statCardGlow !== false,
     customThemeId: String(settings.customThemeId || ''),
     customThemes: Array.isArray(settings.customThemes) ? settings.customThemes : [],
@@ -569,6 +583,7 @@ function applySettingsUi(settings = {}, options = {}) {
   setStatGlowUi(next.statCardGlow !== false);
   setPair(contrastOff, contrastOn, !!next.contrastMode);
   setPair(trafficOff, trafficOn, !!next.classicTrafficLights);
+  setPair(mccVerifOff, mccVerifOn, next.mccVerificationInline !== false);
   document.documentElement.dataset.graphics = next.graphicsMode;
   document.documentElement.dataset.contrast = next.contrastMode ? 'on' : 'off';
   document.documentElement.dataset.zjk = next.classicTrafficLights ? 'on' : 'off';
@@ -817,6 +832,16 @@ trafficOff?.addEventListener('click', async () => {
 
 trafficOn?.addEventListener('click', async () => {
   current = await window.sproutgSettings.setSetting({ classicTrafficLights: true });
+  applySettingsUi(current);
+});
+
+mccVerifOff?.addEventListener('click', async () => {
+  current = await window.sproutgSettings.setSetting({ mccVerificationInline: false });
+  applySettingsUi(current);
+});
+
+mccVerifOn?.addEventListener('click', async () => {
+  current = await window.sproutgSettings.setSetting({ mccVerificationInline: true });
   applySettingsUi(current);
 });
 

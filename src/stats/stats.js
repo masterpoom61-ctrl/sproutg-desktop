@@ -81,6 +81,10 @@ let __retryTimer = null;
 let __retryCount = 0;
 const STATS_MONTH_KEY = 'sproutg.stats.selectedMonth';
 const STATS_DAY_KEY = 'sproutg.stats.selectedDay';
+const STATS_WEEK_KEY = 'sproutg.stats.selectedWeek';
+const STATS_WORK_RANGE_KEY = 'sproutg.stats.workRange';
+const STATS_WORK_TYPE_KEY = 'sproutg.stats.workType';
+let statsRuntimeSessionId = '';
 const MONTHS_RU = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
 function scheduleRetry(){
   if (__retryTimer) return;
@@ -122,10 +126,16 @@ function formatDateRange(start, end){
   return `${toDateKey(start).split('-').reverse().join('.')} — ${toDateKey(end).split('-').reverse().join('.')}`;
 }
 function isSameDateKey(a, b){ return toDateKey(a) === toDateKey(b); }
+function statsStorageKey(base){
+  return statsRuntimeSessionId ? `${base}:${statsRuntimeSessionId}` : base;
+}
 function persistStatsSelection(){
   try {
-    if(selectedMonthKey) localStorage.setItem(STATS_MONTH_KEY, selectedMonthKey);
-    if(selectedDayKey) localStorage.setItem(STATS_DAY_KEY, selectedDayKey);
+    if(selectedMonthKey) localStorage.setItem(statsStorageKey(STATS_MONTH_KEY), selectedMonthKey);
+    if(selectedDayKey) localStorage.setItem(statsStorageKey(STATS_DAY_KEY), selectedDayKey);
+    if(selectedWeekStartKey) localStorage.setItem(statsStorageKey(STATS_WEEK_KEY), selectedWeekStartKey);
+    if(currentWorkRange) localStorage.setItem(statsStorageKey(STATS_WORK_RANGE_KEY), currentWorkRange);
+    if(currentWorkType) localStorage.setItem(statsStorageKey(STATS_WORK_TYPE_KEY), currentWorkType);
   } catch(e) {}
 }
 
@@ -819,16 +829,35 @@ function setupElasticBounce(container, target){
   const moving = target || container;
   let offset = 0;
   let timer = null;
+  const useCardChildren = !target && container.classList.contains('card');
+  const setElasticTransform = (value, transition = 'none')=>{
+    if(useCardChildren){
+      container.classList.add('isElasticBouncing');
+      container.style.setProperty('--elastic-offset', `${value}px`);
+      container.style.setProperty('--elastic-transition', transition);
+    } else {
+      moving.style.transition = transition;
+      moving.style.transform = `translateY(${value}px)`;
+    }
+  };
   const settle = ()=>{
     clearTimeout(timer);
     timer = setTimeout(()=>{
       offset = 0;
-      moving.style.transition = 'transform .46s cubic-bezier(.18,.9,.22,1.18)';
-      moving.style.transform = 'translateY(0)';
-      setTimeout(()=>{ moving.style.transition = ''; }, 480);
+      setElasticTransform(0, 'transform .46s cubic-bezier(.18,.9,.22,1.18)');
+      setTimeout(()=>{
+        if(useCardChildren){
+          container.classList.remove('isElasticBouncing');
+          container.style.removeProperty('--elastic-offset');
+          container.style.removeProperty('--elastic-transition');
+        } else {
+          moving.style.transition = '';
+        }
+      }, 480);
     }, 28);
   };
   container.addEventListener('wheel', (event)=>{
+    if(event.target?.closest?.('.windowClose')) return;
     const maxScroll = Math.max(0, container.scrollHeight - container.clientHeight);
     const atTop = container.scrollTop <= 0;
     const atBottom = container.scrollTop >= maxScroll - 1;
@@ -839,17 +868,44 @@ function setupElasticBounce(container, target){
     const resistance = 1 - Math.min(.72, Math.abs(offset) / (maxOffset * 1.25));
     offset += -event.deltaY * .22 * resistance;
     offset = Math.max(-maxOffset, Math.min(maxOffset, offset));
-    moving.style.transition = 'none';
-    moving.style.transform = `translateY(${offset}px)`;
+    setElasticTransform(offset, 'none');
     settle();
-  }, { passive:false });
+  }, { passive:false, capture:true });
 }
 
 let currentWorkRange = 'week';
 let currentWorkType = WORK_TYPES[0];
-let selectedMonthKey = (() => { try { return localStorage.getItem(STATS_MONTH_KEY) || ''; } catch(e) { return ''; } })();
+let selectedMonthKey = '';
 let selectedWeekStartKey = '';
-let selectedDayKey = (() => { try { return localStorage.getItem(STATS_DAY_KEY) || ''; } catch(e) { return ''; } })();
+let selectedDayKey = '';
+
+function loadStatsSelectionForSession(){
+  try {
+    selectedMonthKey = localStorage.getItem(statsStorageKey(STATS_MONTH_KEY)) || '';
+    selectedDayKey = localStorage.getItem(statsStorageKey(STATS_DAY_KEY)) || '';
+    selectedWeekStartKey = localStorage.getItem(statsStorageKey(STATS_WEEK_KEY)) || '';
+    currentWorkRange = localStorage.getItem(statsStorageKey(STATS_WORK_RANGE_KEY)) || 'week';
+    currentWorkType = localStorage.getItem(statsStorageKey(STATS_WORK_TYPE_KEY)) || WORK_TYPES[0];
+  } catch(e) {
+    selectedMonthKey = '';
+    selectedDayKey = '';
+    selectedWeekStartKey = '';
+    currentWorkRange = 'week';
+    currentWorkType = WORK_TYPES[0];
+  }
+  if(!WORK_TYPES.includes(currentWorkType)) currentWorkType = WORK_TYPES[0];
+  if(!['day','week','month'].includes(currentWorkRange)) currentWorkRange = 'week';
+}
+
+function syncWorkTabsUi(){
+  if(!workTabs) return;
+  for (const b of workTabs.querySelectorAll('.tab')) b.classList.toggle('is-active', (b.dataset.range || 'week') === currentWorkRange);
+}
+
+function syncWorkChipsUi(){
+  if(!workChips) return;
+  for (const b of workChips.querySelectorAll('.chip')) b.classList.toggle('is-active', b.title === currentWorkType || b.textContent === labelForType(currentWorkType));
+}
 
 function setActive(el, cls){
   for (const b of el.parentElement.querySelectorAll('.'+cls)) b.classList.remove('is-active');
@@ -871,12 +927,14 @@ function ensureWorkChips(){
       currentWorkType = t;
       for (const ch of workChips.querySelectorAll('.chip')) ch.classList.remove('is-active');
       b.classList.add('is-active');
+      persistStatsSelection();
       // re-render using last data
       if (window.__lastStatsData) render(window.__lastStatsData);
     });
     workChips.appendChild(b);
   }
   workChips.dataset.ready = '1';
+  syncWorkChipsUi();
 }
 
 function bindWorkTabs(){
@@ -887,10 +945,12 @@ function bindWorkTabs(){
       for (const t of workTabs.querySelectorAll('.tab')) t.classList.remove('is-active');
       b.classList.add('is-active');
       currentWorkRange = b.dataset.range || 'week';
+      persistStatsSelection();
       if (window.__lastStatsData) render(window.__lastStatsData);
     });
   }
   workTabs.dataset.ready = '1';
+  syncWorkTabsUi();
 }
 
 function animatePeriod(kind, delta){
@@ -1670,6 +1730,13 @@ function setTheme(theme){
 }
 
 function applySettingsUi(settings = {}){
+  const sessionId = String(settings.runtimeSessionId || '');
+  if(sessionId && sessionId !== statsRuntimeSessionId){
+    statsRuntimeSessionId = sessionId;
+    loadStatsSelectionForSession();
+    syncWorkTabsUi();
+    syncWorkChipsUi();
+  }
   if (settings.theme) setTheme(settings.theme);
   document.documentElement.dataset.graphics = settings.graphicsMode === 'lite' ? 'lite' : 'ultra';
   document.documentElement.dataset.contrast = settings.contrastMode ? 'on' : 'off';

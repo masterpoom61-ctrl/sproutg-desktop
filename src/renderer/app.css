@@ -510,6 +510,18 @@ html[data-graphics="ultra"] .profileReveal{
       box-shadow:inset 0 0 0 2px var(--line-strong), 0 0 0 1px rgba(255,255,255,.04);
       background:var(--surface-hover);
     }
+    .tabPill.is-loading{
+      opacity:.96;
+    }
+    .tabSpinner{
+      width:13px;
+      height:13px;
+      border-radius:50%;
+      border:2px solid currentColor;
+      border-right-color:transparent;
+      animation:apiSpin .75s linear infinite;
+      flex:0 0 auto;
+    }
     .tabIndex{
       display:inline-flex;align-items:center;justify-content:center;
       border:1px solid var(--line-strong);
@@ -1089,6 +1101,17 @@ html[data-graphics="ultra"] .profileReveal{
       border-radius:14px;
       padding:10px;
       margin-bottom:10px;
+    }
+    .mccVerificationTitleRow{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:8px;
+      margin-bottom:8px;
+    }
+    .mccVerificationTitleRow .mccAccountLabel{
+      margin:0;
+      min-width:0;
     }
     .mccVerificationByKzRow{
       display:grid;

@@ -122,15 +122,18 @@ function setTopbarTheme(theme){
   __themeSwitchTimer = setTimeout(() => document.documentElement.classList.remove('theme-switching'), 140);
 }
 
-let desktopSettings = { smsService: 'smspool' };
+let desktopSettings = { smsService: 'smspool', mccVerificationInline: true };
 function applyDesktopSettings(settings = {}){
   const prevSmsService = desktopSettings.smsService || 'smspool';
+  const prevMccVerificationInline = desktopSettings.mccVerificationInline !== false;
   desktopSettings = { ...desktopSettings, ...(settings || {}) };
   desktopSettings.smsService = desktopSettings.smsService === 'herosms' ? 'herosms' : 'smspool';
+  desktopSettings.mccVerificationInline = desktopSettings.mccVerificationInline !== false;
   if (settings.theme) setTopbarTheme(settings.theme);
   document.documentElement.dataset.graphics = settings.graphicsMode === 'lite' ? 'lite' : 'ultra';
   document.documentElement.dataset.contrast = settings.contrastMode ? 'on' : 'off';
   document.documentElement.dataset.zjk = settings.classicTrafficLights ? 'on' : 'off';
+  document.documentElement.dataset.mccVerificationInline = desktopSettings.mccVerificationInline ? 'on' : 'off';
   document.documentElement.dataset.statGlow = desktopSettings.statCardGlow === false ? 'off' : 'on';
   document.documentElement.dataset.textScale = Math.abs((Number(desktopSettings.fontScale || 1)) - 1) > 0.001 ? 'on' : 'off';
   document.documentElement.style.setProperty('--app-font-scale', String(desktopSettings.fontScale || 1));
@@ -141,6 +144,14 @@ function applyDesktopSettings(settings = {}){
       if(typeof stopSmsPool === 'function' && typeof smsPoolInit === 'function' && typeof current !== 'undefined' && current?.row){
         stopSmsPool();
         smsPoolInit({ preserve:false });
+      }
+    }catch(e){}
+  }
+  if(prevMccVerificationInline !== (desktopSettings.mccVerificationInline !== false)){
+    try{
+      if(typeof mccProfile !== 'undefined' && mccProfile && typeof renderMccProfile === 'function'){
+        const snap = captureSproutScroll_('settings-mcc-verification-inline');
+        renderMccProfile({ preserveScrollSnapshot: snap });
       }
     }catch(e){}
   }
@@ -162,7 +173,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
   applyDesktopSettings(s || { theme: 'dark-classic' });
 })();
 
-  const APP_VERSION = '2.1.8';
+  const APP_VERSION = '2.1.9';
   const PAGE_KEY = 'FarmA.page';
   const HOME_RETURN_KEY = 'FarmA.homeReturnPage';
   const THEME_KEY = 'sproutg.theme';
@@ -176,6 +187,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
   const tabData = {};
   const tabNav  = {};
   let activeTabKey = '';
+  let o1OpenQueue = Promise.resolve();
 
   let cachedList = [];
   let cachedFilterLabel = '';
@@ -440,7 +452,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     const s = String(value || '').trim();
     if(!s) return false;
     const lower = s.toLocaleLowerCase('ru-RU');
-    return BAN_RED_VALUES.has(s) || lower.includes('бан') || lower.includes('ban');
+    return s.toUpperCase() === 'QR' || BAN_RED_VALUES.has(s) || lower.includes('бан') || lower.includes('ban');
   }
   const O1_WORK_GROUPS = ['Ads Видео', 'Платежка', 'Речек'];
   const O1_GROUP_DATE_COL = { 'Ads Видео':'AQ', 'Платежка':'BC', 'Речек':'BQ' };
@@ -534,6 +546,18 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
 
   function getO1Scroller_(){
     return getVisibleScrollerByIds(['mainScroll', 'mainScrollO1', 'outScroll', 'o1Scroll']);
+  }
+
+  function getO1ScrollCandidates_(){
+    const ids = ['mainScrollO1', 'mainScroll', 'outScroll', 'o1Scroll'];
+    const out = [];
+    const active = getO1Scroller_();
+    if(active) out.push(active);
+    for(const id of ids){
+      const el = document.getElementById(id);
+      if(el && !out.includes(el)) out.push(el);
+    }
+    return out;
   }
 
   function getMccScroller_(){
@@ -1107,15 +1131,18 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
   function toast(msg){
     const t=document.getElementById('toast');
     const text = String(msg || '');
-    const isLoading = /загруз|синхрон|сохранение|loading|sync/i.test(text);
     const isSaved = /сохранено|готово|saved/i.test(text);
-    t.classList.toggle('toastIcon', isLoading || isSaved);
-    t.classList.toggle('toastLoading', isLoading);
-    t.textContent=(isLoading || isSaved) ? '' : text;
+    t.classList.toggle('toastIcon', isSaved);
+    t.classList.remove('toastLoading');
+    t.textContent=isSaved ? '' : text;
     t.classList.add('show');
     setTimeout(()=>t.classList.remove('show'), 900);
   }
   function setError(msg){ document.getElementById('err').textContent = msg || ''; }
+
+  function showO1LoadingPlaceholder(){
+    showO1LoadingPlaceholder();
+  }
 
   function getTabKey(row){ return `O1#${row}`; }
 
@@ -1124,14 +1151,16 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
   }
   function getActiveNav(){ return activeTabKey ? (tabNav[activeTabKey] || null) : null; }
 
-  function ensureTab(profilePayload, navInfo){
+  function ensureTab(profilePayload, navInfo, opts = {}){
     if(!profilePayload?.row) return;
     mergeO1LocalValues_(profilePayload);
     const k=getTabKey(profilePayload.row);
     tabData[k]=profilePayload;
     if(!openTabs.includes(k)) openTabs.push(k);
-    activeTabKey=k;
-    current=tabData[k];
+    if(opts.activate !== false){
+      activeTabKey=k;
+      current=tabData[k];
+    }
 
     if(navInfo) setTabNavContext(k, navInfo.label, navInfo.stage, navInfo.items, navInfo.key);
     else if(!tabNav[k]) setTabNavContext(k, 'Открыто', '', [], 'open');
@@ -1148,10 +1177,10 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     for(const k of openTabs){
       const p=tabData[k];
       const pill=document.createElement('div');
-      pill.className='tabPill' + (k===activeTabKey ? ' active' : '');
+      pill.className='tabPill' + (k===activeTabKey ? ' active' : '') + (p?.__loading ? ' is-loading' : '');
 
       const name=document.createElement('span');
-      name.textContent=p?.__loading ? `Загрузка… (${p?.row || ''})` : (p?.profileName || k);
+      name.textContent=p?.__loading ? (p?.profileName || `Аккаунт ${p?.row || ''}`.trim()) : (p?.profileName || k);
       name.title=p?.profileName || k;
 
       const close=document.createElement('button');
@@ -1161,6 +1190,12 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
       close.addEventListener('click', (e)=>{ e.stopPropagation(); closeTab(k); });
 
       pill.addEventListener('click', ()=>activateTab(k));
+      if(p?.__loading){
+        const spin=document.createElement('span');
+        spin.className='tabSpinner';
+        spin.setAttribute('aria-hidden', 'true');
+        pill.appendChild(spin);
+      }
       pill.appendChild(name);
       pill.appendChild(close);
       frag.appendChild(pill);
@@ -1172,6 +1207,14 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
   function activateTab(k){
     if(!tabData[k]) return;
     activeTabKey=k;
+    if(tabData[k]?.__loading){
+      current=null;
+      editMode=false;
+      showO1LoadingPlaceholder();
+      renderTabs();
+      updateHeader();
+      return;
+    }
     current=mergeO1LocalValues_(tabData[k]);
     editMode=false;
     renderProfile(current);
@@ -1196,8 +1239,12 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
       current = activeTabKey ? tabData[activeTabKey] : null;
       editMode=false;
       document.getElementById('out').innerHTML='';
-      if(current){ renderProfile(current); }
-      else updateHeader();
+      if(current && current.__loading){
+        showO1LoadingPlaceholder();
+        updateHeader();
+      } else if(current){
+        renderProfile(current);
+      } else updateHeader();
     }
     renderTabs();
   }
@@ -1609,66 +1656,122 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     setError('');
     const navInfo = opts?.navInfo || null;
     const propagateNav = !!opts?.propagateNav;
+    const focus = opts?.focus !== false;
 
     toast('Открываю…');
     const targetKey=getTabKey(row);
 
     if(tabData[targetKey]?.__loading){
-      activeTabKey = targetKey;
-      current = null;
+      if(focus){
+        activeTabKey = targetKey;
+        current = null;
+        showO1LoadingPlaceholder();
+        updateHeader();
+      }
       renderTabs();
       return;
     }
 
     if(tabData[targetKey]){
-      editMode=false;
-      activeTabKey=targetKey;
-      current=mergeO1LocalValues_(tabData[targetKey]);
-
       if(navInfo) setTabNavContext(targetKey, navInfo.label, navInfo.stage, navInfo.items, navInfo.key);
       else if(!tabNav[targetKey]) setTabNavContext(targetKey, 'Открыто', '', [], 'open');
-
-      renderTabs();
-      renderProfile(current);
-      toast('Готово');
+      if(focus){
+        editMode=false;
+        activeTabKey=targetKey;
+        current=mergeO1LocalValues_(tabData[targetKey]);
+        renderTabs();
+        renderProfile(current);
+        toast('Готово');
+      } else {
+        renderTabs();
+      }
       return;
     }
 
     if(!openTabs.includes(targetKey)) openTabs.push(targetKey);
-    tabData[targetKey] = { row:Number(row), profileName:`Row ${row}`, __loading:true };
-    activeTabKey = targetKey;
+    tabData[targetKey] = { row:Number(row), profileName:`Аккаунт ${row}`, __loading:true };
+    if(navInfo) setTabNavContext(targetKey, navInfo.label, navInfo.stage, navInfo.items, navInfo.key);
+    else setTabNavContext(targetKey, 'Открыто', '', [], 'open');
+    if(focus){
+      activeTabKey = targetKey;
+      current = null;
+      showO1LoadingPlaceholder();
+      updateHeader();
+    }
     renderTabs();
 
-    const token = nextReqToken('profile');
-    google.script.run.withSuccessHandler(res=>{
-      if(!isLatestReq('profile', token)) return;
-      if(!res || !res.ok){ delete tabData[targetKey]; const i=openTabs.indexOf(targetKey); if(i>=0) openTabs.splice(i,1); renderTabs(); setError(res?.error || 'Ошибка'); return; }
-      if(!openTabs.includes(targetKey)){
-        logSave_('O1', 'skip getProfileByRow response because tab was closed', { row, tabKey: targetKey });
-        return;
-      }
-      editMode=false;
-      mergeO1LocalValues_(res);
-
-      if(navInfo) ensureTab(res, { label:navInfo.label, stage:navInfo.stage, items:navInfo.items, key:navInfo.key });
-      else ensureTab(res, { label:'Открыто', stage:'', items:[], key:'open' });
-
-      if(propagateNav && navInfo){
-        const k=getTabKey(res.row);
-        setTabNavContext(k, navInfo.label, navInfo.stage, navInfo.items, navInfo.key);
-      }
-
-      document.getElementById('profile').value = res.profileName || '';
-      renderProfile(current);
-      toast('Готово');
-    }).withFailureHandler(err=>{
-      if(!isLatestReq('profile', token)) return;
-      delete tabData[targetKey];
-      const i=openTabs.indexOf(targetKey);
-      if(i>=0) openTabs.splice(i,1);
-      renderTabs();
-      setError(String(err));
-    }).getProfileByRow(row);
+    const loadJob = () => new Promise((resolve) => {
+      google.script.run.withSuccessHandler(res=>{
+        try{
+          if(!res || !res.ok){
+            delete tabData[targetKey];
+            delete tabNav[targetKey];
+            const i=openTabs.indexOf(targetKey);
+            if(i>=0) openTabs.splice(i,1);
+            if(activeTabKey === targetKey){
+              activeTabKey = openTabs[i-1] || openTabs[i] || openTabs[0] || '';
+              current = activeTabKey ? tabData[activeTabKey] : null;
+              document.getElementById('out').innerHTML='';
+              if(current && current.__loading){
+                showO1LoadingPlaceholder();
+                updateHeader();
+              } else if(current) renderProfile(current);
+              else updateHeader();
+            }
+            renderTabs();
+            setError(res?.error || 'Ошибка');
+            return;
+          }
+          if(!openTabs.includes(targetKey)){
+            logSave_('O1', 'skip getProfileByRow response because tab was closed', { row, tabKey: targetKey });
+            return;
+          }
+          mergeO1LocalValues_(res);
+          const loadedKey = getTabKey(res.row);
+          tabData[loadedKey] = res;
+          if(navInfo) setTabNavContext(loadedKey, navInfo.label, navInfo.stage, navInfo.items, navInfo.key);
+          else if(!tabNav[loadedKey]) setTabNavContext(loadedKey, 'Открыто', '', [], 'open');
+          if(propagateNav && navInfo){
+            setTabNavContext(loadedKey, navInfo.label, navInfo.stage, navInfo.items, navInfo.key);
+          }
+          if(activeTabKey === loadedKey){
+            editMode=false;
+            activeTabKey=loadedKey;
+            current=tabData[loadedKey];
+            document.getElementById('profile').value = res.profileName || '';
+            renderProfile(current);
+            toast('Готово');
+          } else {
+            renderTabs();
+            refreshColors({ source:'o1', skipFilters:true });
+          }
+        } finally {
+          resolve();
+        }
+      }).withFailureHandler(err=>{
+        try{
+          delete tabData[targetKey];
+          delete tabNav[targetKey];
+          const i=openTabs.indexOf(targetKey);
+          if(i>=0) openTabs.splice(i,1);
+          renderTabs();
+          if(activeTabKey === targetKey){
+            activeTabKey = openTabs[i-1] || openTabs[i] || openTabs[0] || '';
+            current = activeTabKey ? tabData[activeTabKey] : null;
+            document.getElementById('out').innerHTML='';
+            if(current && current.__loading){
+              showO1LoadingPlaceholder();
+              updateHeader();
+            } else if(current) renderProfile(current);
+            else updateHeader();
+          }
+          setError(String(err));
+        } finally {
+          resolve();
+        }
+      }).getProfileByRow(row);
+    });
+    o1OpenQueue = o1OpenQueue.then(loadJob, loadJob);
   }
 
   function runFilter(){
@@ -1735,6 +1838,26 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
 
     const stage=cachedFilterLabel || 'Основной фильтр';
     const frag=document.createDocumentFragment();
+
+    const header=document.createElement('div');
+    header.className='workGroupHeader';
+    const title=document.createElement('div');
+    title.className='workGroupTitle';
+    title.textContent = `${stage} • ${list.length}`;
+    const actions=document.createElement('div');
+    actions.className='workGroupActions';
+    const btnTabs=document.createElement('button');
+    btnTabs.className='btn';
+    btnTabs.type='button';
+    btnTabs.textContent='Во вкладки';
+    btnTabs.addEventListener('click', (e)=>{
+      e.stopPropagation();
+      openWorkGroupInTabs(list, { label:stage, stage, key:'filter' });
+    });
+    actions.appendChild(btnTabs);
+    header.appendChild(title);
+    header.appendChild(actions);
+    frag.appendChild(header);
 
     for(const it of list){
       const div=document.createElement('div');
@@ -1973,30 +2096,13 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     if(!rows.length) return;
 
     toast('Загрузка во вкладки…');
-
-    google.script.run.withSuccessHandler(res=>{
-      if(!res || res.ok===false){ toast(res?.error || 'Ошибка'); return; }
-      const byRow = new Map((res.items || []).map(x=>[Number(x.row), x]));
-      const arr = rows.map(r=>byRow.get(Number(r))).filter(Boolean);
-      if(!arr.length){ toast('Нет данных'); return; }
-
-      clearAllTabs();
-
-      for(const p of arr){
-        const key=getTabKey(p.row);
-        tabData[key]=p;
-        openTabs.push(key);
-        setTabNavContext(key, navBase.label, navBase.stage, items, navBase.key);
-      }
-
-      activeTabKey = getTabKey(arr[0].row);
-      current = tabData[activeTabKey];
-      editMode = false;
-
-      renderTabs();
-      renderProfile(current);
-      toast('Готово');
-    }).withFailureHandler(err=>toast(String(err))).getProfilesByRows(rows);
+    clearAllTabs();
+    rows.forEach((row, idx)=>{
+      openByRow(row, {
+        navInfo: { label:navBase.label, stage:navBase.stage, items, key:navBase.key },
+        focus: idx === 0
+      });
+    });
   }
 
   function refreshColors(opts = {}){
@@ -3404,8 +3510,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     const name = item.rus || item.eng || item.name || `ID ${item.id}`;
     const price = Number.isFinite(Number(item.cost)) ? `$${Number(item.cost).toFixed(2)}` : 'цена —';
     const count = Number.isFinite(Number(item.count)) ? `${Number(item.count)} шт.` : 'наличие —';
-    const success = Number.isFinite(Number(item.success)) ? `${Math.round(Number(item.success))}%` : 'усп. —';
-    return `${name} · ${price} · ${count} · ${success}`;
+    return `${name} · ${price} · ${count}`;
   }
 
   function smsActivateSelectedCountry(){
@@ -3419,7 +3524,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     const item = smsActivateSelectedCountry();
     if(el.countryMeta) {
       el.countryMeta.textContent = item
-        ? `Цена ${Number.isFinite(Number(item.cost)) ? `$${Number(item.cost).toFixed(2)}` : '—'} · Номеров ${Number.isFinite(Number(item.count)) ? item.count : '—'} · Успешность ${Number.isFinite(Number(item.success)) ? `${Math.round(Number(item.success))}%` : '—'}`
+        ? `Цена ${Number.isFinite(Number(item.cost)) ? `$${Number(item.cost).toFixed(2)}` : '—'} · Номеров ${Number.isFinite(Number(item.count)) ? item.count : '—'}`
         : 'Каталог не загружен';
     }
     if(item?.cost != null) smsPoolRenderPrice(item.cost);
@@ -5360,6 +5465,21 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     return isBanRedValue(oVal) || BAN_YELLOW_VALUES.has(oVal);
   }
 
+  function mccFindAccountIndexByName(accountName){
+    const target = String(accountName || '').trim();
+    if(!target) return -1;
+    return (mccProfile?.rows || []).findIndex((row)=>String(row?.accountName || '').trim() === target);
+  }
+
+  function mccFindAccountIndexByRow(rowObj){
+    const byRow = String(rowObj?.row || '').trim();
+    const byName = String(rowObj?.accountName || '').trim();
+    return (mccProfile?.rows || []).findIndex((row)=>(
+      (byRow && String(row?.row || '').trim() === byRow) ||
+      (byName && String(row?.accountName || '').trim() === byName)
+    ));
+  }
+
   function mccScrollToAccountSection(idx){
     const row = mccProfile?.rows?.[idx];
     if(!row) return;
@@ -5373,6 +5493,17 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
 
   function mccScrollToAccount(idx){
     mccScrollToAccountSection(idx);
+  }
+
+  function mccScrollToVerificationForAccount(rowObj){
+    const idx = mccFindAccountIndexByRow(rowObj);
+    if(idx >= 0) mccScrollToSection(`mcc-verification-${idx}`);
+    else mccScrollToSection('mccVerificationSection');
+  }
+
+  function mccScrollToAccountByName(accountName){
+    const idx = mccFindAccountIndexByName(accountName);
+    if(idx >= 0) mccScrollToAccountSection(idx);
   }
 
   function mccToggleAccountDeleted(rowObj, btn){
@@ -6366,6 +6497,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
   }
 
   function appendMccAccountVerificationRows(fieldsWrap, rowObj){
+    if(desktopSettings.mccVerificationInline === false) return;
     const row1 = document.createElement('div');
     row1.className = 'field mccAccountVerificationDup';
     const label1 = document.createElement('div');
@@ -6374,7 +6506,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     const grid1 = document.createElement('div');
     grid1.className = 'mccInlineGrid2';
     grid1.appendChild(mccWrapFieldLabel('T', buildMccVerificationDateControl(rowObj)));
-    grid1.appendChild(mccWrapFieldLabel('AW', mccEditMode ? mccBuildInput(rowObj, 'AW', rowObj.values.AW) : mccBuildButton(rowObj.values.AW, 'AW')));
+    grid1.appendChild(mccWrapFieldLabel('S', mccEditMode ? mccBuildInput(rowObj, 'S', rowObj.values.S) : mccBuildButton(rowObj.values.S, 'S')));
     row1.appendChild(label1);
     row1.appendChild(grid1);
     row1.appendChild(document.createElement('div')).className='actions';
@@ -6508,6 +6640,13 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
       header.appendChild(h3);
       const headerMeta = document.createElement('div');
       headerMeta.className = 'meta2';
+      const verificationBtn = document.createElement('button');
+      verificationBtn.type = 'button';
+      verificationBtn.className = 'btn';
+      verificationBtn.textContent = 'Верификация';
+      verificationBtn.addEventListener('click', ()=>mccScrollToVerificationForAccount(rowObj));
+      headerMeta.appendChild(verificationBtn);
+
       const appealBtn = document.createElement('button');
       appealBtn.type = 'button';
       appealBtn.className = 'btn';
@@ -6699,14 +6838,26 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     `;
     const verificationFields = document.createElement('div');
 
-    mccProfile.rows.forEach((rowObj)=>{
+    mccProfile.rows.forEach((rowObj, idx)=>{
       const vBlock = document.createElement('div');
       vBlock.className = 'mccVerificationBlock mccVerificationCard';
+      vBlock.id = `mcc-verification-${idx}`;
+      vBlock.dataset.account = rowObj.accountName || '';
 
       const accLabel = document.createElement('div');
       accLabel.className = 'mccAccountLabel';
       accLabel.textContent = rowObj.accountName || 'Аккаунт';
-      vBlock.appendChild(accLabel);
+
+      const titleRow = document.createElement('div');
+      titleRow.className = 'mccVerificationTitleRow';
+      const toMccBtn = document.createElement('button');
+      toMccBtn.type = 'button';
+      toMccBtn.className = 'btn';
+      toMccBtn.textContent = 'Перейти к MCC';
+      toMccBtn.addEventListener('click', ()=>mccScrollToAccountByName(rowObj.accountName));
+      titleRow.appendChild(accLabel);
+      titleRow.appendChild(toMccBtn);
+      vBlock.appendChild(titleRow);
 
       const row1 = document.createElement('div');
       row1.className = 'field';
@@ -7205,30 +7356,35 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
 
   function setupO1TopButton(){
     const btn = document.getElementById('o1ToTop');
-    const scroller = getO1Scroller_() || document.getElementById('mainScrollO1');
-    if(!btn || !scroller) return;
+    if(!btn) return;
     if(btn.dataset.boundO1Scroll !== '1'){
       btn.dataset.boundO1Scroll = '1';
       btn.addEventListener('click', (event)=>{
         event.preventDefault();
-        const localScroller = getO1Scroller_() || document.getElementById('mainScrollO1');
-        if(!localScroller) return;
         sproutgProgrammaticScrollUntil = Date.now() + 800;
-        localScroller.scrollTo({ top:0, behavior:'smooth' });
+        const candidates = getO1ScrollCandidates_();
+        for(const localScroller of candidates){
+          try{ localScroller.scrollTo({ top:0, behavior:'smooth' }); }
+          catch(e){ localScroller.scrollTop = 0; }
+        }
+        try{ window.scrollTo({ top:0, behavior:'smooth' }); }catch(e){}
+        updateO1TopButton();
       });
     }
-    if(scroller.dataset.boundO1TopScroll !== '1'){
-      scroller.dataset.boundO1TopScroll = '1';
-      scroller.addEventListener('scroll', updateO1TopButton);
+    for(const scroller of getO1ScrollCandidates_()){
+      if(scroller.dataset.boundO1TopScroll !== '1'){
+        scroller.dataset.boundO1TopScroll = '1';
+        scroller.addEventListener('scroll', updateO1TopButton, { passive:true });
+      }
     }
     updateO1TopButton();
   }
 
   function updateO1TopButton(){
     const cluster = document.getElementById('o1TopCluster');
-    const scroller = getO1Scroller_() || document.getElementById('mainScrollO1');
-    if(!cluster || !scroller) return;
-    cluster.classList.toggle('show', scroller.scrollTop > 200 && activePage === 'O1');
+    if(!cluster) return;
+    const top = getO1ScrollCandidates_().reduce((max, scroller)=>Math.max(max, Number(scroller.scrollTop || 0)), 0);
+    cluster.classList.toggle('show', top > 200 && activePage === 'O1');
   }
 
   function setupMccTopButton(){

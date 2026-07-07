@@ -119,6 +119,17 @@ let liveThemeTimer = null;
 // чтобы раздел "История обновлений" в настройках всегда был актуален для пользователей.
 const RELEASE_HISTORY = [
   {
+    version: '2.2.1',
+    date: '2026-07-07',
+    changes: [
+      'Исправлено открытие профилей из фильтров O1/MCC и кнопки "Во вкладки"; MCC теперь догружает вкладки в фоне без дергания текущего профиля.',
+      'Кнопка вверх на O1 больше не перекрывается невидимым слоем MCC-кнопок и снова прокручивает страницу к началу.',
+      'Добавлено окно "Паспорта" для верификаций MCC: данные берутся с листа Pass по GEO-колонкам, показывают цвет заливки, копируются и редактируются из приложения.',
+      'В O1/MCC добавлены GEO-бейджи для данных из Pass, а список паспортов синхронизируется при запуске и периодически в фоне.',
+      'Окна настроек, статистики и компаний получили резервное перетаскивание после скролла, кликабельную кнопку закрытия поверх слоев и более плавную пружинку скролла.'
+    ]
+  },
+  {
     version: '2.2.0',
     date: '2026-07-01',
     changes: [
@@ -740,7 +751,7 @@ function setupElasticBounce(container, target){
       }
       setElasticTransform(0, 'transform .46s cubic-bezier(.18,.9,.22,1.18)');
       setTimeout(()=>{ moving.style.transition = ''; }, 480);
-    }, 70);
+    }, 28);
   };
   container.addEventListener('wheel', (event)=>{
     const maxScroll = Math.max(0, container.scrollHeight - container.clientHeight);
@@ -756,6 +767,44 @@ function setupElasticBounce(container, target){
     scheduleElastic();
     settle();
   }, { passive:false, capture:true });
+}
+
+function setupAuxWindowDrag(api){
+  if(!api?.dragWindowStart || document.documentElement.dataset.auxDragBound === '1') return;
+  document.documentElement.dataset.auxDragBound = '1';
+  let dragging = false;
+  let pendingPoint = null;
+  let raf = null;
+  const isDragTarget = (target)=>(
+    target?.closest?.('.dragbar, .header') &&
+    !target.closest('button,input,select,textarea,summary,a,[role="button"],.windowClose')
+  );
+  const flushMove = ()=>{
+    raf = null;
+    if(pendingPoint) api.dragWindowMove(pendingPoint).catch(()=>{});
+    pendingPoint = null;
+  };
+  document.addEventListener('pointerdown', (event)=>{
+    if(event.button !== 0 || !isDragTarget(event.target)) return;
+    dragging = true;
+    api.dragWindowStart({ x:event.screenX, y:event.screenY }).catch(()=>{});
+    event.preventDefault();
+  }, { capture:true });
+  window.addEventListener('pointermove', (event)=>{
+    if(!dragging) return;
+    pendingPoint = { x:event.screenX, y:event.screenY };
+    if(!raf) raf = requestAnimationFrame(flushMove);
+    event.preventDefault();
+  }, { capture:true });
+  const end = ()=>{
+    if(!dragging) return;
+    dragging = false;
+    pendingPoint = null;
+    if(raf){ cancelAnimationFrame(raf); raf = null; }
+    api.dragWindowEnd().catch(()=>{});
+  };
+  window.addEventListener('pointerup', end, { capture:true });
+  window.addEventListener('pointercancel', end, { capture:true });
 }
 
 async function refresh() {
@@ -1026,4 +1075,5 @@ document.addEventListener('keydown', (event) => {
 setupColorTools();
 refresh();
 setupElasticBounce(document.getElementById('scrollableContent') || settingsCard);
+setupAuxWindowDrag(window.sproutgSettings);
 

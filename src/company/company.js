@@ -246,6 +246,82 @@ function scheduleDuplicateCheck(input) {
   duplicateTimer = setTimeout(() => checkDuplicate(input), 260);
 }
 
+function setupElasticBounce(container){
+  if(!container || container.dataset.elasticBound === '1') return;
+  container.dataset.elasticBound = '1';
+  let targetOffset = 0;
+  let renderedOffset = 0;
+  let timer = null;
+  let raf = null;
+  const renderElastic = () => {
+    raf = null;
+    renderedOffset += (targetOffset - renderedOffset) * 0.38;
+    if (Math.abs(targetOffset - renderedOffset) < .35) renderedOffset = targetOffset;
+    container.style.transform = `translateY(${renderedOffset}px)`;
+    if (Math.abs(targetOffset - renderedOffset) >= .35) raf = requestAnimationFrame(renderElastic);
+  };
+  container.addEventListener('wheel', (event) => {
+    const maxScroll = Math.max(0, container.scrollHeight - container.clientHeight);
+    const atTop = container.scrollTop <= 0;
+    const atBottom = container.scrollTop >= maxScroll - 1;
+    const shouldElastic = maxScroll <= 0 || (event.deltaY < 0 && atTop) || (event.deltaY > 0 && atBottom);
+    if (!shouldElastic) return;
+    event.preventDefault();
+    const maxOffset = 54;
+    const resistance = 1 - Math.min(.72, Math.abs(targetOffset) / (maxOffset * 1.25));
+    targetOffset += -event.deltaY * .16 * resistance;
+    targetOffset = Math.max(-maxOffset, Math.min(maxOffset, targetOffset));
+    if(!raf) raf = requestAnimationFrame(renderElastic);
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      targetOffset = 0;
+      renderedOffset = 0;
+      if(raf){ cancelAnimationFrame(raf); raf = null; }
+      container.style.transition = 'transform .42s cubic-bezier(.18,.9,.22,1.12)';
+      container.style.transform = 'translateY(0)';
+      setTimeout(() => { container.style.transition = ''; }, 430);
+    }, 28);
+  }, { passive:false, capture:true });
+}
+
+function setupAuxWindowDrag(api){
+  if(!api?.dragWindowStart || document.documentElement.dataset.auxDragBound === '1') return;
+  document.documentElement.dataset.auxDragBound = '1';
+  let dragging = false;
+  let pendingPoint = null;
+  let raf = null;
+  const isDragTarget = (target)=>(
+    target?.closest?.('.dragbar, .header') &&
+    !target.closest('button,input,select,textarea,summary,a,[role="button"],.windowClose')
+  );
+  const flushMove = ()=>{
+    raf = null;
+    if(pendingPoint) api.dragWindowMove(pendingPoint).catch(()=>{});
+    pendingPoint = null;
+  };
+  document.addEventListener('pointerdown', (event)=>{
+    if(event.button !== 0 || !isDragTarget(event.target)) return;
+    dragging = true;
+    api.dragWindowStart({ x:event.screenX, y:event.screenY }).catch(()=>{});
+    event.preventDefault();
+  }, { capture:true });
+  window.addEventListener('pointermove', (event)=>{
+    if(!dragging) return;
+    pendingPoint = { x:event.screenX, y:event.screenY };
+    if(!raf) raf = requestAnimationFrame(flushMove);
+    event.preventDefault();
+  }, { capture:true });
+  const end = ()=>{
+    if(!dragging) return;
+    dragging = false;
+    pendingPoint = null;
+    if(raf){ cancelAnimationFrame(raf); raf = null; }
+    api.dragWindowEnd().catch(()=>{});
+  };
+  window.addEventListener('pointerup', end, { capture:true });
+  window.addEventListener('pointercancel', end, { capture:true });
+}
+
 function renderInputs() {
   grid.innerHTML = '';
   for (let i = 0; i < 6; i += 1) {
@@ -339,4 +415,6 @@ document.addEventListener('keydown', (event) => {
   const settings = await window.sproutgCompany.getSettings();
   applySettingsUi(settings || { theme: 'dark-classic' });
   await loadMeta();
+  setupElasticBounce(grid);
+  setupAuxWindowDrag(window.sproutgCompany);
 })();

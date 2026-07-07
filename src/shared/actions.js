@@ -17,6 +17,7 @@ const READ_ACTIONS = new Set([
   'mcc.verificationPools',
   'apell.index',
   'pass.lookupFios',
+  'pass.catalog',
   'company.formMeta',
   'smspool.checkO1',
   'smspool.stateO1',
@@ -62,6 +63,8 @@ const LEGACY_TO_ACTION = {
 
   getApellDataIndex: { action: 'apell.index', payload: ([options]) => (options || {}) },
   getPassLookupForFios: { action: 'pass.lookupFios', payload: ([fios]) => ({ fios }) },
+  getPassCatalog: { action: 'pass.catalog', payload: ([geos]) => ({ geos }) },
+  updatePassCell: { action: 'pass.updateCell', payload: ([row, col, value]) => ({ row, col, value }) },
   getCompanyFormMeta: { action: 'company.formMeta', payload: () => ({}) },
   addCompanyRow: { action: 'company.addRow', payload: ([values]) => ({ values }) },
 

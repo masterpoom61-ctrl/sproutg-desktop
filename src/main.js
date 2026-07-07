@@ -731,6 +731,38 @@ function getSettings(){
   if (JSON.stringify(settings) !== JSON.stringify(next)) store.set('settings', next);
   return { ...next, runtimeSessionId: RUNTIME_SESSION_ID };
 }
+
+const auxWindowDrag = new Map();
+
+function startAuxWindowDrag(sender, point){
+  const win = BrowserWindow.fromWebContents(sender);
+  if (!win || win.isDestroyed()) return false;
+  auxWindowDrag.set(sender.id, {
+    x: Number(point?.x || 0),
+    y: Number(point?.y || 0),
+    bounds: win.getBounds()
+  });
+  return true;
+}
+
+function moveAuxWindowDrag(sender, point){
+  const state = auxWindowDrag.get(sender.id);
+  const win = BrowserWindow.fromWebContents(sender);
+  if (!state || !win || win.isDestroyed()) return false;
+  const next = clampToWorkArea({
+    ...state.bounds,
+    x: Math.round(state.bounds.x + Number(point?.x || 0) - state.x),
+    y: Math.round(state.bounds.y + Number(point?.y || 0) - state.y)
+  });
+  win.setBounds(next, false);
+  return true;
+}
+
+function endAuxWindowDrag(sender){
+  auxWindowDrag.delete(sender.id);
+  return true;
+}
+
 function clampToWorkArea(bounds){
   try{
     const { screen } = require('electron');
@@ -1640,6 +1672,9 @@ ipcMain.handle('sproutg:reload-web', () => { reloadWeb(); return true; });
 ipcMain.handle('sproutg:close-settings-window', () => closeSettingsWindow());
 ipcMain.handle('sproutg:close-stats-window', () => closeStatsWindow());
 ipcMain.handle('sproutg:close-company-window', () => closeCompanyWindow());
+ipcMain.handle('sproutg:aux-window-drag-start', (event, point) => startAuxWindowDrag(event.sender, point));
+ipcMain.handle('sproutg:aux-window-drag-move', (event, point) => moveAuxWindowDrag(event.sender, point));
+ipcMain.handle('sproutg:aux-window-drag-end', (event) => endAuxWindowDrag(event.sender));
 ipcMain.handle('sproutg:get-storage-info', () => getStorageInfo());
 
 ipcMain.handle('sproutg:clear-cache', async () => {

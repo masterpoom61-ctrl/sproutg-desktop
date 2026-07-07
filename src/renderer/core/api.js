@@ -29,6 +29,8 @@
 
     getApellDataIndex: { action: 'apell.index', payload: ([options]) => (options || {}) },
     getPassLookupForFios: { action: 'pass.lookupFios', payload: ([fios]) => ({ fios }) },
+    getPassCatalog: { action: 'pass.catalog', payload: ([geos]) => ({ geos }) },
+    updatePassCell: { action: 'pass.updateCell', payload: ([row, col, value]) => ({ row, col, value }) },
     getCompanyFormMeta: { action: 'company.formMeta', payload: () => ({}) },
     checkCompanyDuplicate: { action: 'company.checkDuplicate', payload: ([value]) => ({ value }) },
     addCompanyRow: { action: 'company.addRow', payload: ([values]) => ({ values }) },
@@ -55,7 +57,7 @@
     'meta.config', 'dropdown.maps',
     'o1.profileByName', 'o1.profileByRow', 'o1.profilesByRows', 'o1.appealRow', 'o1.lists', 'o1.workLists', 'o1.groupDateList', 'o1.cleanupList',
     'mcc.profile', 'mcc.overview', 'mcc.lists', 'mcc.stageList', 'mcc.workList', 'mcc.verificationPools',
-    'apell.index', 'pass.lookupFios', 'company.formMeta', 'company.checkDuplicate',
+    'apell.index', 'pass.lookupFios', 'pass.catalog', 'company.formMeta', 'company.checkDuplicate',
     'smspool.checkO1', 'smspool.stateO1', 'smspool.balanceO1',
     'herosms.checkO1', 'herosms.stateO1', 'herosms.balanceO1'
   ]);
@@ -200,6 +202,8 @@
     getApellDataIndex: (force) => callApi('apell.index', { force }),
     getO1AppealRowData: (row) => callApi('o1.appealRow', { row }),
     getPassLookupForFios: (fios) => callApi('pass.lookupFios', { fios }),
+    getPassCatalog: (geos) => callApi('pass.catalog', { geos }, { cache: false }),
+    updatePassCell: (row, col, value) => callApi('pass.updateCell', { row, col, value }, { cache: false }),
     getMccVerificationDropdownPools: () => callApi('mcc.verificationPools', {}),
     getCompanyFormMeta: () => callApi('company.formMeta', {}),
     checkCompanyDuplicate: (value) => callApi('company.checkDuplicate', { value }),

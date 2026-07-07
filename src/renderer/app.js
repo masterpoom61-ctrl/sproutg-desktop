@@ -173,7 +173,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
   applyDesktopSettings(s || { theme: 'dark-classic' });
 })();
 
-  const APP_VERSION = '2.2.0';
+  const APP_VERSION = '2.2.1';
   const PAGE_KEY = 'FarmA.page';
   const HOME_RETURN_KEY = 'FarmA.homeReturnPage';
   const THEME_KEY = 'sproutg.theme';
@@ -420,10 +420,32 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
   const mccProfileTabMap = new Map();
   const mccProfileCache = new Map();
   let mccActiveProfileKey = '';
+  let mccProfilePreloadQueue = Promise.resolve();
+  const mccProfilePreloadInflight = new Set();
   let mccOverviewState = { items: [], loaded: false, loading: false };
   const MCC_PROFILE_TABS_KEY = 'mcc:profileTabs:v1';
   const MCC_PROFILE_CACHE_KEY = 'mcc:profileCache:v1';
   const MCC_PROFILE_CACHE_LIMIT = 30;
+  const PASS_GEO_CONFIG_KEY = 'sproutg.pass.geoConfig:v1';
+  const PASS_GEO_DEFAULTS = [
+    { code:'BY', col:'F' },
+    { code:'KZ', col:'G' },
+    { code:'BA', col:'L' },
+    { code:'RS', col:'M' },
+    { code:'TR', col:'N' },
+    { code:'RO', col:'S' }
+  ];
+  const passState = {
+    geos: loadPassGeoConfig(),
+    items: [],
+    byGeo: {},
+    lookup: {},
+    activeGeo: 'BY',
+    editMode: false,
+    loading: false,
+    loaded: false,
+    timer: null
+  };
   let mccAccountObserver = null;
   let mccAccountScrollRaf = null;
   let mccAccountScrollHandler = null;
@@ -521,6 +543,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     loadMccProfileTabsFromStorage();
     loadMccProfileCacheFromStorage();
     renderMccProfileTabsSelect();
+    startPassCatalogSync();
     initTheme();
     setupDesktopIntegration();
   });
@@ -553,8 +576,13 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     const out = [];
     const active = getO1Scroller_();
     if(active) out.push(active);
+    const activeRoot = document.querySelector('.pageRoot.active');
+    if(activeRoot && !out.includes(activeRoot)) out.push(activeRoot);
     for(const id of ids){
       const el = document.getElementById(id);
+      if(el && !out.includes(el)) out.push(el);
+    }
+    for(const el of [document.scrollingElement, document.documentElement, document.body]){
       if(el && !out.includes(el)) out.push(el);
     }
     return out;
@@ -918,13 +946,31 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     if(!container || container.dataset.elasticBound === '1') return;
     container.dataset.elasticBound = '1';
     const moving = target || container.firstElementChild || container;
-    let offset = 0;
+    let targetOffset = 0;
+    let renderedOffset = 0;
     let settleTimer = null;
+    let raf = null;
     const maxOffset = 76;
+    const renderElastic = ()=>{
+      raf = null;
+      renderedOffset += (targetOffset - renderedOffset) * 0.38;
+      if(Math.abs(targetOffset - renderedOffset) < .35) renderedOffset = targetOffset;
+      moving.style.transition = 'none';
+      moving.style.transform = `translateY(${renderedOffset}px)`;
+      if(Math.abs(targetOffset - renderedOffset) >= .35) raf = requestAnimationFrame(renderElastic);
+    };
+    const scheduleElastic = ()=>{
+      if(!raf) raf = requestAnimationFrame(renderElastic);
+    };
     const settle = ()=>{
       clearTimeout(settleTimer);
       settleTimer = setTimeout(()=>{
-        offset = 0;
+        targetOffset = 0;
+        renderedOffset = 0;
+        if(raf){
+          cancelAnimationFrame(raf);
+          raf = null;
+        }
         moving.style.transition = 'transform .46s cubic-bezier(.18,.9,.22,1.18)';
         moving.style.transform = 'translateY(0)';
         setTimeout(()=>{ moving.style.transition = ''; }, 480);
@@ -939,11 +985,10 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
       const shouldElastic = maxScroll <= 0 || (up && atTop) || (down && atBottom);
       if(!shouldElastic) return;
       event.preventDefault();
-      const resistance = 1 - Math.min(0.72, Math.abs(offset) / (maxOffset * 1.25));
-      offset += -event.deltaY * 0.22 * resistance;
-      offset = Math.max(-maxOffset, Math.min(maxOffset, offset));
-      moving.style.transition = 'none';
-      moving.style.transform = `translateY(${offset}px)`;
+      const resistance = 1 - Math.min(0.72, Math.abs(targetOffset) / (maxOffset * 1.25));
+      targetOffset += -event.deltaY * 0.18 * resistance;
+      targetOffset = Math.max(-maxOffset, Math.min(maxOffset, targetOffset));
+      scheduleElastic();
       settle();
     }, { passive:false });
   }
@@ -1140,8 +1185,26 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
   }
   function setError(msg){ document.getElementById('err').textContent = msg || ''; }
 
+  function apiPayload(res){
+    if(res && res.ok !== false && res.data && typeof res.data === 'object') return res.data;
+    return res;
+  }
+
+  function apiErrorText(res, fallback = 'Ошибка'){
+    return res?.error || res?.data?.error || fallback;
+  }
+
   function showO1LoadingPlaceholder(){
-    showO1LoadingPlaceholder();
+    const out = document.getElementById('out');
+    if(!out) return;
+    out.innerHTML = '';
+    const card = document.createElement('div');
+    card.className = 'card o1LoadingCard';
+    card.innerHTML = `
+      <div class="o1LoadingSpinner" aria-hidden="true"></div>
+      <div class="o1LoadingText">Загрузка аккаунта…</div>
+    `;
+    out.appendChild(card);
   }
 
   function getTabKey(row){ return `O1#${row}`; }
@@ -1637,13 +1700,14 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     const token = nextReqToken('profile');
     google.script.run.withSuccessHandler(res=>{
       if(!isLatestReq('profile', token)) return;
-      if(!res || !res.ok){
-        const sug=(res?.suggestions?.length) ? `\nПохожие: ${res.suggestions.join(', ')}` : '';
-        setError((res?.error || 'Ошибка') + sug);
+      const payload = apiPayload(res);
+      if(!payload || payload.ok === false){
+        const sug=(payload?.suggestions?.length) ? `\nПохожие: ${payload.suggestions.join(', ')}` : '';
+        setError(apiErrorText(payload, 'Ошибка') + sug);
         return;
       }
       editMode=false;
-      ensureTab(res, { label:'Поиск', stage:'', items:[], key:'search' });
+      ensureTab(payload, { label:'Поиск', stage:'', items:[], key:'search' });
       renderProfile(current);
       toast('Готово');
     }).withFailureHandler(err=>{
@@ -1703,7 +1767,8 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     const loadJob = () => new Promise((resolve) => {
       google.script.run.withSuccessHandler(res=>{
         try{
-          if(!res || !res.ok){
+          const payload = apiPayload(res);
+          if(!payload || payload.ok === false){
             delete tabData[targetKey];
             delete tabNav[targetKey];
             const i=openTabs.indexOf(targetKey);
@@ -1719,16 +1784,16 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
               else updateHeader();
             }
             renderTabs();
-            setError(res?.error || 'Ошибка');
+            setError(apiErrorText(payload, 'Ошибка'));
             return;
           }
           if(!openTabs.includes(targetKey)){
             logSave_('O1', 'skip getProfileByRow response because tab was closed', { row, tabKey: targetKey });
             return;
           }
-          mergeO1LocalValues_(res);
-          const loadedKey = getTabKey(res.row);
-          tabData[loadedKey] = res;
+          mergeO1LocalValues_(payload);
+          const loadedKey = getTabKey(payload.row);
+          tabData[loadedKey] = payload;
           if(navInfo) setTabNavContext(loadedKey, navInfo.label, navInfo.stage, navInfo.items, navInfo.key);
           else if(!tabNav[loadedKey]) setTabNavContext(loadedKey, 'Открыто', '', [], 'open');
           if(propagateNav && navInfo){
@@ -1738,7 +1803,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
             editMode=false;
             activeTabKey=loadedKey;
             current=tabData[loadedKey];
-            document.getElementById('profile').value = res.profileName || '';
+            document.getElementById('profile').value = payload.profileName || '';
             renderProfile(current);
             toast('Готово');
           } else {
@@ -1805,11 +1870,12 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     const token = nextReqToken('filter');
     google.script.run.withSuccessHandler(res=>{
       if(!isLatestReq('filter', token)) return;
-      if(!res || !res.ok){
-        if(!opts.silent) setError(res?.error || 'Ошибка фильтра');
+      const payload = apiPayload(res);
+      if(!payload || payload.ok === false){
+        if(!opts.silent) setError(apiErrorText(payload, 'Ошибка фильтра'));
         return;
       }
-      cachedList = (res.items || []).slice().sort((a,b)=>Number(a.row)-Number(b.row));
+      cachedList = (payload.items || []).slice().sort((a,b)=>Number(a.row)-Number(b.row));
       const labelDate = from === to ? toRuDate(from) : `${from ? toRuDate(from) : '…'}–${to ? toRuDate(to) : '…'}`;
       cachedFilterLabel = `Основной фильтр → ${group} (${labelDate})`;
       renderFilterList();
@@ -1915,10 +1981,11 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     if(mode === 'cleanup'){
       if(!opts.silent) toast('Очистка…');
       const token = nextReqToken('work');
-      google.script.run.withSuccessHandler(res=>{
-        if(!isLatestReq('work', token)) return;
-        if(!res || !res.ok){ if(!opts.silent) toast(res?.error || 'Ошибка'); return; }
-        workCache = { mode: 'cleanup', groups: { 'Очистка профилей': (res.items || []) } };
+    google.script.run.withSuccessHandler(res=>{
+      if(!isLatestReq('work', token)) return;
+        const payload = apiPayload(res);
+        if(!payload || payload.ok === false){ if(!opts.silent) toast(apiErrorText(payload, 'Ошибка')); return; }
+        workCache = { mode: 'cleanup', groups: { 'Очистка профилей': (payload.items || []) } };
         renderWorkList();
         if(!opts.silent) toast('Готово');
       }).withFailureHandler(err=>{ if(!isLatestReq('work', token)) return; if(!opts.silent) toast(String(err)); }).listProfilesForCleanup(20000);
@@ -1929,8 +1996,9 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     const token = nextReqToken('work');
     google.script.run.withSuccessHandler(res=>{
       if(!isLatestReq('work', token)) return;
-      if(!res || !res.ok){ if(!opts.silent) toast(res?.error || 'Ошибка'); return; }
-      workCache = { mode: res.mode, groups: res.groups || {} };
+      const payload = apiPayload(res);
+      if(!payload || payload.ok === false){ if(!opts.silent) toast(apiErrorText(payload, 'Ошибка')); return; }
+      workCache = { mode: payload.mode, groups: payload.groups || {} };
       renderWorkList();
       if(!opts.silent) toast('Готово');
     }).withFailureHandler(err=>{ if(!isLatestReq('work', token)) return; if(!opts.silent) toast(String(err)); }).getWorkLists(mode, from, to);
@@ -4615,8 +4683,325 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     updateAllGroupBadges();
     updateHeader();
     updateActiveListMarkers();
+    applyPassGeoBadges();
     runProfileReveal(shell);
     if(opts.preserveScrollSnapshot) restoreSproutScroll_(opts.preserveScrollSnapshot);
+  }
+
+  function normalizePassGeoConfig(list){
+    const raw = Array.isArray(list) ? list : PASS_GEO_DEFAULTS;
+    const seen = new Set();
+    const out = [];
+    for(const item of raw){
+      const code = String(item?.code || item?.geo || item?.name || '').trim().toUpperCase();
+      const col = String(item?.col || item?.column || '').trim().toUpperCase();
+      if(!/^[A-Z0-9_-]{1,12}$/.test(code) || !/^[A-Z]{1,3}$/.test(col)) continue;
+      if(seen.has(code)) continue;
+      seen.add(code);
+      out.push({ code, col });
+    }
+    return out.length ? out : PASS_GEO_DEFAULTS.map(x=>({ ...x }));
+  }
+
+  function loadPassGeoConfig(){
+    try{
+      const raw = localStorage.getItem(PASS_GEO_CONFIG_KEY);
+      if(raw) return normalizePassGeoConfig(JSON.parse(raw));
+    }catch(e){}
+    return PASS_GEO_DEFAULTS.map(x=>({ ...x }));
+  }
+
+  function savePassGeoConfig(){
+    passState.geos = normalizePassGeoConfig(passState.geos);
+    try{ localStorage.setItem(PASS_GEO_CONFIG_KEY, JSON.stringify(passState.geos)); }catch(e){}
+  }
+
+  function passKey(value){ return String(value || '').trim().toLowerCase(); }
+
+  function applyPassCatalog(payload){
+    const data = apiPayload(payload) || {};
+    passState.items = Array.isArray(data.items) ? data.items : [];
+    passState.byGeo = data.byGeo && typeof data.byGeo === 'object' ? data.byGeo : {};
+    passState.lookup = data.lookup && typeof data.lookup === 'object' ? data.lookup : {};
+    passState.loaded = true;
+    if(!passState.geos.some(g=>g.code === passState.activeGeo)) passState.activeGeo = passState.geos[0]?.code || 'BY';
+    renderPassModal();
+    applyPassGeoBadges();
+  }
+
+  async function syncPassCatalog(opts = {}){
+    if(passState.loading && !opts.force) return;
+    passState.loading = true;
+    renderPassModalStatus('Синхронизация...');
+    try{
+      const res = await window.sproutgApi.getPassCatalog(passState.geos);
+      if(!res || res.ok === false) throw new Error(apiErrorText(res, 'Ошибка PASS'));
+      applyPassCatalog(res);
+      renderPassModalStatus('Синхронизировано');
+    }catch(error){
+      renderPassModalStatus(String(error?.message || error));
+    }finally{
+      passState.loading = false;
+    }
+  }
+
+  function startPassCatalogSync(){
+    syncPassCatalog({ force:true });
+    clearInterval(passState.timer);
+    passState.timer = setInterval(()=>syncPassCatalog({ silent:true }), 45000);
+  }
+
+  function passGeoForValue(value){ return passState.lookup[passKey(value)] || ''; }
+
+  function passGeoBadge(value){
+    const geo = passGeoForValue(value);
+    if(!geo) return null;
+    const badge = document.createElement('span');
+    badge.className = 'passGeoBadge';
+    badge.textContent = geo;
+    badge.title = `Pass: ${geo}`;
+    return badge;
+  }
+
+  function appendPassGeoBadge(target, value){
+    const badge = passGeoBadge(value);
+    if(badge) target.appendChild(badge);
+  }
+
+  function applyPassGeoBadges(){
+    document.querySelectorAll('.passGeoBadge').forEach(el=>el.remove());
+    document.querySelectorAll('#out [data-col="BM"], #mccOut [data-col="S"]').forEach((el)=>{
+      const value = 'value' in el ? el.value : el.textContent;
+      const host = el.closest('.mccFieldStack')?.querySelector('.mccFieldLabel') || el.closest('.field')?.querySelector('.label');
+      if(host) appendPassGeoBadge(host, value);
+    });
+  }
+
+  function readableTextColor(bg){
+    const m = String(bg || '').trim().match(/^#([0-9a-f]{6})$/i);
+    if(!m) return '';
+    const n = parseInt(m[1], 16);
+    const r = (n >> 16) & 255;
+    const g = (n >> 8) & 255;
+    const b = n & 255;
+    return ((r * 299 + g * 587 + b * 114) / 1000) > 150 ? '#111827' : '#ffffff';
+  }
+
+  function ensurePassModal(){
+    let modal = document.getElementById('passModal');
+    if(modal) return modal;
+    modal = document.createElement('div');
+    modal.id = 'passModal';
+    modal.className = 'passModal hidden';
+    modal.innerHTML = `
+      <div class="passPanel" id="passPanel">
+        <div class="passDrag" data-pass-drag="1"></div>
+        <button class="windowClose passClose" id="passCloseBtn" type="button" aria-label="Закрыть">×</button>
+        <div class="passHead">
+          <div>
+            <div class="passTitle">Паспорта</div>
+            <div class="passStatus" id="passStatus">—</div>
+          </div>
+          <div class="passActions">
+            <button class="btn" id="passSyncBtn" type="button">Синхр.</button>
+            <button class="btn" id="passEditBtn" type="button">Редактировать</button>
+          </div>
+        </div>
+        <div class="passGeoTabs" id="passGeoTabs"></div>
+        <div class="passConfig" id="passConfig" hidden></div>
+        <div class="passList" id="passList"></div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+    modal.addEventListener('click', (event)=>{ if(event.target === modal) closePassModal(); });
+    modal.querySelector('#passCloseBtn')?.addEventListener('click', closePassModal);
+    modal.querySelector('#passSyncBtn')?.addEventListener('click', ()=>syncPassCatalog({ force:true }));
+    modal.querySelector('#passEditBtn')?.addEventListener('click', ()=>{
+      passState.editMode = !passState.editMode;
+      renderPassModal();
+    });
+    setupPassModalDrag(modal.querySelector('#passPanel'));
+    setupPassModalElastic(modal.querySelector('#passList'));
+    return modal;
+  }
+
+  function setupPassModalDrag(panel){
+    if(!panel || panel.dataset.dragBound === '1') return;
+    panel.dataset.dragBound = '1';
+    let start = null;
+    panel.addEventListener('pointerdown', (event)=>{
+      if(!event.target.closest('[data-pass-drag], .passHead')) return;
+      if(event.target.closest('button,input,select,textarea')) return;
+      const rect = panel.getBoundingClientRect();
+      start = { x:event.clientX, y:event.clientY, left:rect.left, top:rect.top };
+      panel.setPointerCapture?.(event.pointerId);
+      event.preventDefault();
+    });
+    panel.addEventListener('pointermove', (event)=>{
+      if(!start) return;
+      const left = Math.max(8, Math.min(window.innerWidth - panel.offsetWidth - 8, start.left + event.clientX - start.x));
+      const top = Math.max(8, Math.min(window.innerHeight - panel.offsetHeight - 8, start.top + event.clientY - start.y));
+      panel.style.left = `${left}px`;
+      panel.style.top = `${top}px`;
+      panel.style.transform = 'none';
+    });
+    panel.addEventListener('pointerup', ()=>{ start = null; });
+    panel.addEventListener('pointercancel', ()=>{ start = null; });
+  }
+
+  function setupPassModalElastic(list){
+    if(!list || list.dataset.elasticBound === '1') return;
+    list.dataset.elasticBound = '1';
+    let targetOffset = 0;
+    let renderedOffset = 0;
+    let raf = null;
+    let timer = null;
+    const render = ()=>{
+      raf = null;
+      renderedOffset += (targetOffset - renderedOffset) * .36;
+      if(Math.abs(targetOffset - renderedOffset) < .35) renderedOffset = targetOffset;
+      list.style.transform = `translateY(${renderedOffset}px)`;
+      if(Math.abs(targetOffset - renderedOffset) >= .35) raf = requestAnimationFrame(render);
+    };
+    list.addEventListener('wheel', (event)=>{
+      const maxScroll = Math.max(0, list.scrollHeight - list.clientHeight);
+      const atTop = list.scrollTop <= 0;
+      const atBottom = list.scrollTop >= maxScroll - 1;
+      if(!(maxScroll <= 0 || (event.deltaY < 0 && atTop) || (event.deltaY > 0 && atBottom))) return;
+      event.preventDefault();
+      targetOffset += -event.deltaY * .16;
+      targetOffset = Math.max(-54, Math.min(54, targetOffset));
+      if(!raf) raf = requestAnimationFrame(render);
+      clearTimeout(timer);
+      timer = setTimeout(()=>{
+        targetOffset = 0;
+        list.style.transition = 'transform .42s cubic-bezier(.18,.9,.22,1.12)';
+        list.style.transform = 'translateY(0)';
+        setTimeout(()=>{ list.style.transition = ''; renderedOffset = 0; }, 430);
+      }, 70);
+    }, { passive:false });
+  }
+
+  function openPassModal(){
+    ensurePassModal().classList.remove('hidden');
+    renderPassModal();
+    if(!passState.loaded) syncPassCatalog({ force:true });
+  }
+
+  function closePassModal(){
+    document.getElementById('passModal')?.classList.add('hidden');
+  }
+
+  function renderPassModalStatus(text){
+    const el = document.getElementById('passStatus');
+    if(el) el.textContent = text || '';
+  }
+
+  function renderPassModal(){
+    const modal = document.getElementById('passModal');
+    if(!modal || modal.classList.contains('hidden')) return;
+    const editBtn = modal.querySelector('#passEditBtn');
+    if(editBtn) editBtn.textContent = passState.editMode ? 'Готово' : 'Редактировать';
+    const tabs = modal.querySelector('#passGeoTabs');
+    const list = modal.querySelector('#passList');
+    const config = modal.querySelector('#passConfig');
+    if(!tabs || !list || !config) return;
+    tabs.innerHTML = '';
+    for(const geo of passState.geos){
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'passGeoTab' + (geo.code === passState.activeGeo ? ' active' : '');
+      btn.textContent = `${geo.code} · ${geo.col}`;
+      btn.addEventListener('click', ()=>{ passState.activeGeo = geo.code; renderPassModal(); });
+      tabs.appendChild(btn);
+    }
+    renderPassConfig(config);
+    renderPassList(list);
+  }
+
+  function renderPassConfig(config){
+    config.hidden = !passState.editMode;
+    config.innerHTML = '';
+    if(config.hidden) return;
+    for(const geo of passState.geos){
+      const row = document.createElement('div');
+      row.className = 'passConfigRow';
+      const code = document.createElement('input');
+      code.value = geo.code;
+      code.maxLength = 12;
+      const col = document.createElement('input');
+      col.value = geo.col;
+      col.maxLength = 3;
+      const del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'btn';
+      del.textContent = '×';
+      code.addEventListener('change', ()=>{ geo.code = code.value.trim().toUpperCase(); savePassGeoConfig(); renderPassModal(); syncPassCatalog({ force:true }); });
+      col.addEventListener('change', ()=>{ geo.col = col.value.trim().toUpperCase(); savePassGeoConfig(); renderPassModal(); syncPassCatalog({ force:true }); });
+      del.addEventListener('click', ()=>{ passState.geos = passState.geos.filter(x=>x !== geo); savePassGeoConfig(); renderPassModal(); syncPassCatalog({ force:true }); });
+      row.appendChild(code);
+      row.appendChild(col);
+      row.appendChild(del);
+      config.appendChild(row);
+    }
+    const add = document.createElement('button');
+    add.type = 'button';
+    add.className = 'btn';
+    add.textContent = '+ GEO';
+    add.addEventListener('click', ()=>{
+      passState.geos.push({ code:'NEW', col:'A' });
+      savePassGeoConfig();
+      renderPassModal();
+    });
+    config.appendChild(add);
+  }
+
+  function renderPassList(list){
+    list.innerHTML = '';
+    const items = passState.byGeo[passState.activeGeo] || [];
+    if(!items.length){
+      list.innerHTML = '<div class="passEmpty">Нет данных</div>';
+      return;
+    }
+    for(const item of items){
+      const row = document.createElement('div');
+      row.className = 'passItem';
+      if(item.bg){
+        row.style.background = item.bg;
+        row.style.color = readableTextColor(item.bg);
+      }
+      const meta = document.createElement('span');
+      meta.className = 'passItemMeta';
+      meta.textContent = `${item.geo} ${item.col}${item.row}`;
+      row.appendChild(meta);
+      if(passState.editMode){
+        const input = document.createElement('input');
+        input.className = 'passItemInput';
+        input.value = item.value || '';
+        input.addEventListener('change', ()=>savePassItem(item, input.value));
+        row.appendChild(input);
+      } else {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'passCopyBtn';
+        btn.textContent = item.value || '';
+        btn.addEventListener('click', ()=>copyText(item.value || ''));
+        row.appendChild(btn);
+      }
+      list.appendChild(row);
+    }
+  }
+
+  async function savePassItem(item, value){
+    try{
+      const res = await window.sproutgApi.updatePassCell(item.row, item.col, value);
+      if(!res || res.ok === false) throw new Error(apiErrorText(res, 'Ошибка сохранения PASS'));
+      item.value = value;
+      await syncPassCatalog({ force:true });
+      toast('Сохранено');
+    }catch(error){
+      toast(String(error?.message || error));
+    }
   }
 
   // ---------- MCC ----------
@@ -4641,11 +5026,12 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     mccStageFilterState = { stage, from, to, items: [], active: true };
     if(!opts.silent) toast('Фильтр…');
     google.script.run.withSuccessHandler(res=>{
-      if(!res || !res.ok){
-        if(!opts.silent) setMccFilterError(res?.error || 'Ошибка фильтра');
+      const payload = apiPayload(res);
+      if(!payload || payload.ok === false){
+        if(!opts.silent) setMccFilterError(apiErrorText(payload, 'Ошибка фильтра'));
         return;
       }
-      mccStageFilterState.items = res.items || [];
+      mccStageFilterState.items = payload.items || [];
       renderMccStageFilterList();
       if(!opts.silent) toast(`Найдено: ${mccStageFilterState.items.length}`);
     }).withFailureHandler(err=>{
@@ -4676,6 +5062,25 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     const title = `Фильтр этапов → ${stageLabel} (${labelDate})`;
 
     const frag = document.createDocumentFragment();
+    const header = document.createElement('div');
+    header.className = 'workGroupHeader';
+    const headerTitle = document.createElement('div');
+    headerTitle.className = 'workGroupTitle';
+    headerTitle.textContent = `${title} • ${items.length}`;
+    const headerActions = document.createElement('div');
+    headerActions.className = 'workGroupActions';
+    const btnTabs = document.createElement('button');
+    btnTabs.type = 'button';
+    btnTabs.className = 'btn';
+    btnTabs.textContent = 'Во вкладки';
+    btnTabs.addEventListener('click', (e)=>{
+      e.stopPropagation();
+      openMccProfilesInTabs(items, { title });
+    });
+    headerActions.appendChild(btnTabs);
+    header.appendChild(headerTitle);
+    header.appendChild(headerActions);
+    frag.appendChild(header);
     const targetSectionId = mccStageFilterState.stage === 'T'
       ? 'mccVerificationSection'
       : (mccStageFilterState.stage === 'W' ? 'mccRechekSection' : '');
@@ -4721,12 +5126,13 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     mccWorkFilterState = { mode, items: [], collapsed: mccWorkFilterState.collapsed || {}, active: true };
     if(!opts.silent) toast('Фильтр…');
     google.script.run.withSuccessHandler(res=>{
-      if(!res || !res.ok){
-        if(!opts.silent) setMccFilterError(res?.error || 'Ошибка фильтра');
+      const payload = apiPayload(res);
+      if(!payload || payload.ok === false){
+        if(!opts.silent) setMccFilterError(apiErrorText(payload, 'Ошибка фильтра'));
         return;
       }
-      mccWorkFilterState.mode = res.mode || mode;
-      mccWorkFilterState.items = res.items || [];
+      mccWorkFilterState.mode = payload.mode || mode;
+      mccWorkFilterState.items = payload.items || [];
       mccWorkFilterState.active = true;
       renderMccWorkFilterList();
       if(!opts.silent) toast(`Найдено: ${mccWorkFilterState.items.length}`);
@@ -4745,6 +5151,25 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
       return;
     }
     const frag = document.createDocumentFragment();
+    const allHeader = document.createElement('div');
+    allHeader.className = 'workGroupHeader';
+    const allTitle = document.createElement('div');
+    allTitle.className = 'workGroupTitle';
+    allTitle.textContent = `MCC фильтр • ${items.length}`;
+    const allActions = document.createElement('div');
+    allActions.className = 'workGroupActions';
+    const allTabsBtn = document.createElement('button');
+    allTabsBtn.type = 'button';
+    allTabsBtn.className = 'btn';
+    allTabsBtn.textContent = 'Во вкладки';
+    allTabsBtn.addEventListener('click', (e)=>{
+      e.stopPropagation();
+      openMccProfilesInTabs(items, { title:'MCC фильтр' });
+    });
+    allActions.appendChild(allTabsBtn);
+    allHeader.appendChild(allTitle);
+    allHeader.appendChild(allActions);
+    frag.appendChild(allHeader);
     for(const profile of items){
       const header = document.createElement('div');
       header.className = 'workGroupHeader';
@@ -4771,7 +5196,19 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
       title.textContent = `${profileLabel} • ${filteredAccounts.length}`;
       left.appendChild(caret);
       left.appendChild(title);
+      const actions = document.createElement('div');
+      actions.className = 'workGroupActions';
+      const btnTabs = document.createElement('button');
+      btnTabs.type = 'button';
+      btnTabs.className = 'btn';
+      btnTabs.textContent = 'Во вкладки';
+      btnTabs.addEventListener('click', (e)=>{
+        e.stopPropagation();
+        openMccProfilesInTabs([profile], { title: profileLabel });
+      });
       header.appendChild(left);
+      header.appendChild(actions);
+      actions.appendChild(btnTabs);
       header.addEventListener('click', ()=>{
         const targetAccount = filteredAccounts[0]?.accountName || rawAccounts[0]?.accountName || '';
         openMccProfileByName(profile.profileName, { targetAccountName: targetAccount });
@@ -4843,6 +5280,77 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
 
   function getMccProfileKey(name){
     return String(name || '').trim().toLowerCase();
+  }
+
+  function openMccProfilesInTabs(items = [], opts = {}){
+    const seen = new Set();
+    const profiles = [];
+    for(const raw of Array.isArray(items) ? items : []){
+      const profileName = String(raw?.profileName || raw?.name || '').trim();
+      if(!profileName) continue;
+      const key = getMccProfileKey(profileName);
+      if(!key || seen.has(key)) continue;
+      seen.add(key);
+      profiles.push({
+        key,
+        profileName,
+        profileRow: raw?.profileRow || raw?.row || null,
+        lastAccount: String(raw?.accounts?.[0]?.accountName || raw?.accountName || ''),
+        lastUsed: Date.now()
+      });
+    }
+    if(!profiles.length) return;
+    for(const profile of profiles){
+      let entry = mccProfileTabMap.get(profile.key);
+      if(!entry){
+        entry = profile;
+        mccProfileTabs.push(entry);
+        mccProfileTabMap.set(profile.key, entry);
+      } else {
+        entry.profileRow = entry.profileRow || profile.profileRow;
+        entry.lastAccount = profile.lastAccount || entry.lastAccount || '';
+        entry.lastUsed = Date.now();
+      }
+    }
+    pruneMccProfileTabs();
+    persistMccProfileTabs();
+    renderMccProfileTabsSelect();
+    toast(`Во вкладках: ${profiles.length}`);
+    const first = profiles[0];
+    openMccProfileByName(first.profileName, { targetAccountName:first.lastAccount || '' });
+    profiles.slice(1).forEach(queueMccProfilePreload);
+  }
+
+  function queueMccProfilePreload(entry){
+    const key = String(entry?.key || getMccProfileKey(entry?.profileName)).trim();
+    const name = String(entry?.profileName || '').trim();
+    if(!key || !name || getCachedMccProfile(key) || mccProfilePreloadInflight.has(key)) return;
+    mccProfilePreloadInflight.add(key);
+    const job = ()=>new Promise((resolve)=>{
+      google.script.run.withSuccessHandler(res=>{
+        try{
+          const payload = apiPayload(res);
+          if(payload && payload.ok !== false){
+            cacheMccProfile(payload);
+            const tab = mccProfileTabMap.get(key);
+            if(tab){
+              tab.profileRow = tab.profileRow || payload.profileRow?.row || payload.profileRow || null;
+              tab.lastAccount = tab.lastAccount || payload.rows?.[0]?.accountName || '';
+              persistMccProfileTabs();
+              renderMccProfileTabsSelect();
+            }
+          }
+        }catch(e){}
+        finally{
+          mccProfilePreloadInflight.delete(key);
+          resolve();
+        }
+      }).withFailureHandler(()=>{
+        mccProfilePreloadInflight.delete(key);
+        resolve();
+      }).getMccProfile(name);
+    });
+    mccProfilePreloadQueue = mccProfilePreloadQueue.then(job, job);
   }
 
   function loadMccProfileTabsFromStorage(){
@@ -4982,16 +5490,17 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
 
       const requestWriteRevision = _mccWriteRevision;
       google.script.run.withSuccessHandler(res=>{
-        if(!res || res.ok===false) return;
+        const payload = apiPayload(res);
+        if(!payload || payload.ok === false) return;
         if(_mccPendingWrites > 0 || requestWriteRevision !== _mccWriteRevision){
           logSave_('MCC', 'skip getMccProfile response while writes pending or changed', { pending: _mccPendingWrites, requestWriteRevision, currentWriteRevision: _mccWriteRevision });
           return;
         }
-        cacheMccProfile(res);
-        const key = getMccProfileKey(res.profileName);
+        cacheMccProfile(payload);
+        const key = getMccProfileKey(payload.profileName);
         if(mccActiveProfileKey !== key) return;
         const scrollSnap = captureSproutScroll_('mcc-refresh');
-        mccProfile = res;
+        mccProfile = payload;
         mccEditMode = false;
         renderMccProfile({ preserveScrollSnapshot: scrollSnap });
       }).getMccProfile(entry.profileName);
@@ -5167,21 +5676,22 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
 
     google.script.run.withSuccessHandler(res=>{
       if(!isLatestReq('mcc', token)) return;
-      if(!res || res.ok===false){
-        const msg = res?.error || 'Ошибка';
-        const sug = (res?.suggestions || []).map(s=>`• ${s}`).join('\n');
+      const payload = apiPayload(res);
+      if(!payload || payload.ok === false){
+        const msg = apiErrorText(payload, 'Ошибка');
+        const sug = (payload?.suggestions || []).map(s=>`• ${s}`).join('\n');
         setMccError(sug ? `${msg}\n${sug}` : msg);
         return;
       }
-      const key = getMccProfileKey(res.profileName);
+      const key = getMccProfileKey(payload.profileName);
       mccActiveProfileKey = key;
-      mccProfile = res;
+      mccProfile = payload;
       mccEditMode = false;
-      mccActiveAccount = res.rows?.[0]?.accountName || '';
+      mccActiveAccount = payload.rows?.[0]?.accountName || '';
       renderMccProfile();
       preloadMccApellIndex();
       updateMccPassLookupAndApply();
-      addMccProfileTab(res);
+      addMccProfileTab(payload);
       rememberMccActiveAccount();
       const targetAccountName = String(opts.targetAccountName || '').trim();
       const targetSectionId = String(opts.targetSectionId || '').trim();
@@ -6850,13 +7360,22 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
 
       const titleRow = document.createElement('div');
       titleRow.className = 'mccVerificationTitleRow';
+      const titleActions = document.createElement('div');
+      titleActions.className = 'mccVerificationTitleActions';
+      const passportsBtn = document.createElement('button');
+      passportsBtn.type = 'button';
+      passportsBtn.className = 'btn';
+      passportsBtn.textContent = 'Паспорта';
+      passportsBtn.addEventListener('click', openPassModal);
       const toMccBtn = document.createElement('button');
       toMccBtn.type = 'button';
       toMccBtn.className = 'btn';
       toMccBtn.textContent = 'Перейти к MCC';
       toMccBtn.addEventListener('click', ()=>mccScrollToAccountByName(rowObj.accountName));
+      titleActions.appendChild(passportsBtn);
+      titleActions.appendChild(toMccBtn);
       titleRow.appendChild(accLabel);
-      titleRow.appendChild(toMccBtn);
+      titleRow.appendChild(titleActions);
       vBlock.appendChild(titleRow);
 
       const row1 = document.createElement('div');
@@ -7017,6 +7536,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     updateMccNav();
     updateMccTabsColors();
     applyMccFioVisualMarks();
+    applyPassGeoBadges();
     mccSetupAccountScrollSpy();
     runProfileReveal(shell);
     if(opts.preserveScrollSnapshot) restoreSproutScroll_(opts.preserveScrollSnapshot);
@@ -7366,6 +7886,8 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
         for(const localScroller of candidates){
           try{ localScroller.scrollTo({ top:0, behavior:'smooth' }); }
           catch(e){ localScroller.scrollTop = 0; }
+          setTimeout(()=>{ try{ localScroller.scrollTop = 0; }catch(e){} }, 120);
+          setTimeout(()=>{ try{ localScroller.scrollTop = 0; }catch(e){} }, 360);
         }
         try{ window.scrollTo({ top:0, behavior:'smooth' }); }catch(e){}
         updateO1TopButton();

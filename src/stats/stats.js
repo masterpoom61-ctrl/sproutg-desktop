@@ -892,6 +892,44 @@ function setupElasticBounce(container, target){
   }, { passive:false, capture:true });
 }
 
+function setupAuxWindowDrag(api){
+  if(!api?.dragWindowStart || document.documentElement.dataset.auxDragBound === '1') return;
+  document.documentElement.dataset.auxDragBound = '1';
+  let dragging = false;
+  let pendingPoint = null;
+  let raf = null;
+  const isDragTarget = (target)=>(
+    target?.closest?.('.dragbar, .header') &&
+    !target.closest('button,input,select,textarea,summary,a,[role="button"],.windowClose')
+  );
+  const flushMove = ()=>{
+    raf = null;
+    if(pendingPoint) api.dragWindowMove(pendingPoint).catch(()=>{});
+    pendingPoint = null;
+  };
+  document.addEventListener('pointerdown', (event)=>{
+    if(event.button !== 0 || !isDragTarget(event.target)) return;
+    dragging = true;
+    api.dragWindowStart({ x:event.screenX, y:event.screenY }).catch(()=>{});
+    event.preventDefault();
+  }, { capture:true });
+  window.addEventListener('pointermove', (event)=>{
+    if(!dragging) return;
+    pendingPoint = { x:event.screenX, y:event.screenY };
+    if(!raf) raf = requestAnimationFrame(flushMove);
+    event.preventDefault();
+  }, { capture:true });
+  const end = ()=>{
+    if(!dragging) return;
+    dragging = false;
+    pendingPoint = null;
+    if(raf){ cancelAnimationFrame(raf); raf = null; }
+    api.dragWindowEnd().catch(()=>{});
+  };
+  window.addEventListener('pointerup', end, { capture:true });
+  window.addEventListener('pointercancel', end, { capture:true });
+}
+
 let currentWorkRange = 'week';
 let currentWorkType = WORK_TYPES[0];
 let selectedMonthKey = '';
@@ -1939,6 +1977,7 @@ window.sproutgStats.onPrepareClose(prepareClose);
 bindHorizontalWheel(monthTabs);
 bindHorizontalWheel(workChips);
 setupElasticBounce(document.querySelector('.card'));
+setupAuxWindowDrag(window.sproutgStats);
 
 (async () => {
   const s = await window.sproutgStats.getSettings();

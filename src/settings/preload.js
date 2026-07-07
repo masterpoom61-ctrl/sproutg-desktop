@@ -21,6 +21,9 @@ contextBridge.exposeInMainWorld('sproutgSettings', {
   heroSms: (action, payload) => ipcRenderer.invoke('sproutg:hero-sms', action, payload),
   apiCall: (action, payload, opts) => ipcRenderer.invoke('sproutg:api-call', action, payload, opts),
   closeWindow: () => ipcRenderer.invoke('sproutg:close-settings-window'),
+  dragWindowStart: (point) => ipcRenderer.invoke('sproutg:aux-window-drag-start', point),
+  dragWindowMove: (point) => ipcRenderer.invoke('sproutg:aux-window-drag-move', point),
+  dragWindowEnd: () => ipcRenderer.invoke('sproutg:aux-window-drag-end'),
   onApplySettings: (cb) => ipcRenderer.on('sproutg:apply-settings', (_e, s) => cb(s)),
   onUpdateState: (cb) => ipcRenderer.on('sproutg:update-state', (_e, s) => cb(s)),
   onPrepareClose: (cb) => ipcRenderer.on('sproutg:prepare-close', () => cb())

@@ -173,7 +173,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
   applyDesktopSettings(s || { theme: 'dark-classic' });
 })();
 
-  const APP_VERSION = '2.2.1';
+  const APP_VERSION = '2.2.2';
   const PAGE_KEY = 'FarmA.page';
   const HOME_RETURN_KEY = 'FarmA.homeReturnPage';
   const THEME_KEY = 'sproutg.theme';
@@ -243,8 +243,6 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
   const _mccSaveState = new Map();
   const SAVE_DEBUG = false;
   let _sproutgPriorityReads = 0;
-  let _o1WriteQueue = Promise.resolve();
-  let _mccWriteQueue = Promise.resolve();
   let _o1PendingWrites = 0;
   let _mccPendingWrites = 0;
   let _o1WriteRevision = 0;
@@ -285,11 +283,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     });
   }
   function enqueueWrite_(scope, run){
-    const base = scope === 'MCC' ? _mccWriteQueue : _o1WriteQueue;
-    const next = base.then(()=>waitForPriorityReads_().then(()=>new Promise(run)), ()=>waitForPriorityReads_().then(()=>new Promise(run)));
-    if(scope === 'MCC') _mccWriteQueue = next.catch(()=>{});
-    else _o1WriteQueue = next.catch(()=>{});
-    return next;
+    return waitForPriorityReads_().then(()=>new Promise(run));
   }
 
   function o1RowKey_(row){
@@ -1524,7 +1518,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
       updateHeader();
       refreshColors({ source:'o1', skipFilters:true });
       toast(String(err));
-    }).toggleProfileDeleted(current.row, next);
+    }).toggleProfileDeleted(current.row, next, { profileName: current.profileName || '' });
   }
 
   function updateHeaderNav(){
@@ -2435,7 +2429,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
         google.script.run
         .withSuccessHandler((r)=>settle('success', r))
         .withFailureHandler((err)=>settle('failure', { ok:false, error:String(err) }))
-        .updateCells(row, normalized);
+        .updateCells(row, normalized, { profileName });
       } catch (err) {
         settle('failure', { ok:false, error:String(err) });
       }
@@ -4140,7 +4134,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
             banBtn.classList.toggle('active', prevActive);
             if(!prevActive) banBtn.classList.remove('banRed');
             toast(String(err));
-          }).toggleBan(res.row, g.name);
+          }).toggleBan(res.row, g.name, { profileName: res.profileName || current?.profileName || '' });
         });
       }
 
@@ -4184,7 +4178,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
             }
             refreshColors({ source:'o1', skipFilters:true });
             toast(String(err));
-          }).setGroupNumber(res.row, g.name, next);
+          }).setGroupNumber(res.row, g.name, next, { profileName: res.profileName || current?.profileName || '' });
         });
       }
 
@@ -5741,7 +5735,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
           for (const row of mccProfile.rows || []) row.values.B = next;
           toast('Сохранено');
           refreshColors({ source:'mcc', skipFilters:true });
-        }).withFailureHandler(err=>toast(String(err))).updateMccProfileName(rows, next);
+        }).withFailureHandler(err=>toast(String(err))).updateMccProfileName(rows, next, mccProfile.profileName || '');
       });
       pill.appendChild(inp);
     } else {
@@ -6051,7 +6045,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
       }
       refreshColors({ source:'mcc', skipFilters:true });
       toast(String(err));
-    }).toggleMccAccountDeleted(rowObj.row, next);
+    }).toggleMccAccountDeleted(rowObj.row, next, mccWriteIdentity_(rowObj.row));
   }
 
 
@@ -6068,6 +6062,14 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     if(!rowObj?.values) return;
     for(const c of cols) rowObj.values[c] = normalized[c];
     cacheMccProfile(mccProfile);
+  }
+
+  function mccWriteIdentity_(row){
+    const rowObj = mccProfile?.rows?.find((item)=>Number(item?.row) === Number(row));
+    return {
+      profileName: String(mccProfile?.profileName || '').trim(),
+      accountName: String(rowObj?.accountName || rowObj?.values?.C || '').trim()
+    };
   }
 
   function cancelMccQueuedJob_(job){
@@ -6128,6 +6130,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
       canceled:false
     };
     if(singleKey) _mccQueuedSingleByCell.set(singleKey, job);
+    const identity = mccWriteIdentity_(row);
     enqueueWrite_('MCC', (resolve)=>{
       if(job.canceled){ resolve(); return; }
       job.started = true;
@@ -6179,7 +6182,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
         logSave_('MCC', 'transport error updateMccCells', { row, cols, pending: _mccPendingWrites, error: String(err) });
         resolve();
       })
-      .updateMccCells(row, normalized);
+      .updateMccCells(row, normalized, identity);
     });
   }
 
@@ -7288,7 +7291,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
             toast('Помечено: На рассмотрении');
           })
           .withFailureHandler((err)=>{ underReviewBtn.disabled = false; toast(String(err)); })
-          .mccSetUnderReviewBg(rowObj.row);
+          .mccSetUnderReviewBg(rowObj.row, mccWriteIdentity_(rowObj.row));
       });
       rWrap.appendChild(underReviewBtn);
       rRow.appendChild(rWrap);
@@ -7730,8 +7733,8 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
       else applyMccProxyFields(r.values || {});
       refreshColors({ source: mode === 'O1' ? 'o1' : 'mcc' });
     }).withFailureHandler(err=>toast(String(err)));
-    if(mode === 'O1') runner.updateProxyFromValue(row, value);
-    else runner.updateMccProxyFromValue(row, value);
+    if(mode === 'O1') runner.updateProxyFromValue(row, value, { profileName: current?.profileName || '' });
+    else runner.updateMccProxyFromValue(row, value, mccWriteIdentity_(row));
   }
 
   function applyO1ProxyFields(values, row){

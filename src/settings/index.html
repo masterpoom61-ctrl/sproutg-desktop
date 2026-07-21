@@ -10,9 +10,9 @@
 </head>
 <body>
   <div class="settingsShell">
+    <button class="windowClose" id="settingsCloseBtn" type="button" aria-label="Закрыть">×</button>
     <div class="card" id="settingsCard">
       <div class="dragbar" title="Перетащить окно"></div>
-      <button class="windowClose" id="settingsCloseBtn" type="button" aria-label="Закрыть">×</button>
       <div class="header">
         <div class="title">Настройки</div>
       </div>
@@ -178,6 +178,10 @@
             <button class="btn" id="btnCheckUpdate">Проверить</button>
             <button class="btn" id="btnDownloadUpdate" disabled>Скачать</button>
             <button class="btn" id="btnInstallUpdate" disabled>Установить</button>
+          </div>
+          <div class="row rollbackRow">
+            <div class="hint compact" id="rollbackInfo">Поиск предыдущей версии...</div>
+            <button class="btn btn-wide" id="btnRollbackUpdate" disabled>Вернуться</button>
           </div>
           <div class="hint compact">Фоновая установка отключена. Если новая версия найдена, SproutG покажет уведомление; установка запускается здесь.</div>
           <details class="releaseHistory" id="releaseHistory">

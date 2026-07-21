@@ -1,3 +1,5 @@
+const { DurableWriteQueue } = require('./durableWriteQueue');
+
 function normalizeBridgeResult(result) {
   if (!result || typeof result !== 'object') {
     return { ok: false, error: 'Empty bridge response', code: 'EMPTY_RESPONSE' };
@@ -46,11 +48,24 @@ async function callWithLockRetry(fn, retries = 2) {
   return result;
 }
 
-function registerApiIpc(ipcMain, bridgeManager) {
+function queuedWriteAsApiResult(result) {
+  if (!result || result.ok === false) return result || { ok: false, error: 'Empty write response' };
+  const data = { ...result };
+  delete data.ok;
+  delete data.version;
+  delete data.ts;
+  return { ok: true, data, version: result.version || '', ts: result.ts || '' };
+}
+
+function registerApiIpc(ipcMain, bridgeManager, store) {
+  const durableWrites = new DurableWriteQueue({ bridgeManager, store });
   ipcMain.handle('sproutg:bridge-state', () => bridgeManager.getState());
 
   ipcMain.handle('sproutg:api-call', async (_event, action, payload, opts) => {
     try {
+      if (durableWrites.supports(action)) {
+        return queuedWriteAsApiResult(await durableWrites.enqueue(action, payload || {}));
+      }
       return normalizeBridgeResult(await callWithLockRetry(() => bridgeManager.callApi(action, payload || {}, opts || {})));
     } catch (err) {
       return { ok: false, error: err?.message || String(err), code: err?.code || 'BRIDGE_ERROR' };
@@ -67,6 +82,7 @@ function registerApiIpc(ipcMain, bridgeManager) {
 
   ipcMain.handle('sproutg:legacy-call', async (_event, action, payload, opts) => {
     try {
+      if (durableWrites.supports(action)) return await durableWrites.enqueue(action, payload || {});
       return legacyShape(await callWithLockRetry(() => bridgeManager.callApi(action, payload || {}, opts || {})));
     } catch (err) {
       return { ok: false, error: err?.message || String(err), code: err?.code || 'BRIDGE_ERROR' };

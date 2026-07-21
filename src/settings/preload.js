@@ -18,6 +18,8 @@ contextBridge.exposeInMainWorld('sproutgSettings', {
   checkForUpdates: () => ipcRenderer.invoke('sproutg:check-for-updates'),
   downloadUpdate: () => ipcRenderer.invoke('sproutg:download-update'),
   installUpdate: () => ipcRenderer.invoke('sproutg:install-update'),
+  getRollbackInfo: () => ipcRenderer.invoke('sproutg:get-rollback-info'),
+  rollbackUpdate: () => ipcRenderer.invoke('sproutg:rollback-update'),
   heroSms: (action, payload) => ipcRenderer.invoke('sproutg:hero-sms', action, payload),
   apiCall: (action, payload, opts) => ipcRenderer.invoke('sproutg:api-call', action, payload, opts),
   closeWindow: () => ipcRenderer.invoke('sproutg:close-settings-window'),

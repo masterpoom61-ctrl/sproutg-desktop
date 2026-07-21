@@ -1,8 +1,10 @@
 ﻿const { app, BrowserWindow, ipcMain, Menu, session, screen, globalShortcut, Notification, dialog } = require('electron');
 const { autoUpdater } = require('electron-updater');
+const { shell, net } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const crypto = require('crypto');
 const Store = require('electron-store');
 const { BridgeManager } = require('./main/bridgeManager');
 const { registerApiIpc } = require('./main/apiIpc');
@@ -22,7 +24,8 @@ const store = new Store({
     settings: { theme: 'dark-classic', zoom: 1.0, fontScale: 1.0, alwaysOnTop: false, graphicsMode: 'ultra', contrastMode: false, classicTrafficLights: false, mccVerificationInline: true, statCardGlow: true, smsService: 'smspool', customThemeId: '', customThemes: [] },
     heroSms: { apiKey: '', activeOrder: null, country: '0', service: 'go', catalog: null, catalogTs: 0 },
     window: { bounds: null, isMaximized: false },
-    web: { url: null }
+    web: { url: null },
+    pendingWrites: []
   }
 });
 
@@ -137,6 +140,7 @@ let updateState = {
   isPackaged: app.isPackaged
 };
 let updateCheckMode = 'manual';
+let rollbackInfoCache = null;
 
 function isPlaceholderValue(v){
   const raw = String(v || '').trim();
@@ -382,6 +386,233 @@ function installDownloadedUpdate(){
     return setUpdateState({ status: 'error', message: 'Не удалось установить обновление', error: e?.message || String(e) });
   }
   return updateState;
+}
+
+function parseVersionParts(value){
+  const match = String(value || '').trim().replace(/^v/i, '').match(/^(\d+)\.(\d+)\.(\d+)/);
+  return match ? match.slice(1).map(Number) : null;
+}
+
+function compareVersions(a, b){
+  const left = parseVersionParts(a);
+  const right = parseVersionParts(b);
+  if (!left || !right) return 0;
+  for (let i = 0; i < 3; i += 1) {
+    if (left[i] !== right[i]) return left[i] > right[i] ? 1 : -1;
+  }
+  return 0;
+}
+
+function publicRollbackInfo(info){
+  if (!info || info.available === false) return info || { available:false };
+  return {
+    available:true,
+    version:info.version,
+    name:info.name,
+    size:info.size,
+    publishedAt:info.publishedAt
+  };
+}
+
+async function fetchGithubJson(url){
+  const response = await net.fetch(url, {
+    headers:{
+      Accept:'application/vnd.github+json',
+      'User-Agent':`SproutG/${app.getVersion()}`,
+      'X-GitHub-Api-Version':'2022-11-28'
+    }
+  });
+  if (!response.ok) throw new Error(`GitHub ответил ${response.status}`);
+  return response.json();
+}
+
+async function getRollbackInfo(force = false){
+  const now = Date.now();
+  if (!force && rollbackInfoCache && now - rollbackInfoCache.checkedAt < 5 * 60 * 1000) {
+    return publicRollbackInfo(rollbackInfoCache.info);
+  }
+
+  const cfg = getUpdatesConfig();
+  if (cfg.provider !== 'github' || isPlaceholderValue(cfg.owner) || isPlaceholderValue(cfg.repo)) {
+    const info = { available:false, message:'Репозиторий обновлений не настроен' };
+    rollbackInfoCache = { checkedAt:now, info };
+    return info;
+  }
+
+  try {
+    const releases = await fetchGithubJson(`https://api.github.com/repos/${encodeURIComponent(cfg.owner)}/${encodeURIComponent(cfg.repo)}/releases?per_page=30`);
+    const currentVersion = app.getVersion();
+    const candidates = (Array.isArray(releases) ? releases : [])
+      .filter((release) => !release?.draft && (!release?.prerelease || cfg.allowPrerelease))
+      .map((release) => ({ release, version:String(release?.tag_name || '').replace(/^v/i, '') }))
+      .filter((item) => parseVersionParts(item.version) && compareVersions(item.version, currentVersion) < 0)
+      .sort((a, b) => compareVersions(b.version, a.version));
+
+    let info = { available:false, message:'Предыдущий публичный релиз не найден' };
+    for (const candidate of candidates) {
+      const expectedName = `SproutG-Setup-${candidate.version}.exe`.toLowerCase();
+      const asset = (Array.isArray(candidate.release?.assets) ? candidate.release.assets : [])
+        .find((item) => String(item?.name || '').toLowerCase() === expectedName);
+      if (!asset?.browser_download_url) continue;
+      info = {
+        available:true,
+        version:candidate.version,
+        name:String(asset.name || `SproutG-Setup-${candidate.version}.exe`),
+        size:Number(asset.size || 0),
+        digest:String(asset.digest || ''),
+        publishedAt:String(candidate.release?.published_at || candidate.release?.created_at || ''),
+        assetUrl:String(asset.browser_download_url)
+      };
+      break;
+    }
+    rollbackInfoCache = { checkedAt:now, info };
+    return publicRollbackInfo(info);
+  } catch (error) {
+    const info = { available:false, message:'Не удалось получить предыдущую версию', error:error?.message || String(error) };
+    rollbackInfoCache = { checkedAt:now, info };
+    return info;
+  }
+}
+
+async function waitForPendingWrites(timeoutMs = 60000){
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    const pending = store.get('pendingWrites');
+    if (!Array.isArray(pending) || pending.length === 0) return 0;
+    await new Promise((resolve) => setTimeout(resolve, 400));
+  }
+  const pending = store.get('pendingWrites');
+  return Array.isArray(pending) ? pending.length : 0;
+}
+
+function backupRollbackData(targetVersion){
+  const userData = app.getPath('userData');
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const backupDir = path.join(userData, 'rollback-backups', `${stamp}-to-${targetVersion}`);
+  fs.mkdirSync(backupDir, { recursive:true });
+  const copied = [];
+
+  const copy = (source, name) => {
+    try {
+      if (!source || !fs.existsSync(source)) return;
+      const target = path.join(backupDir, name);
+      fs.cpSync(source, target, { recursive:true, force:true, errorOnExist:false });
+      copied.push(name);
+    } catch (error) {
+      copied.push(`${name} (не удалось скопировать: ${error?.message || error})`);
+    }
+  };
+
+  copy(store.path, path.basename(store.path));
+  copy(path.join(userData, 'sproutg.config.json'), 'sproutg.config.json');
+  copy(path.join(userData, 'Partitions', 'sproutg', 'Local Storage'), 'Local Storage');
+  fs.writeFileSync(path.join(backupDir, 'rollback.json'), JSON.stringify({
+    fromVersion:app.getVersion(),
+    toVersion:targetVersion,
+    createdAt:new Date().toISOString(),
+    copied
+  }, null, 2), 'utf8');
+  return backupDir;
+}
+
+async function downloadRollbackAsset(info){
+  const finalPath = path.join(app.getPath('temp'), info.name);
+  const partialPath = `${finalPath}.part`;
+  try { if (fs.existsSync(partialPath)) fs.rmSync(partialPath, { force:true }); } catch (e) {}
+  try { if (fs.existsSync(finalPath)) fs.rmSync(finalPath, { force:true }); } catch (e) {}
+
+  const response = await net.fetch(info.assetUrl, {
+    redirect:'follow',
+    headers:{ 'User-Agent':`SproutG/${app.getVersion()}`, Accept:'application/octet-stream' }
+  });
+  if (!response.ok || !response.body) throw new Error(`Не удалось скачать установщик: HTTP ${response.status}`);
+
+  const total = Number(response.headers.get('content-length') || info.size || 0);
+  const file = await fs.promises.open(partialPath, 'w');
+  const reader = response.body.getReader();
+  let received = 0;
+  let lastProgressAt = 0;
+  const hash = crypto.createHash('sha256');
+  try {
+    while (true) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      const buffer = Buffer.from(chunk.value);
+      await file.write(buffer, 0, buffer.length, null);
+      hash.update(buffer);
+      received += buffer.length;
+      if (Date.now() - lastProgressAt > 140) {
+        lastProgressAt = Date.now();
+        const percent = total > 0 ? Math.round(received / total * 100) : 0;
+        setUpdateState({
+          status:'rollback-downloading',
+          message:`Скачивание v${info.version} для отката... ${percent}%`,
+          progress:{ percent, transferred:received, total },
+          error:null
+        });
+      }
+    }
+  } finally {
+    await file.close();
+  }
+
+  if (info.size && received !== info.size) {
+    try { fs.rmSync(partialPath, { force:true }); } catch (e) {}
+    throw new Error(`Размер установщика не совпал: ${received} вместо ${info.size}`);
+  }
+  const expectedDigest = String(info.digest || '').replace(/^sha256:/i, '').toLowerCase();
+  const actualDigest = hash.digest('hex').toLowerCase();
+  if (expectedDigest && actualDigest !== expectedDigest) {
+    try { fs.rmSync(partialPath, { force:true }); } catch (e) {}
+    throw new Error('Контрольная сумма установщика не совпала');
+  }
+  fs.renameSync(partialPath, finalPath);
+  return finalPath;
+}
+
+async function rollbackToPreviousVersion(){
+  if (!app.isPackaged) return { ok:false, error:'Откат доступен только в установленной Windows-сборке' };
+  const infoPublic = await getRollbackInfo(true);
+  const info = rollbackInfoCache?.info;
+  if (!infoPublic?.available || !info?.assetUrl) {
+    return { ok:false, error:infoPublic?.error || infoPublic?.message || 'Предыдущая версия недоступна' };
+  }
+
+  const confirmation = await dialog.showMessageBox(settingsWindow || mainWindow, {
+    type:'warning',
+    title:'Вернуться к предыдущей версии',
+    message:`Вернуться с v${app.getVersion()} на v${info.version}?`,
+    detail:'SproutG сначала дождётся сохранения очереди и создаст резервную копию локальных данных. Затем откроется установщик предыдущей версии.',
+    buttons:['Вернуться', 'Отмена'],
+    defaultId:1,
+    cancelId:1,
+    noLink:true
+  });
+  if (confirmation.response !== 0) return { ok:false, canceled:true };
+
+  setUpdateState({ status:'rollback-waiting', message:'Ждём завершения сохранения данных...', progress:null, error:null });
+  const pending = await waitForPendingWrites(60000);
+  if (pending > 0) {
+    return setUpdateState({
+      status:'error',
+      message:'Откат остановлен: остались несохранённые данные',
+      error:`В очереди: ${pending}. Дождись синхронизации и повтори.`,
+      progress:null
+    });
+  }
+
+  try {
+    backupRollbackData(info.version);
+    setUpdateState({ status:'rollback-downloading', message:`Скачивание v${info.version} для отката...`, progress:{ percent:0 }, error:null });
+    const installerPath = await downloadRollbackAsset(info);
+    setUpdateState({ status:'rollback-ready', message:`Запускаем установщик v${info.version}...`, progress:null, error:null });
+    const openError = await shell.openPath(installerPath);
+    if (openError) throw new Error(openError);
+    setTimeout(() => app.quit(), 1400);
+    return { ok:true, version:info.version };
+  } catch (error) {
+    return setUpdateState({ status:'error', message:'Не удалось выполнить откат', error:error?.message || String(error), progress:null });
+  }
 }
 
 const HERO_SMS_API_BASE = 'https://hero-sms.com/api/v1';
@@ -1640,7 +1871,7 @@ app.whenReady().then(() => {
   bridgeManager = new BridgeManager({ getSession, partition: PARTITION, appDir: __dirname });
   bridgeManager.on('state', broadcastBridgeState);
   bridgeManager.on('state', (state) => { if (state?.status === 'ready') flushGoogleSession(); });
-  registerApiIpc(ipcMain, bridgeManager);
+  registerApiIpc(ipcMain, bridgeManager, store);
   createMainWindow();
   registerGlobal();
 
@@ -1662,6 +1893,8 @@ ipcMain.handle('sproutg:get-update-state', () => ({ ...updateState, version: app
 ipcMain.handle('sproutg:check-for-updates', () => checkForUpdates(true));
 ipcMain.handle('sproutg:download-update', () => downloadUpdate());
 ipcMain.handle('sproutg:install-update', () => installDownloadedUpdate());
+ipcMain.handle('sproutg:get-rollback-info', () => getRollbackInfo(false));
+ipcMain.handle('sproutg:rollback-update', () => rollbackToPreviousVersion());
 ipcMain.handle('sproutg:hero-sms', (_e, action, payload) => heroSmsHandle(action, payload || {}));
 ipcMain.handle('sproutg:get-settings', () => getSettings());
 ipcMain.handle('sproutg:set-setting', (_e, partial) => { const n = setSettings(partial); applySettings(n); return getSettings(); });

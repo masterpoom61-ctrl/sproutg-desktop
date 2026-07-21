@@ -97,6 +97,8 @@ const releaseHistoryBody = $('releaseHistoryBody');
 const btnCheckUpdate = $('btnCheckUpdate');
 const btnDownloadUpdate = $('btnDownloadUpdate');
 const btnInstallUpdate = $('btnInstallUpdate');
+const rollbackInfo = $('rollbackInfo');
+const btnRollbackUpdate = $('btnRollbackUpdate');
 const settingsCard = $('settingsCard');
 const smsPoolApiKey = $('smsPoolApiKey');
 const btnSaveSmsPoolKey = $('btnSaveSmsPoolKey');
@@ -114,10 +116,22 @@ let current = { theme: 'dark-classic', zoom: 1.0, fontScale: 1.0, alwaysOnTop: f
 let closing = false;
 let colorClipboard = '';
 let liveThemeTimer = null;
+let rollbackInfoState = { available:false };
+let updateStateUi = { status:'idle' };
 
 // RELEASE_HISTORY: при каждом публичном релизе добавляй новую запись сверху,
 // чтобы раздел "История обновлений" в настройках всегда был актуален для пользователей.
 const RELEASE_HISTORY = [
+  {
+    version: '2.2.2',
+    date: '2026-07-21',
+    changes: [
+      'Сохранения O1/MCC объединяются в быстрые пакеты и хранятся в долговечной очереди до подтверждения Google Таблицей, включая перезапуск приложения.',
+      'Перед записью строка повторно сверяется по профилю и аккаунту: вставленные между данными строки больше не направляют изменения в чужую запись.',
+      'В разделе обновлений добавлен безопасный возврат к предыдущему публичному релизу с ожиданием очереди и резервной копией локальных данных.',
+      'Кнопка закрытия настроек вынесена поверх drag- и scroll-слоёв и кликается всей площадью.'
+    ]
+  },
   {
     version: '2.2.1',
     date: '2026-07-07',
@@ -631,6 +645,9 @@ function updateLabel(state) {
     available: 'Есть новая',
     downloading: 'Скачивание',
     downloaded: 'Готово',
+    'rollback-waiting': 'Сохранение',
+    'rollback-downloading': 'Откат',
+    'rollback-ready': 'Откат',
     'not-available': 'Актуально',
     error: 'Ошибка',
     disabled: 'Отключено',
@@ -678,6 +695,7 @@ function formatBytes(bytes) {
 }
 
 function renderUpdateState(state = {}) {
+  updateStateUi = state || { status:'idle' };
   const installedVersion = formatVersion(state.version);
   const availableVersion = formatVersion(state.availableVersion);
   appVersion.textContent = `Версия: ${installedVersion}`;
@@ -701,14 +719,32 @@ function renderUpdateState(state = {}) {
   const isDownloading = state.status === 'downloading';
   const isAvailable = state.status === 'available';
   const isDownloaded = state.status === 'downloaded' || state.downloaded;
+  const isRollback = String(state.status || '').startsWith('rollback-');
 
-  btnCheckUpdate.disabled = isChecking || isDownloading;
-  btnDownloadUpdate.disabled = !isAvailable || isChecking || isDownloading;
-  btnInstallUpdate.disabled = !isDownloaded;
+  btnCheckUpdate.disabled = isChecking || isDownloading || isRollback;
+  btnDownloadUpdate.disabled = !isAvailable || isChecking || isDownloading || isRollback;
+  btnInstallUpdate.disabled = !isDownloaded || isRollback;
+  if (btnRollbackUpdate) btnRollbackUpdate.disabled = !rollbackInfoState.available || isChecking || isDownloading || isRollback;
 
   const percent = Math.round(Number(state.progress?.percent || 0));
-  updateProgress.hidden = !isDownloading && percent <= 0;
+  updateProgress.hidden = !isDownloading && state.status !== 'rollback-downloading' && percent <= 0;
   updateProgressBar.style.width = `${Math.max(0, Math.min(100, percent))}%`;
+}
+
+function renderRollbackInfo(info = {}) {
+  rollbackInfoState = info || { available:false };
+  if (!rollbackInfo || !btnRollbackUpdate) return;
+  if (info.available) {
+    const version = String(info.version || '').replace(/^v/i, '');
+    rollbackInfo.textContent = `Предыдущая: v${version}`;
+    btnRollbackUpdate.textContent = `Назад к v${version}`;
+    const busy = ['checking', 'downloading'].includes(String(updateStateUi.status || '')) || String(updateStateUi.status || '').startsWith('rollback-');
+    btnRollbackUpdate.disabled = busy;
+  } else {
+    rollbackInfo.textContent = info.error || info.message || 'Предыдущая версия недоступна';
+    btnRollbackUpdate.textContent = 'Вернуться';
+    btnRollbackUpdate.disabled = true;
+  }
 }
 
 function closeSettingsSoon() {
@@ -816,6 +852,8 @@ async function refresh() {
   } catch (e) {
     renderUpdateState({ status: 'error', message: 'Не удалось получить статус обновлений', error: String(e?.message || e) });
   }
+  try { renderRollbackInfo(await window.sproutgSettings.getRollbackInfo()); }
+  catch (e) { renderRollbackInfo({ available:false, error:String(e?.message || e) }); }
   refreshTechInfo();
   refreshStorageInfo();
 }
@@ -1056,6 +1094,21 @@ btnInstallUpdate.addEventListener('click', async () => {
   btnInstallUpdate.disabled = true;
   try { renderUpdateState(await window.sproutgSettings.installUpdate()); }
   finally { btnInstallUpdate.disabled = false; }
+});
+
+btnRollbackUpdate?.addEventListener('click', async () => {
+  btnRollbackUpdate.disabled = true;
+  try {
+    const result = await window.sproutgSettings.rollbackUpdate();
+    if (result?.canceled) renderRollbackInfo(rollbackInfoState);
+    else if (result && result.ok === false) renderUpdateState(result);
+  } catch (error) {
+    renderUpdateState({ status:'error', message:'Не удалось выполнить откат', error:String(error?.message || error) });
+  } finally {
+    if (!document.body.classList.contains('sgClosing')) {
+      btnRollbackUpdate.disabled = !rollbackInfoState.available || String(updateStateUi.status || '').startsWith('rollback-');
+    }
+  }
 });
 
 settingsCloseBtn?.addEventListener('click', closeSettingsSoon);

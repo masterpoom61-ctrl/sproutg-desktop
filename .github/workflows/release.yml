@@ -4,6 +4,12 @@ on:
   push:
     tags:
       - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing immutable release tag to publish"
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -18,12 +24,14 @@ jobs:
     timeout-minutes: 45
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
 
     steps:
       - name: Checkout release tag
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: refs/tags/${{ env.RELEASE_TAG }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -36,19 +44,22 @@ jobs:
         env:
           RELEASE_EVENT_FORCED: ${{ github.event.forced }}
         run: |
-          if ($env:GITHUB_REF_TYPE -ne "tag") {
+          if ($env:GITHUB_EVENT_NAME -ne "workflow_dispatch" -and $env:GITHUB_REF_TYPE -ne "tag") {
             throw "Release workflow must run from a tag."
           }
-          if ($env:RELEASE_EVENT_FORCED -eq "true") {
+          if ($env:GITHUB_EVENT_NAME -eq "push" -and $env:RELEASE_EVENT_FORCED -eq "true") {
             throw "Force-updated release tags are not allowed."
           }
+          if ($env:RELEASE_TAG -notmatch '^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$') {
+            throw "Release tag has an unsupported format: $env:RELEASE_TAG"
+          }
 
-          node scripts/validate-release.js --tag $env:GITHUB_REF_NAME
+          node scripts/validate-release.js --tag $env:RELEASE_TAG
           if ($LASTEXITCODE -ne 0) {
             throw "Tag/package parity validation failed."
           }
 
-          $tagCommit = git rev-parse "${env:GITHUB_REF_NAME}^{commit}"
+          $tagCommit = git rev-parse "${env:RELEASE_TAG}^{commit}"
           if ($LASTEXITCODE -ne 0) {
             throw "Cannot resolve the release tag commit."
           }
@@ -57,13 +68,17 @@ jobs:
             throw "Checked-out commit does not match the release tag."
           }
 
-          $releaseLookup = gh api "repos/$env:GITHUB_REPOSITORY/releases/tags/$env:GITHUB_REF_NAME" 2>&1
-          if ($LASTEXITCODE -eq 0) {
-            throw "Release $env:GITHUB_REF_NAME already exists; refusing to overwrite it."
+          $releaseLookup = gh api "repos/$env:GITHUB_REPOSITORY/releases/tags/$env:RELEASE_TAG" 2>&1
+          $releaseLookupExit = $LASTEXITCODE
+          if ($releaseLookupExit -eq 0) {
+            throw "Release $env:RELEASE_TAG already exists; refusing to overwrite it."
           }
           if (($releaseLookup -join "`n") -notmatch "HTTP 404|Not Found") {
-            throw "Could not prove that release $env:GITHUB_REF_NAME is absent: $($releaseLookup -join ' ')"
+            throw "Could not prove that release $env:RELEASE_TAG is absent: $($releaseLookup -join ' ')"
           }
+          # The accepted 404 is an expected precondition result. Reset the
+          # native exit code so pwsh does not fail this successful step.
+          $global:LASTEXITCODE = 0
 
       - name: Install locked dependencies
         run: npm ci
@@ -104,7 +119,7 @@ jobs:
             Copy-Item -LiteralPath $source -Destination (Join-Path $assetDir $assetName)
           }
 
-          node scripts/validate-release.js --tag $env:GITHUB_REF_NAME --version $version --dir $assetDir --exact
+          node scripts/validate-release.js --tag $env:RELEASE_TAG --version $version --dir $assetDir --exact
           if ($LASTEXITCODE -ne 0) {
             throw "Local release asset validation failed."
           }
@@ -117,7 +132,7 @@ jobs:
       - name: Create new draft release
         shell: pwsh
         run: |
-          gh release create $env:GITHUB_REF_NAME `
+          gh release create $env:RELEASE_TAG `
             --repo $env:GITHUB_REPOSITORY `
             --verify-tag `
             --draft `
@@ -127,13 +142,13 @@ jobs:
             throw "Draft release creation failed."
           }
 
-          $draft = gh release view $env:GITHUB_REF_NAME `
+          $draft = gh release view $env:RELEASE_TAG `
             --repo $env:GITHUB_REPOSITORY `
             --json tagName,isDraft,isPrerelease,assets | ConvertFrom-Json
           if ($LASTEXITCODE -ne 0) {
             throw "Cannot inspect the new draft release."
           }
-          if ($draft.tagName -ne $env:GITHUB_REF_NAME -or -not $draft.isDraft -or $draft.isPrerelease) {
+          if ($draft.tagName -ne $env:RELEASE_TAG -or -not $draft.isDraft -or $draft.isPrerelease) {
             throw "New release is not the expected production draft."
           }
           if (@($draft.assets).Count -ne 0) {
@@ -148,7 +163,7 @@ jobs:
             (Join-Path $env:RELEASE_ASSET_DIR $env:RELEASE_INSTALLER),
             (Join-Path $env:RELEASE_ASSET_DIR $env:RELEASE_BLOCKMAP)
           )
-          & gh release upload $env:GITHUB_REF_NAME --repo $env:GITHUB_REPOSITORY $assets
+          & gh release upload $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY $assets
           if ($LASTEXITCODE -ne 0) {
             throw "Release asset upload failed."
           }
@@ -156,13 +171,13 @@ jobs:
       - name: Verify uploaded draft assets
         shell: pwsh
         run: |
-          $release = gh release view $env:GITHUB_REF_NAME `
+          $release = gh release view $env:RELEASE_TAG `
             --repo $env:GITHUB_REPOSITORY `
             --json tagName,isDraft,isPrerelease,assets | ConvertFrom-Json
           if ($LASTEXITCODE -ne 0) {
             throw "Cannot inspect uploaded draft assets."
           }
-          if ($release.tagName -ne $env:GITHUB_REF_NAME -or -not $release.isDraft -or $release.isPrerelease) {
+          if ($release.tagName -ne $env:RELEASE_TAG -or -not $release.isDraft -or $release.isPrerelease) {
             throw "Release changed state before validation completed."
           }
 
@@ -184,13 +199,13 @@ jobs:
           }
           New-Item -ItemType Directory -Path $downloadDir | Out-Null
 
-          gh release download $env:GITHUB_REF_NAME --repo $env:GITHUB_REPOSITORY --dir $downloadDir
+          gh release download $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY --dir $downloadDir
           if ($LASTEXITCODE -ne 0) {
             throw "Downloading draft assets for verification failed."
           }
 
           node scripts/validate-release.js `
-            --tag $env:GITHUB_REF_NAME `
+            --tag $env:RELEASE_TAG `
             --version $env:RELEASE_VERSION `
             --dir $downloadDir `
             --reference-dir $env:RELEASE_ASSET_DIR `
@@ -202,7 +217,7 @@ jobs:
       - name: Publish verified release as latest
         shell: pwsh
         run: |
-          gh release edit $env:GITHUB_REF_NAME `
+          gh release edit $env:RELEASE_TAG `
             --repo $env:GITHUB_REPOSITORY `
             --draft=false `
             --prerelease=false `
@@ -211,13 +226,13 @@ jobs:
             throw "Publishing the verified release failed."
           }
 
-          $published = gh release view $env:GITHUB_REF_NAME `
+          $published = gh release view $env:RELEASE_TAG `
             --repo $env:GITHUB_REPOSITORY `
             --json tagName,isDraft,isPrerelease,assets | ConvertFrom-Json
           if ($LASTEXITCODE -ne 0) {
             throw "Cannot verify the published release."
           }
-          if ($published.tagName -ne $env:GITHUB_REF_NAME -or $published.isDraft -or $published.isPrerelease) {
+          if ($published.tagName -ne $env:RELEASE_TAG -or $published.isDraft -or $published.isPrerelease) {
             throw "Release was not published as a stable release."
           }
           if (@($published.assets).Count -ne 3) {
@@ -230,7 +245,7 @@ jobs:
             if ($LASTEXITCODE -eq 0) {
               $latest = $latestJson | ConvertFrom-Json
               $latestTag = $latest.tag_name
-              if ($latestTag -eq $env:GITHUB_REF_NAME) {
+              if ($latestTag -eq $env:RELEASE_TAG) {
                 break
               }
             }
@@ -238,6 +253,6 @@ jobs:
               Start-Sleep -Seconds 2
             }
           }
-          if ($latestTag -ne $env:GITHUB_REF_NAME) {
+          if ($latestTag -ne $env:RELEASE_TAG) {
             throw "Published release is not GitHub's latest release."
           }

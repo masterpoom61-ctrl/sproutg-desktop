@@ -123,6 +123,16 @@ let updateStateUi = { status:'idle' };
 // чтобы раздел "История обновлений" в настройках всегда был актуален для пользователей.
 const RELEASE_HISTORY = [
   {
+    version: '2.3.0',
+    date: '2026-07-27',
+    changes: [
+      'Записи подтверждаются сразу после надёжного сохранения на диск и защищены отдельным журналом WAL с контрольной суммой и резервным поколением.',
+      'O1, MCC и Pass повторно находят строку по устойчивой идентичности: вставка строк больше не направляет изменение в чужую ячейку, а дубли останавливают запись.',
+      'Чтение ускорено кэшем, объединением одинаковых запросов и ограничением параллельной нагрузки; переподключение Google-моста стало устойчивее.',
+      'Закрытие, обновление, смена таблицы и формы теперь проходят единый барьер сохранения; старый Apps Script безопасно удерживает очередь до деплоя backend 2.3.0.'
+    ]
+  },
+  {
     version: '2.2.2',
     date: '2026-07-21',
     changes: [
@@ -1039,9 +1049,16 @@ btnClearCache.addEventListener('click', async () => {
 
 btnLogout.addEventListener('click', async () => {
   btnLogout.disabled = true;
-  try { await window.sproutgSettings.logout(); }
-  finally { btnLogout.disabled = false; }
-  closeSettingsSoon();
+  try {
+    const result = await window.sproutgSettings.logout();
+    if (result && result.ok === false) {
+      window.alert(result.error || 'Выход отменён: не все данные сохранены.');
+      return;
+    }
+    closeSettingsSoon();
+  } finally {
+    btnLogout.disabled = false;
+  }
 });
 
 btnChangeUrl.addEventListener('click', () => window.sproutgSettings.openUrl());

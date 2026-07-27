@@ -173,7 +173,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
   applyDesktopSettings(s || { theme: 'dark-classic' });
 })();
 
-  const APP_VERSION = '2.2.2';
+  const APP_VERSION = '2.3.0';
   const PAGE_KEY = 'FarmA.page';
   const HOME_RETURN_KEY = 'FarmA.homeReturnPage';
   const THEME_KEY = 'sproutg.theme';
@@ -205,7 +205,10 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
   const smsPoolProfileStates = new Map();
   const smsPoolUIState = {
     profileRow: null,
+    profileName: '',
+    profileOwnerKey: '',
     orderRow: null,
+    orderOwnerKey: '',
     activeOrder: null,
     pollTimerId: null,
     countdownTimerId: null,
@@ -232,6 +235,10 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
   let homeReturnPage = '';
   let companyDuplicateTimer = null;
   let companyDuplicateState = { value: '', duplicate: false, checking: false };
+  const COMPANY_INLINE_DRAFT_KEY = 'sproutg:companyInlineDraft:v1';
+  let _companyInlineDraftIntegrityBlocked = false;
+  let _companyInlineDraftStorageError = '';
+  let _companyInlineDraftQuarantineKey = '';
   const sproutgReq = { profile: 0, filter: 0, work: 0, mcc: 0 };
   let filtersRefreshTimer = null;
   let sproutgScrollRestoreSeq = 0;
@@ -249,13 +256,554 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
   let _mccWriteRevision = 0;
   let _o1WriteSeq = 0;
   let _o1FailedWrites = 0;
+  let _writeBarrierActive = false;
+  const _localWriteJobs = new Set();
+  const _heroSmsReadJobs = new Map();
+  const FAILED_DRAFTS_KEY = 'sproutg:failedWriteDrafts:v1';
+  const _failedWriteDrafts = new Map();
+  let _failedDraftIntegrityBlocked = false;
+  let _failedDraftStorageError = '';
+  let _failedDraftQuarantineKey = '';
+  const EDIT_DRAFTS_KEY = 'sproutg:semanticEditDrafts:v1';
+  const EDIT_DRAFT_MAX_RECORDS = 300;
+  const EDIT_DRAFT_MAX_BYTES = 512 * 1024;
+  const _editDrafts = new Map();
+  let _editDraftStorageError = '';
+  let _editDraftIntegrityBlocked = false;
+  let _editDraftQuarantineKey = '';
+  let _editDraftRecoveryNoticeShown = false;
   const O1_SAVE_TIMEOUT_MS = 30000;
+  const MCC_SAVE_TIMEOUT_MS = 30000;
+  const PENDING_REPLAY_AFTER_FAILURE_MS = 180;
+  const BULK_TAB_WINDOW_LIMIT = 24;
   const O1_REFRESH_COLS = new Set(['AZ','BI','BW','CF','BA','BJ','BP','BX','CG','BO','AE','O','AQ','BC','BN','BQ','BZ','D']);
   const _o1RowPendingWrites = new Map();
   const _o1LocalValuesByRow = new Map();
+  const _mccLocalValuesByOwner = new Map();
+  const _confirmedQueueWriteIds = new Set();
+  const _handledQueueConfirmationIds = new Set();
+  const _o1ConfirmedRefreshTimers = new Map();
+  const _mccConfirmedRefreshTimers = new Map();
+  const _mccPendingRenamesByOld = new Map();
   const _o1PendingNextByCell = new Map();
   const _o1QueuedSingleByCell = new Map();
   const _mccQueuedSingleByCell = new Map();
+  const _stableIdentityKeys = window.SproutgDurableFailureTargets || {};
+  const _smsOwner = window.SproutgSmsOwner || {};
+
+  function identityTupleKey_(namespace, values){
+    if(typeof _stableIdentityKeys.encodeTuple === 'function'){
+      return _stableIdentityKeys.encodeTuple(namespace, values);
+    }
+    const parts = (Array.isArray(values) ? values : [values])
+      .map(value=>String(value ?? '').trim());
+    return `${String(namespace || '').trim()}:${JSON.stringify(parts)}`;
+  }
+
+  function o1OwnerKey_(value){
+    if(typeof _stableIdentityKeys.o1OwnerKey === 'function'){
+      return _stableIdentityKeys.o1OwnerKey(value);
+    }
+    const input = value && typeof value === 'object' ? value : {};
+    const profileName = String(
+      input.profileName
+      || input.profile
+      || input.identity?.profileName
+      || ''
+    ).trim();
+    if(profileName) return identityTupleKey_('o1-profile', [profileName]);
+    const tabKey = String(input.tabKey || '').trim();
+    return tabKey && !tabKey.startsWith('O1#')
+      ? identityTupleKey_('o1-tab', [tabKey])
+      : '';
+  }
+
+  function mccOwnerKey_(value){
+    if(typeof _stableIdentityKeys.mccOwnerKey === 'function'){
+      return _stableIdentityKeys.mccOwnerKey(value);
+    }
+    const identity = value?.identity && typeof value.identity === 'object'
+      ? value.identity
+      : (value || {});
+    const profileName = String(identity.profileName || identity.profile || '').trim();
+    const accountName = String(identity.accountName || identity.account || '').trim();
+    return profileName && accountName
+      ? identityTupleKey_('mcc-account', [profileName, accountName])
+      : '';
+  }
+
+  function stableCellKey_(namespace, ownerKey, col){
+    if(typeof _stableIdentityKeys.cellStateKey === 'function'){
+      return _stableIdentityKeys.cellStateKey(namespace, ownerKey, col);
+    }
+    const owner = String(ownerKey || '').trim();
+    const column = String(col || '').toUpperCase().trim();
+    return owner && column
+      ? identityTupleKey_('cell-state', [namespace, owner, column])
+      : '';
+  }
+
+  function editDraftKey_(scope, ownerParts, col){
+    if(typeof _stableIdentityKeys.editDraftKey === 'function'){
+      return _stableIdentityKeys.editDraftKey(scope, ownerParts, col);
+    }
+    const owners = Array.isArray(ownerParts) ? ownerParts : [ownerParts];
+    return identityTupleKey_('edit-draft', [
+      String(scope || '').trim(),
+      ...owners,
+      String(col || '').toUpperCase().trim()
+    ]);
+  }
+
+  function normalizeEditDraft_(raw){
+    if(!raw || typeof raw !== 'object') return null;
+    const scope = String(raw.scope || '').trim();
+    const ownerParts = Array.isArray(raw.ownerParts)
+      ? raw.ownerParts.map(value=>String(value ?? '').trim())
+      : [];
+    const col = String(raw.col || '').toUpperCase().trim();
+    if(!scope || !ownerParts.length || !col) return null;
+    const key = editDraftKey_(scope, ownerParts, col);
+    if(!key) return null;
+    return {
+      key,
+      scope,
+      ownerParts,
+      col,
+      rowHint:Number(raw.rowHint) || raw.rowHint || '',
+      baseline:String(raw.baseline ?? ''),
+      value:String(raw.value ?? ''),
+      updatedAt:Number(raw.updatedAt || 0) || Date.now()
+    };
+  }
+
+  try {
+    const rawEditDrafts = localStorage.getItem(EDIT_DRAFTS_KEY);
+    const storedEditDrafts = JSON.parse(rawEditDrafts || '[]');
+    if(!Array.isArray(storedEditDrafts)){
+      throw new Error('Формат локальных черновиков не является массивом');
+    }
+    for(const raw of storedEditDrafts){
+      const draft = normalizeEditDraft_(raw);
+      if(!draft) throw new Error('Найдена неподдерживаемая запись локального черновика');
+      _editDrafts.set(draft.key, draft);
+    }
+    window.__sproutgEditDraftPending = _editDrafts.size;
+  } catch(error) {
+    let raw = null;
+    try {
+      raw = localStorage.getItem(EDIT_DRAFTS_KEY);
+      if(raw != null){
+        _editDraftQuarantineKey = `${EDIT_DRAFTS_KEY}:quarantine:${Date.now()}`;
+        localStorage.setItem(_editDraftQuarantineKey, raw);
+        if(localStorage.getItem(_editDraftQuarantineKey) !== raw){
+          throw new Error('проверка карантинной копии не пройдена');
+        }
+      }
+    } catch(quarantineError) {
+      _editDraftQuarantineKey = '';
+      _editDraftStorageError = `Не удалось создать карантинную копию: ${quarantineError?.message || quarantineError}`;
+    }
+    _editDraftIntegrityBlocked = true;
+    _editDraftStorageError = [
+      String(error?.message || error || 'localStorage unavailable'),
+      _editDraftStorageError
+    ].filter(Boolean).join('; ');
+    window.__sproutgEditDraftIntegrityBlocked = true;
+    window.__sproutgEditDraftIntegrityError = _editDraftStorageError;
+    window.__sproutgEditDraftPending = _editDrafts.size;
+  }
+
+  function serializeEditDrafts_(drafts = _editDrafts){
+    const records = Array.from(drafts.values())
+      .sort((a,b)=>Number(a.updatedAt || 0) - Number(b.updatedAt || 0));
+    if(records.length > EDIT_DRAFT_MAX_RECORDS){
+      throw new Error(`Слишком много несохранённых полей (${records.length}/${EDIT_DRAFT_MAX_RECORDS})`);
+    }
+    const serialized = JSON.stringify(records);
+    if(new Blob([serialized]).size > EDIT_DRAFT_MAX_BYTES){
+      throw new Error('Локальное хранилище черновиков переполнено');
+    }
+    return serialized;
+  }
+
+  function persistEditDrafts_(){
+    if(_editDraftIntegrityBlocked){
+      throw new Error(
+        `Исходные локальные черновики повреждены и сохранены без перезаписи`
+        + (_editDraftQuarantineKey ? ` (${_editDraftQuarantineKey})` : '')
+      );
+    }
+    const serialized = serializeEditDrafts_();
+    localStorage.setItem(EDIT_DRAFTS_KEY, serialized);
+    window.__sproutgEditDraftPending = _editDrafts.size;
+    _editDraftStorageError = '';
+  }
+
+  function markEditDraftRisk_(el, error){
+    if(el){
+      el.dataset.unsaved = '1';
+      el.dataset.draftError = '1';
+      el.title = [el.title, 'Черновик не записан на диск'].filter(Boolean).join(' • ');
+    }
+    _editDraftStorageError = String(error?.message || error || 'Черновик не записан');
+    console.error('[SproutG edit draft]', _editDraftStorageError);
+    toast(`Внимание: введённое значение не защищено на диске. ${_editDraftStorageError}`);
+  }
+
+  function editDraftDescriptor_(scope, ownerParts, col, rowHint, baseline){
+    const normalizedOwners = (Array.isArray(ownerParts) ? ownerParts : [ownerParts])
+      .map(value=>String(value ?? '').trim());
+    const column = String(col || '').toUpperCase().trim();
+    return {
+      key:editDraftKey_(scope, normalizedOwners, column),
+      scope:String(scope || '').trim(),
+      ownerParts:normalizedOwners,
+      col:column,
+      rowHint:Number(rowHint) || rowHint || '',
+      baseline:String(baseline ?? '')
+    };
+  }
+
+  function captureEditDraft_(descriptor, value, el){
+    if(!descriptor?.key) return false;
+    const previous = _editDrafts.get(descriptor.key);
+    _editDrafts.set(descriptor.key, {
+      ...descriptor,
+      value:String(value ?? ''),
+      updatedAt:Date.now()
+    });
+    try {
+      persistEditDrafts_();
+      if(el){
+        el.dataset.unsaved = '1';
+        delete el.dataset.draftError;
+      }
+      return true;
+    } catch(error) {
+      if(previous) _editDrafts.set(descriptor.key, previous);
+      else _editDrafts.delete(descriptor.key);
+      window.__sproutgEditDraftPending = _editDrafts.size;
+      markEditDraftRisk_(el, error);
+      return false;
+    }
+  }
+
+  function clearEditDraft_(descriptor, savedValue, el){
+    if(!descriptor?.key) return false;
+    const currentDraft = _editDrafts.get(descriptor.key);
+    if(!currentDraft || String(currentDraft.value ?? '') !== String(savedValue ?? '')) return false;
+    _editDrafts.delete(descriptor.key);
+    try {
+      persistEditDrafts_();
+      for(const candidate of document.querySelectorAll('[data-edit-draft-key]')){
+        if(candidate.dataset.editDraftKey !== descriptor.key) continue;
+        delete candidate.dataset.unsaved;
+        delete candidate.dataset.draftError;
+        delete candidate.dataset.draftRecovered;
+      }
+      if(el){
+        delete el.dataset.unsaved;
+        delete el.dataset.draftError;
+        delete el.dataset.draftRecovered;
+      }
+      return true;
+    } catch(error) {
+      _editDrafts.set(descriptor.key, currentDraft);
+      window.__sproutgEditDraftPending = _editDrafts.size;
+      markEditDraftRisk_(el, error);
+      return false;
+    }
+  }
+
+  function bindEditDraftInput_(el, descriptor, opts = {}){
+    if(!el || !descriptor?.key) return;
+    el.dataset.editDraftKey = descriptor.key;
+    const read = typeof opts.read === 'function'
+      ? opts.read
+      : ()=>String(el.value ?? '');
+    const apply = typeof opts.apply === 'function'
+      ? opts.apply
+      : (value)=>{ el.value = String(value ?? ''); };
+    const stored = _editDrafts.get(descriptor.key);
+    if(stored){
+      apply(stored.value);
+      el.dataset.unsaved = '1';
+      el.dataset.draftRecovered = '1';
+      if(!_editDraftRecoveryNoticeShown){
+        _editDraftRecoveryNoticeShown = true;
+        setTimeout(()=>toast('Восстановлены локальные несохранённые изменения'), 0);
+      }
+    } else if(_editDraftStorageError) {
+      markEditDraftRisk_(el, _editDraftStorageError);
+    }
+    if(el.dataset.editDraftBound === '1') return;
+    el.dataset.editDraftBound = '1';
+    el.addEventListener('input', ()=>{
+      captureEditDraft_(descriptor, read(), el);
+    });
+  }
+
+  function o1EditDraftDescriptor_(context, col, baseline){
+    const profileName = String(context?.profileName || '').trim();
+    return profileName
+      ? editDraftDescriptor_('O1', [profileName], col, context?.row, baseline)
+      : null;
+  }
+
+  function mccEditDraftDescriptor_(context, col, baseline){
+    const profileName = String(context?.identity?.profileName || '').trim();
+    const accountName = String(context?.identity?.accountName || '').trim();
+    return profileName && accountName
+      ? editDraftDescriptor_('MCC', [profileName, accountName], col, context?.row, baseline)
+      : null;
+  }
+
+  function o1FieldMap_(profile){
+    const map = {};
+    for(const group of (profile?.groups || [])){
+      for(const field of (group?.fields || [])){
+        const col = String(field?.col || '').toUpperCase().trim();
+        if(col) map[col] = field;
+      }
+    }
+    return map;
+  }
+
+  function bindRenderedO1EditDrafts_(profile){
+    const profileName = String(profile?.profileName || '').trim();
+    if(!profileName) return;
+    const context = o1WriteContext_(profile.row, {
+      profileName,
+      tabKey:getTabKey('', profileName)
+    });
+    const fields = o1FieldMap_(profile);
+    const inputs = Array.from(document.querySelectorAll(
+      '#out input[data-row][data-col]:is([type="text"],[type="date"])'
+    ));
+    const bfInputs = inputs.filter(el=>el.closest('.bfRow'));
+    for(const el of inputs){
+      if(el.closest('.bfRow')) continue;
+      const col = String(el.dataset.col || '').toUpperCase().trim();
+      const descriptor = o1EditDraftDescriptor_(context, col, fields[col]?.value ?? '');
+      bindEditDraftInput_(el, descriptor);
+      if(el.dataset.draftRecovered === '1' && col === 'BS'){
+        delete el.dataset.placeholderDefault;
+        applyBSColor(el, el.value);
+      }
+    }
+    if(bfInputs.length){
+      const descriptor = o1EditDraftDescriptor_(context, 'BF', fields.BF?.value ?? '');
+      const read = ()=>{
+        const values = bfInputs.map(el=>String(el.value || '').trim()).filter(Boolean);
+        return values.join(' ').trim();
+      };
+      const apply = (value)=>{
+        const parts = splitBF(value);
+        if(bfInputs[0]) bfInputs[0].value = parts.p1;
+        if(bfInputs[1]) bfInputs[1].value = parts.p2;
+        if(bfInputs[2]) bfInputs[2].value = parts.p3;
+      };
+      for(const el of bfInputs) bindEditDraftInput_(el, descriptor, { read, apply });
+    }
+  }
+
+  function bindRenderedMccEditDrafts_(profile){
+    if(!profile?.profileName) return;
+    const byRow = new Map((profile.rows || []).map(row=>[Number(row?.row), row]));
+    for(const el of document.querySelectorAll(
+      '#mccOut input[data-row][data-col]:is([type="text"],[type="date"])'
+    )){
+      const rowObj = byRow.get(Number(el.dataset.row));
+      if(!rowObj) continue;
+      const context = mccWriteContext_(rowObj.row, {
+        profileName:String(profile.profileName || '').trim(),
+        accountName:String(rowObj.accountName || rowObj.values?.C || '').trim()
+      });
+      const col = String(el.dataset.col || '').toUpperCase().trim();
+      const descriptor = mccEditDraftDescriptor_(context, col, rowObj.values?.[col] ?? '');
+      bindEditDraftInput_(el, descriptor);
+      if(el.dataset.draftRecovered === '1' && mccIsExpenseCol(col)){
+        applyMccExpenseColor(el, el.value);
+      }
+    }
+  }
+
+  function failedDraftKey_(scope, row, col, identity){
+    const owner = scope === 'MCC'
+      ? mccOwnerKey_(identity)
+      : o1OwnerKey_(identity);
+    const target = owner || identityTupleKey_('unowned-row', [Number(row) || row]);
+    return stableCellKey_(`failed-${scope}`, target, col);
+  }
+
+  try {
+    const rawFailedDrafts = localStorage.getItem(FAILED_DRAFTS_KEY);
+    const storedDrafts = JSON.parse(rawFailedDrafts || '[]');
+    if(!Array.isArray(storedDrafts)) throw new Error('Формат журнала ошибок сохранения повреждён');
+    for(const draft of storedDrafts){
+      if(!draft || typeof draft !== 'object' || !draft.scope || !draft.col){
+        throw new Error('Журнал ошибок сохранения содержит неподдерживаемую запись');
+      }
+      const key = failedDraftKey_(draft.scope, draft.row, draft.col, draft.identity);
+      _failedWriteDrafts.set(key, { ...draft, key });
+    }
+  } catch(error) {
+    let raw = null;
+    try {
+      raw = localStorage.getItem(FAILED_DRAFTS_KEY);
+      if(raw != null){
+        _failedDraftQuarantineKey = `${FAILED_DRAFTS_KEY}:quarantine:${Date.now()}`;
+        localStorage.setItem(_failedDraftQuarantineKey, raw);
+        if(localStorage.getItem(_failedDraftQuarantineKey) !== raw){
+          throw new Error('проверка карантинной копии не пройдена');
+        }
+      }
+    } catch(quarantineError) {
+      _failedDraftQuarantineKey = '';
+      _failedDraftStorageError = `Не удалось создать карантинную копию: ${quarantineError?.message || quarantineError}`;
+    }
+    _failedDraftIntegrityBlocked = true;
+    _failedDraftStorageError = [
+      String(error?.message || error),
+      _failedDraftStorageError
+    ].filter(Boolean).join('; ');
+    window.__sproutgFailedDraftIntegrityRisk = 1;
+    window.__sproutgFailedDraftIntegrityError = _failedDraftStorageError;
+  }
+  if(!_failedDraftIntegrityBlocked){
+    window.__sproutgFailedDraftIntegrityRisk = 0;
+    window.__sproutgFailedDraftIntegrityError = '';
+  }
+
+  function persistFailedDrafts_(){
+    if(_failedDraftIntegrityBlocked){
+      _failedDraftStorageError = (
+        'Исходный журнал ошибок сохранения сохранён без перезаписи'
+        + (_failedDraftQuarantineKey ? ` (${_failedDraftQuarantineKey})` : '')
+      );
+      window.__sproutgFailedDraftIntegrityRisk = 1;
+      window.__sproutgFailedDraftIntegrityError = _failedDraftStorageError;
+      return false;
+    }
+    try {
+      const serialized = JSON.stringify(Array.from(_failedWriteDrafts.values()));
+      localStorage.setItem(FAILED_DRAFTS_KEY, serialized);
+      if(localStorage.getItem(FAILED_DRAFTS_KEY) !== serialized){
+        throw new Error('проверка журнала ошибок сохранения не пройдена');
+      }
+      _failedDraftStorageError = '';
+      window.__sproutgFailedDraftIntegrityRisk = 0;
+      window.__sproutgFailedDraftIntegrityError = '';
+      return true;
+    } catch(error) {
+      _failedDraftStorageError = String(error?.message || error);
+      window.__sproutgFailedDraftIntegrityRisk = 1;
+      window.__sproutgFailedDraftIntegrityError = _failedDraftStorageError;
+      return false;
+    }
+  }
+
+  function recordFailedDraft_(scope, row, updates, identity, error){
+    for(const [rawCol, value] of Object.entries(updates || {})){
+      const col = String(rawCol || '').toUpperCase().trim();
+      if(!col) continue;
+      const key = failedDraftKey_(scope, row, col, identity);
+      _failedWriteDrafts.set(key, {
+        key,
+        scope,
+        row:Number(row),
+        col,
+        value,
+        identity:{ ...(identity || {}) },
+        error:String(error || ''),
+        updatedAt:Date.now()
+      });
+    }
+    persistFailedDrafts_();
+  }
+
+  function clearFailedDrafts_(scope, row, cols, identity){
+    let changed = false;
+    for(const rawCol of (cols || [])){
+      const col = String(rawCol || '').toUpperCase().trim();
+      const key = failedDraftKey_(scope, row, col, identity);
+      changed = _failedWriteDrafts.delete(key) || changed;
+    }
+    if(changed) persistFailedDrafts_();
+  }
+
+  function clearRecoveredUnsaved_(row, cols){
+    const wantedRow = String(Number(row) || row || '');
+    const wantedCols = new Set((cols || []).map(col=>String(col || '').toUpperCase().trim()));
+    for(const element of document.querySelectorAll('[data-unsaved="1"]')){
+      const owner = element.closest?.('[data-row]') || element;
+      const elementRow = String(element.dataset.row || owner?.dataset?.row || '');
+      const elementCol = String(element.dataset.col || owner?.dataset?.col || '').toUpperCase().trim();
+      if(elementRow === wantedRow && wantedCols.has(elementCol)){
+        delete element.dataset.unsaved;
+      }
+    }
+  }
+
+  let _failedDraftRecovery = null;
+  function recoverFailedDrafts_(){
+    if(_failedDraftRecovery) return _failedDraftRecovery;
+    _failedDraftRecovery = (async ()=>{
+      const groups = new Map();
+      for(const draft of _failedWriteDrafts.values()){
+        const action = draft.scope === 'MCC' ? 'mcc.updateCells' : 'o1.updateCells';
+        const identityKey = JSON.stringify(draft.identity || {});
+        const key = `${action}:${draft.row}:${identityKey}`;
+        if(!groups.has(key)){
+          groups.set(key, {
+            action,
+            row:draft.row,
+            identity:draft.identity || {},
+            updates:{},
+            cols:[]
+          });
+        }
+        const group = groups.get(key);
+        group.updates[draft.col] = draft.value;
+        group.cols.push(draft.col);
+      }
+      for(const group of groups.values()){
+        try {
+          const result = await window.sproutg.apiCall(group.action, {
+            row:group.row,
+            updates:group.updates,
+            identity:group.identity
+          }, { cache:false });
+          if(result?.ok === true){
+            const isMcc = group.action.startsWith('mcc.');
+            const context = isMcc
+              ? mccWriteContext_(group.row, group.identity)
+              : o1WriteContext_(group.row, {
+                  profileName:String(group.identity?.profileName || '').trim(),
+                  tabKey:getTabKey('', group.identity?.profileName || '')
+                });
+            for(const [col, value] of Object.entries(group.updates || {})){
+              clearEditDraft_(
+                isMcc
+                  ? mccEditDraftDescriptor_(context, col, value)
+                  : o1EditDraftDescriptor_(context, col, value),
+                value
+              );
+            }
+            clearFailedDrafts_(
+              isMcc ? 'MCC' : 'O1',
+              group.row,
+              group.cols,
+              group.identity
+            );
+            clearRecoveredUnsaved_(group.row, group.cols);
+          }
+        } catch(_error) {}
+      }
+    })().finally(()=>{ _failedDraftRecovery = null; });
+    return _failedDraftRecovery;
+  }
   function logSave_(scope, msg, meta){
     if(!SAVE_DEBUG && !window.SPROUTG_DEBUG) return;
     const suffix = meta ? ` ${JSON.stringify(meta)}` : '';
@@ -269,6 +817,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
   window.addEventListener('sproutg-api-priority-start', ()=>{ _sproutgPriorityReads += 1; });
   window.addEventListener('sproutg-api-priority-end', ()=>{ _sproutgPriorityReads = Math.max(0, _sproutgPriorityReads - 1); });
   function waitForPriorityReads_(){
+    if(_writeBarrierActive) return Promise.resolve();
     if(_sproutgPriorityReads <= 0) return Promise.resolve();
     return new Promise((resolve)=>{
       const started = Date.now();
@@ -283,55 +832,238 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     });
   }
   function enqueueWrite_(scope, run){
-    return waitForPriorityReads_().then(()=>new Promise(run));
+    // Persist mutations through main/WAL immediately. Read prioritization must
+    // never leave an accepted edit only in renderer memory.
+    const job = new Promise(run);
+    _localWriteJobs.add(job);
+    const cleanup = ()=>_localWriteJobs.delete(job);
+    job.then(cleanup, cleanup);
+    return job;
   }
 
-  function o1RowKey_(row){
-    return String(Number(row) || row || '').trim();
+  function releaseWriteBarrier_(){
+    _writeBarrierActive = false;
+    document.documentElement.removeAttribute('data-write-barrier');
   }
 
-  function o1CellKey_(row, col){
-    return `${o1RowKey_(row)}:${String(col || '').toUpperCase().trim()}`;
+  async function prepareWriteBarrier_(request = {}){
+    _writeBarrierActive = true;
+    document.documentElement.dataset.writeBarrier = '1';
+    const allowDurableFailures = request.allowDurableFailures === true;
+    try {
+      const active = document.activeElement;
+      if(active && active !== document.body && typeof active.blur === 'function') active.blur();
+    } catch(_error) {}
+    if(!allowDurableFailures && typeof window.sproutgRetryDurableFailures === 'function'){
+      await window.sproutgRetryDurableFailures();
+    }
+    if(!allowDurableFailures) await recoverFailedDrafts_();
+
+    const timeoutMs = Math.max(1000, Number(request.timeoutMs || 30000));
+    const deadline = Date.now() + timeoutMs;
+    let stableSince = 0;
+    while(Date.now() < deadline){
+      const localPending = Math.max(0, _o1PendingWrites + _mccPendingWrites);
+      const mutationPending = Math.max(0, Number(window.__sproutgMutationPending || 0));
+      const pendingNext = _o1PendingNextByCell.size
+        + document.querySelectorAll('[data-pending-next-value]').length;
+      const saving = document.querySelectorAll('[data-saving="1"]').length;
+      const deferredFailures = allowDurableFailures
+        ? 0
+        : _failedWriteDrafts.size + Math.max(0, Number(window.__sproutgDurableFailurePending || 0));
+      const companyDraftAtRisk = getCompanyInputs().some(input=>String(input.value || '').trim())
+        && (
+          request.reason === 'logout'
+          || (request.reason === 'change-endpoint' && !allowDurableFailures)
+        );
+      const companyInlineDraftIntegrityRisk = (
+        _companyInlineDraftIntegrityBlocked || !!_companyInlineDraftStorageError
+      ) ? 1 : 0;
+      const semanticDraftsAtRisk = (
+        request.reason === 'logout'
+        || request.reason === 'change-endpoint'
+      ) ? _editDrafts.size : 0;
+      const semanticDraftIntegrityRisk = _editDraftIntegrityBlocked ? 1 : 0;
+      const failedDraftIntegrityRisk = (
+        _failedDraftIntegrityBlocked || !!_failedDraftStorageError
+      ) ? 1 : 0;
+      const unsaved = document.querySelectorAll('[data-unsaved="1"]').length
+        + deferredFailures
+        + semanticDraftsAtRisk
+        + semanticDraftIntegrityRisk
+        + failedDraftIntegrityRisk
+        + companyInlineDraftIntegrityRisk
+        + (companyDraftAtRisk ? 1 : 0);
+      const busy = localPending + mutationPending + pendingNext + saving + _localWriteJobs.size;
+
+      if(unsaved > 0){
+        return {
+          ok:false,
+          error:`Есть несохранённые поля: ${unsaved}`,
+          localPending,
+          mutationPending,
+          pendingNext,
+          saving,
+          editDrafts:_editDrafts.size,
+          editDraftIntegrityRisk:semanticDraftIntegrityRisk,
+          failedDraftIntegrityRisk,
+          companyInlineDraftIntegrityRisk,
+          unsaved
+        };
+      }
+      if(busy === 0){
+        if(!stableSince) stableSince = Date.now();
+        if(Date.now() - stableSince >= 450){
+          return { ok:true, localPending:0, mutationPending:0, pendingNext:0, saving:0 };
+        }
+      } else {
+        stableSince = 0;
+      }
+      await new Promise((resolve)=>setTimeout(resolve, 40));
+    }
+    return {
+      ok:false,
+      error:'Интерфейс не успел передать последние изменения в надёжную очередь',
+      localPending:Math.max(0, _o1PendingWrites + _mccPendingWrites),
+      mutationPending:Math.max(0, Number(window.__sproutgMutationPending || 0)),
+      pendingNext:_o1PendingNextByCell.size + document.querySelectorAll('[data-pending-next-value]').length,
+      saving:document.querySelectorAll('[data-saving="1"]').length,
+      editDrafts:_editDrafts.size
+    };
+  }
+
+  window.sproutg.onPrepareWriteBarrier((request)=>{
+    prepareWriteBarrier_(request)
+      .then((result)=>window.sproutg.completeWriteBarrier({ id:request?.id, ...result }))
+      .catch((error)=>window.sproutg.completeWriteBarrier({
+        id:request?.id,
+        ok:false,
+        error:String(error?.message || error)
+      }));
+  });
+  window.sproutg.onReleaseWriteBarrier(releaseWriteBarrier_);
+  setTimeout(()=>{
+    Promise.resolve()
+      .then(()=>window.sproutgRetryDurableFailures?.())
+      .then(()=>recoverFailedDrafts_())
+      .catch(()=>{});
+  }, 1200);
+
+  function o1WriteContext_(row, meta = {}){
+    const source = meta && typeof meta === 'object' ? meta : {};
+    const requestedTabKey = String(source.tabKey || '').trim();
+    const requestedProfile = String(
+      source.profileName
+      || source.profile
+      || source.identity?.profileName
+      || ''
+    ).trim();
+    const tabProfile = requestedTabKey
+      ? String(tabData[requestedTabKey]?.profileName || '').trim()
+      : '';
+    const activeMatches = (
+      current?.row
+      && String(current.row) === String(row)
+      && (!requestedTabKey || requestedTabKey === activeTabKey)
+    );
+    const profileName = requestedProfile
+      || tabProfile
+      || (activeMatches ? String(current?.profileName || '').trim() : '');
+    const tabKey = profileName
+      ? getTabKey('', profileName)
+      : (
+          requestedTabKey && !requestedTabKey.startsWith('O1#')
+            ? requestedTabKey
+            : (activeMatches && !String(activeTabKey || '').startsWith('O1#') ? activeTabKey : '')
+        );
+    const ownerKey = o1OwnerKey_({ profileName, tabKey });
+    return {
+      ownerKey,
+      profileName,
+      tabKey,
+      row:Number(row) || row || ''
+    };
+  }
+
+  function o1CellKey_(context, col){
+    return stableCellKey_('o1-save', context?.ownerKey, col);
   }
 
   function setO1PendingNext_(row, col, value, meta = {}){
-    const key = o1CellKey_(row, col);
-    if(!key || key === ':') return;
+    const context = o1WriteContext_(row, meta);
+    const key = o1CellKey_(context, col);
+    if(!key) return;
     _o1PendingNextByCell.set(key, {
       value,
-      tabKey: meta.tabKey || getTabKey(row),
-      profileName: meta.profileName || tabData[getTabKey(row)]?.profileName || '',
+      row:Number(row) || row,
+      ownerKey:context.ownerKey,
+      tabKey:context.tabKey,
+      profileName:context.profileName,
       replay: typeof meta.replay === 'function' ? meta.replay : null
     });
   }
 
-  function takeO1PendingNext_(row, col){
-    const key = o1CellKey_(row, col);
+  function takeO1PendingNext_(row, col, meta = {}){
+    const context = o1WriteContext_(row, meta);
+    const key = o1CellKey_(context, col);
+    if(!key) return null;
     const pending = _o1PendingNextByCell.get(key);
     if(pending) _o1PendingNextByCell.delete(key);
     return pending || null;
   }
 
-  function getO1PendingCountForRow(row){
-    return _o1RowPendingWrites.get(o1RowKey_(row)) || 0;
+  function getO1PendingCountForRow(row, meta = {}){
+    const context = o1WriteContext_(row, meta);
+    if(!context.ownerKey) return 0;
+    return Number(_o1RowPendingWrites.get(context.ownerKey)?.count || 0);
   }
 
-  function adjustO1PendingRow_(row, delta){
-    const key = o1RowKey_(row);
-    if(!key) return;
-    const next = Math.max(0, (getO1PendingCountForRow(row) || 0) + Number(delta || 0));
-    if(next) _o1RowPendingWrites.set(key, next);
-    else _o1RowPendingWrites.delete(key);
+  function adjustO1PendingRow_(row, delta, meta = {}){
+    const context = o1WriteContext_(row, meta);
+    if(!context.ownerKey) return;
+    const next = Math.max(
+      0,
+      Number(_o1RowPendingWrites.get(context.ownerKey)?.count || 0) + Number(delta || 0)
+    );
+    if(next){
+      _o1RowPendingWrites.set(context.ownerKey, {
+        count:next,
+        row:Number(row) || row,
+        profileName:context.profileName,
+        tabKey:context.tabKey
+      });
+    } else {
+      _o1RowPendingWrites.delete(context.ownerKey);
+    }
   }
 
-  function isActiveO1Row_(row){
-    return activePage === 'O1' && current?.row && String(current.row) === String(row);
+  function isActiveO1Row_(row, meta = {}){
+    const wanted = o1WriteContext_(row, meta);
+    const active = o1WriteContext_(current?.row, {
+      profileName:current?.profileName || '',
+      tabKey:activeTabKey
+    });
+    return (
+      activePage === 'O1'
+      && !!wanted.ownerKey
+      && wanted.ownerKey === active.ownerKey
+    );
   }
 
   function isO1WriteContextActive_(ctx){
     if(!ctx) return false;
     const tabStillOpen = !!ctx.tabKey && !!tabData[ctx.tabKey] && openTabs.includes(ctx.tabKey);
-    return activePage === 'O1' && tabStillOpen && activeTabKey === ctx.tabKey && current?.row && String(current.row) === String(ctx.row);
+    const active = o1WriteContext_(current?.row, {
+      profileName:current?.profileName || '',
+      tabKey:activeTabKey
+    });
+    return (
+      activePage === 'O1'
+      && tabStillOpen
+      && activeTabKey === ctx.tabKey
+      && !!ctx.ownerKey
+      && ctx.ownerKey === active.ownerKey
+    );
   }
 
   function isO1ElementCurrent_(el){
@@ -363,50 +1095,426 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     }
   }
 
-  function rememberO1LocalValues_(row, values){
-    const key = o1RowKey_(row);
-    if(!key || !values || typeof values !== 'object') return;
-    const cur = _o1LocalValuesByRow.get(key) || {};
+  function rememberO1LocalValues_(row, values, meta = {}){
+    const context = o1WriteContext_(row, meta);
+    if(!context.ownerKey || !values || typeof values !== 'object') return;
+    const entry = _o1LocalValuesByRow.get(context.ownerKey) || {
+      row:Number(row) || row,
+      profileName:context.profileName,
+      tabKey:context.tabKey,
+      values:{},
+      queueWriteIds:{}
+    };
+    if(!entry.queueWriteIds || typeof entry.queueWriteIds !== 'object') entry.queueWriteIds = {};
     const normalized = {};
     for(const [rawCol, value] of Object.entries(values)){
       const col = String(rawCol || '').toUpperCase().trim();
-      if(col) normalized[col] = value;
+      if(col){
+        normalized[col] = value;
+        // A newer local value must never be retired by an older queue
+        // confirmation that happens to target the same profile/column.
+        delete entry.queueWriteIds[col];
+      }
     }
-    Object.assign(cur, normalized);
-    _o1LocalValuesByRow.set(key, cur);
+    Object.assign(entry.values, normalized);
+    entry.row = Number(row) || row;
+    entry.profileName = context.profileName;
+    entry.tabKey = context.tabKey;
+    _o1LocalValuesByRow.set(context.ownerKey, entry);
 
-    const tabKey = getTabKey(row);
-    if(tabData[tabKey]) applyO1ValuesToPayload_(tabData[tabKey], normalized);
-    if(current?.row && String(current.row) === String(row)) applyO1ValuesToPayload_(current, normalized);
+    if(context.tabKey && tabData[context.tabKey]){
+      applyO1ValuesToPayload_(tabData[context.tabKey], normalized);
+    }
+    const active = o1WriteContext_(current?.row, {
+      profileName:current?.profileName || '',
+      tabKey:activeTabKey
+    });
+    if(context.ownerKey === active.ownerKey) applyO1ValuesToPayload_(current, normalized);
   }
 
   function mergeO1LocalValues_(payload){
     if(!payload?.row) return payload;
-    const values = _o1LocalValuesByRow.get(o1RowKey_(payload.row));
-    if(values) applyO1ValuesToPayload_(payload, values);
+    const context = o1WriteContext_(payload.row, {
+      profileName:payload.profileName || '',
+      tabKey:payload.profileName ? getTabKey('', payload.profileName) : ''
+    });
+    const entry = context.ownerKey ? _o1LocalValuesByRow.get(context.ownerKey) : null;
+    if(entry?.values) applyO1ValuesToPayload_(payload, entry.values);
     return payload;
   }
+
+  function scheduleO1ConfirmedRefresh_(entry){
+    const ownerKey = String(entry?.ownerKey || '').trim();
+    const profileName = String(entry?.profileName || '').trim();
+    const row = Number(entry?.row || 0);
+    if(!ownerKey || !profileName || !row) return;
+    clearTimeout(_o1ConfirmedRefreshTimers.get(ownerKey));
+    _o1ConfirmedRefreshTimers.set(ownerKey, setTimeout(()=>{
+      _o1ConfirmedRefreshTimers.delete(ownerKey);
+      window.sproutgApi?.invalidate?.();
+      const preferredKey = String(entry.tabKey || getTabKey('', profileName));
+      const sourceKey = tabData[preferredKey]
+        ? preferredKey
+        : openTabs.find((key)=>{
+            const payload = tabData[key];
+            return o1OwnerKey_(payload) === ownerKey;
+          });
+      if(!sourceKey || !tabData[sourceKey]) return;
+      const sourceRow = Number(tabData[sourceKey]?.row || row);
+      google.script.run.withSuccessHandler((response)=>{
+        const payload = apiPayload(response);
+        if(!payload || payload.ok === false) return;
+        if(String(payload.profileName || '').trim() !== profileName) return;
+        mergeO1LocalValues_(payload);
+        const navInfo = tabNav[sourceKey] || null;
+        const loadedKey = adoptLoadedO1Tab_(sourceKey, payload, navInfo);
+        if(activeTabKey !== loadedKey){
+          renderTabs();
+          return;
+        }
+        current = tabData[loadedKey];
+        const activeElement = document.activeElement;
+        const out = document.getElementById('out');
+        // Do not destroy a currently focused editor. The fresh server model is
+        // already adopted and will render as soon as focus leaves/reloads.
+        if(activeElement && out?.contains(activeElement)) return;
+        const scrollSnap = captureSproutScroll_('server-confirmed-write');
+        renderProfile(current, {
+          preserveSmsPool:true,
+          preserveScrollSnapshot:scrollSnap
+        });
+      }).withFailureHandler(()=>{}).getProfileByRow(sourceRow, {
+        profileName
+      });
+    }, 40));
+  }
+
+  function retireO1LocalValues_(context, cols, options = {}){
+    const ownerKey = String(context?.ownerKey || '').trim();
+    const entry = ownerKey ? _o1LocalValuesByRow.get(ownerKey) : null;
+    if(!entry?.values) return false;
+    const expectedWriteId = String(options.writeId || '').trim();
+    const expectedValues = options.expectedValues && typeof options.expectedValues === 'object'
+      ? options.expectedValues
+      : null;
+    let changed = false;
+    for(const rawCol of (cols || [])){
+      const col = String(rawCol || '').toUpperCase().trim();
+      if(!col || !Object.prototype.hasOwnProperty.call(entry.values, col)) continue;
+      if(
+        expectedWriteId
+        && String(entry.queueWriteIds?.[col] || '') !== expectedWriteId
+      ) continue;
+      if(
+        expectedValues
+        && Object.prototype.hasOwnProperty.call(expectedValues, col)
+        && String(entry.values[col] ?? '') !== String(expectedValues[col] ?? '')
+      ) continue;
+      delete entry.values[col];
+      if(entry.queueWriteIds) delete entry.queueWriteIds[col];
+      changed = true;
+    }
+    if(!changed) return false;
+    if(!Object.keys(entry.values).length) _o1LocalValuesByRow.delete(ownerKey);
+    if(options.refresh !== false){
+      scheduleO1ConfirmedRefresh_({ ...entry, ownerKey });
+    }
+    return true;
+  }
+
+  function retireO1LocalValuesByWriteId_(writeId){
+    const id = String(writeId || '').trim();
+    if(!id) return false;
+    let changed = false;
+    for(const [ownerKey, entry] of Array.from(_o1LocalValuesByRow.entries())){
+      const cols = Object.entries(entry.queueWriteIds || {})
+        .filter(([, queuedId])=>String(queuedId || '') === id)
+        .map(([col])=>col);
+      if(cols.length){
+        changed = retireO1LocalValues_(
+          { ownerKey },
+          cols,
+          { writeId:id }
+        ) || changed;
+      }
+    }
+    return changed;
+  }
+
+  function rememberConfirmedQueueWriteId_(writeId){
+    const id = String(writeId || '').trim();
+    if(!id) return;
+    _confirmedQueueWriteIds.delete(id);
+    _confirmedQueueWriteIds.add(id);
+    while(_confirmedQueueWriteIds.size > 512){
+      _confirmedQueueWriteIds.delete(_confirmedQueueWriteIds.values().next().value);
+    }
+  }
+
+  function trackO1ServerConvergence_(context, applied, result){
+    const cols = Object.keys(applied || {});
+    const writeId = String(result?.writeId || '').trim();
+    if(!cols.length || !writeId) return;
+    if(result?.serverConfirmed === true || _confirmedQueueWriteIds.has(writeId)){
+      rememberConfirmedQueueWriteId_(writeId);
+      retireO1LocalValues_(context, cols, { expectedValues:applied });
+      return;
+    }
+    const entry = _o1LocalValuesByRow.get(context.ownerKey);
+    if(!entry?.values) return;
+    if(!entry.queueWriteIds || typeof entry.queueWriteIds !== 'object') entry.queueWriteIds = {};
+    for(const col of cols){
+      if(Object.prototype.hasOwnProperty.call(entry.values, col)){
+        entry.queueWriteIds[col] = writeId;
+      }
+    }
+    // IPC state and invoke replies are independent channels. Recheck after
+    // attaching the ID in case confirmation arrived just before the ACK.
+    if(_confirmedQueueWriteIds.has(writeId)){
+      retireO1LocalValuesByWriteId_(writeId);
+    }
+  }
+
+  function rememberMccLocalValues_(context, values){
+    if(!context?.ownerKey || !values || typeof values !== 'object') return;
+    const entry = _mccLocalValuesByOwner.get(context.ownerKey) || {
+      ownerKey:context.ownerKey,
+      profileName:String(context.identity?.profileName || '').trim(),
+      accountName:String(context.identity?.accountName || '').trim(),
+      row:Number(context.row) || context.row,
+      values:{},
+      queueWriteIds:{}
+    };
+    for(const [rawCol, value] of Object.entries(values)){
+      const col = String(rawCol || '').toUpperCase().trim();
+      if(!col) continue;
+      entry.values[col] = value;
+      delete entry.queueWriteIds[col];
+    }
+    entry.row = Number(context.row) || context.row;
+    _mccLocalValuesByOwner.set(context.ownerKey, entry);
+    applyMccSavedValues_(entry.row, values, {
+      profileName:entry.profileName,
+      accountName:entry.accountName
+    });
+  }
+
+  function mergeMccLocalValues_(profile){
+    const profileName = String(profile?.profileName || '').trim();
+    if(!profileName || !Array.isArray(profile?.rows)) return profile;
+    for(const entry of _mccLocalValuesByOwner.values()){
+      if(entry.profileName !== profileName) continue;
+      const rowObj = profile.rows.find((row)=>(
+        String(row?.accountName || row?.values?.C || '').trim() === entry.accountName
+      ));
+      if(!rowObj?.values) continue;
+      Object.assign(rowObj.values, entry.values);
+    }
+    return profile;
+  }
+
+  function scheduleMccConfirmedRefresh_(profileName){
+    const name = String(profileName || '').trim();
+    if(!name || mccReadBlockedByRename_(name)) return;
+    clearTimeout(_mccConfirmedRefreshTimers.get(name));
+    _mccConfirmedRefreshTimers.set(name, setTimeout(()=>{
+      _mccConfirmedRefreshTimers.delete(name);
+      window.sproutgApi?.invalidate?.();
+      google.script.run.withSuccessHandler((response)=>{
+        const payload = apiPayload(response);
+        if(!payload || payload.ok === false) return;
+        if(String(payload.profileName || '').trim() !== name) return;
+        mergeMccLocalValues_(payload);
+        cacheMccProfile(payload);
+        if(
+          mccActiveProfileKey !== getMccProfileKey(name)
+          || String(mccProfile?.profileName || '').trim() !== name
+        ) return;
+        mccProfile = payload;
+        const activeElement = document.activeElement;
+        const out = document.getElementById('mccOut');
+        if(activeElement && out?.contains(activeElement)) return;
+        const scrollSnap = captureSproutScroll_('mcc-server-confirmed-write');
+        renderMccProfile({ preserveScrollSnapshot:scrollSnap });
+      }).withFailureHandler(()=>{}).getMccProfile(name);
+    }, 50));
+  }
+
+  function mccReadBlockedByRename_(profileName){
+    return _mccPendingRenamesByOld.has(String(profileName || '').trim());
+  }
+
+  function settleMccPendingRename_(oldProfileName, nextProfileName){
+    const oldName = String(oldProfileName || '').trim();
+    const nextName = String(nextProfileName || '').trim();
+    const currentAttempt = _mccPendingRenamesByOld.get(oldName);
+    if(currentAttempt && (!nextName || currentAttempt.nextProfileName === nextName)){
+      _mccPendingRenamesByOld.delete(oldName);
+    }
+  }
+
+  function retireMccLocalValues_(context, cols, options = {}){
+    const ownerKey = String(context?.ownerKey || '').trim();
+    const entry = ownerKey ? _mccLocalValuesByOwner.get(ownerKey) : null;
+    if(!entry?.values) return false;
+    const expectedWriteId = String(options.writeId || '').trim();
+    const expectedValues = options.expectedValues && typeof options.expectedValues === 'object'
+      ? options.expectedValues
+      : null;
+    let changed = false;
+    for(const rawCol of (cols || [])){
+      const col = String(rawCol || '').toUpperCase().trim();
+      if(!Object.prototype.hasOwnProperty.call(entry.values, col)) continue;
+      if(expectedWriteId && String(entry.queueWriteIds?.[col] || '') !== expectedWriteId) continue;
+      if(
+        expectedValues
+        && Object.prototype.hasOwnProperty.call(expectedValues, col)
+        && String(entry.values[col] ?? '') !== String(expectedValues[col] ?? '')
+      ) continue;
+      delete entry.values[col];
+      delete entry.queueWriteIds[col];
+      changed = true;
+    }
+    if(!changed) return false;
+    if(!Object.keys(entry.values).length) _mccLocalValuesByOwner.delete(ownerKey);
+    if(options.refresh !== false) scheduleMccConfirmedRefresh_(entry.profileName);
+    return true;
+  }
+
+  function retireMccLocalValuesByWriteId_(writeId){
+    const id = String(writeId || '').trim();
+    if(!id) return false;
+    let changed = false;
+    for(const [ownerKey, entry] of Array.from(_mccLocalValuesByOwner.entries())){
+      const cols = Object.entries(entry.queueWriteIds || {})
+        .filter(([, queuedId])=>String(queuedId || '') === id)
+        .map(([col])=>col);
+      if(cols.length){
+        changed = retireMccLocalValues_(
+          { ownerKey },
+          cols,
+          { writeId:id }
+        ) || changed;
+      }
+    }
+    return changed;
+  }
+
+  function trackMccServerConvergence_(context, applied, result){
+    const cols = Object.keys(applied || {});
+    const writeId = String(result?.writeId || '').trim();
+    if(!cols.length || !writeId) return;
+    if(result?.serverConfirmed === true || _confirmedQueueWriteIds.has(writeId)){
+      rememberConfirmedQueueWriteId_(writeId);
+      retireMccLocalValues_(context, cols, { expectedValues:applied });
+      return;
+    }
+    const entry = _mccLocalValuesByOwner.get(context.ownerKey);
+    if(!entry?.values) return;
+    for(const col of cols){
+      if(Object.prototype.hasOwnProperty.call(entry.values, col)){
+        entry.queueWriteIds[col] = writeId;
+      }
+    }
+    if(_confirmedQueueWriteIds.has(writeId)){
+      retireMccLocalValuesByWriteId_(writeId);
+    }
+  }
+
+  function handleConfirmedSurface_(confirmation){
+    const writeId = String(confirmation?.writeId || '').trim();
+    if(!writeId || _handledQueueConfirmationIds.has(writeId)) return;
+    _handledQueueConfirmationIds.add(writeId);
+    while(_handledQueueConfirmationIds.size > 512){
+      _handledQueueConfirmationIds.delete(_handledQueueConfirmationIds.values().next().value);
+    }
+    const action = String(confirmation?.action || '');
+    if(action === 'mcc.updateProfileName'){
+      const nextProfileName = String(confirmation?.target?.profileName || '').trim();
+      const oldProfileName = String(confirmation?.target?.oldProfileName || '').trim();
+      settleMccPendingRename_(oldProfileName, nextProfileName);
+      if(nextProfileName && !mccReadBlockedByRename_(nextProfileName)){
+        scheduleMccConfirmedRefresh_(nextProfileName);
+      }
+    } else if(action.startsWith('mcc.')){
+      const profileName = String(
+        confirmation?.target?.profileName
+        || mccProfile?.profileName
+        || ''
+      ).trim();
+      if(profileName && !mccReadBlockedByRename_(profileName)){
+        scheduleMccConfirmedRefresh_(profileName);
+      }
+    } else if(action.startsWith('pass.')){
+      if(_passAwaitingConfirmations.size){
+        renderPassModalStatus('Ожидание подтверждения сохранения...');
+        return;
+      }
+      setTimeout(()=>{
+        if(_passAwaitingConfirmations.size){
+          renderPassModalStatus('Ожидание подтверждения сохранения...');
+          return;
+        }
+        window.sproutgApi?.invalidate?.();
+        syncPassCatalog({ force:true, confirmed:true });
+      }, 40);
+    } else if(action.startsWith('o1.') && current?.row){
+      const context = o1WriteContext_(current.row, {
+        profileName:current.profileName || '',
+        tabKey:activeTabKey
+      });
+      scheduleO1ConfirmedRefresh_({ ...context, ownerKey:context.ownerKey });
+    }
+  }
+
+  window.addEventListener('sproutg-write-queue-state', (event)=>{
+    const confirmations = Array.isArray(event?.detail?.confirmedWrites)
+      ? event.detail.confirmedWrites
+      : [];
+    for(const confirmation of confirmations){
+      const writeId = String(confirmation?.writeId || '').trim();
+      if(!writeId) continue;
+      rememberConfirmedQueueWriteId_(writeId);
+      retireO1LocalValuesByWriteId_(writeId);
+      retireMccLocalValuesByWriteId_(writeId);
+      for(const [draftKey, pendingWriteId] of Array.from(_passAwaitingConfirmations.entries())){
+        if(String(pendingWriteId || '') === writeId){
+          _passAwaitingConfirmations.delete(draftKey);
+        }
+      }
+      handleConfirmedSurface_(confirmation);
+    }
+  });
 
   function o1AppliedValue_(res, col, fallback){
     const c = String(col || '').toUpperCase().trim();
     return (res?.applied && Object.prototype.hasOwnProperty.call(res.applied, c)) ? res.applied[c] : fallback;
   }
 
-  function replayInactiveO1PendingNext_(ctx, normalized, activeContext){
+  function replayInactiveO1PendingNext_(ctx, normalized, activeContext, delayMs = 0){
     if(activeContext || !ctx?.row) return;
     for(const c of (ctx.cols || [])){
-      const pending = takeO1PendingNext_(ctx.row, c);
+      const pending = takeO1PendingNext_(ctx.row, c, ctx);
       if(!pending) continue;
       if(String(pending.value ?? '') === String(normalized?.[c] ?? '')) continue;
-      logSave_('O1', 'pendingNextValue replay in background', { row: ctx.row, col: c, value: pending.value, writeId: ctx.writeId });
-      if(pending.replay){
-        pending.replay(pending.value);
-      } else {
-        saveCellInstant(ctx.row, c, pending.value, null, null, {
-          tabKey: pending.tabKey || ctx.tabKey,
-          profileName: pending.profileName || ctx.profileName || ''
-        });
-      }
+      const replay = ()=>{
+        const latestState = _saveState.get(o1CellKey_(ctx, c));
+        if(Number(latestState?.lastWriteId || 0) > Number(ctx.writeId || 0)){
+          logSave_('O1', 'skip stale pendingNextValue replay', { row: ctx.row, col: c, writeId: ctx.writeId, latestWriteId: latestState.lastWriteId });
+          return;
+        }
+        logSave_('O1', 'pendingNextValue replay in background', { row: ctx.row, col: c, value: pending.value, writeId: ctx.writeId });
+        if(pending.replay){
+          pending.replay(pending.value);
+        } else {
+          saveCellInstant(ctx.row, c, pending.value, null, null, {
+            tabKey: pending.tabKey || ctx.tabKey,
+            profileName: pending.profileName || ctx.profileName || ''
+          });
+        }
+      };
+      if(delayMs > 0) setTimeout(replay, delayMs);
+      else replay();
     }
   }
   let mccTotpInterval = null;
@@ -440,6 +1548,8 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     loaded: false,
     timer: null
   };
+  const _passSaveInFlight = new Set();
+  const _passAwaitingConfirmations = new Map();
   let mccAccountObserver = null;
   let mccAccountScrollRaf = null;
   let mccAccountScrollHandler = null;
@@ -1201,7 +2311,57 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     out.appendChild(card);
   }
 
-  function getTabKey(row){ return `O1#${row}`; }
+  function getTabKey(row, profileName){
+    const stableName = String(profileName || '').trim();
+    if(stableName) return `O1@${encodeURIComponent(stableName)}`;
+    const existing = openTabs.find((key)=>Number(tabData[key]?.row) === Number(row));
+    return existing || `O1#${row}`;
+  }
+
+  function reconcileO1NavRow_(profileName, row){
+    const expected = String(profileName || '').trim();
+    const resolvedRow = Number(row);
+    if(!expected || !resolvedRow) return;
+    for(const nav of Object.values(tabNav)){
+      for(const item of (Array.isArray(nav?.items) ? nav.items : [])){
+        if(String(item?.profileName || '').trim() === expected) item.row = resolvedRow;
+      }
+    }
+  }
+
+  function adoptLoadedO1Tab_(sourceKey, payload, navInfo){
+    const loadedKey = getTabKey(payload?.row, payload?.profileName);
+    const sourceIndex = openTabs.indexOf(sourceKey);
+    const loadedIndex = openTabs.indexOf(loadedKey);
+    const sourceNav = tabNav[sourceKey] || null;
+
+    if(sourceKey !== loadedKey){
+      if(sourceIndex >= 0 && loadedIndex < 0) openTabs[sourceIndex] = loadedKey;
+      else if(sourceIndex >= 0) openTabs.splice(sourceIndex, 1);
+      if(!openTabs.includes(loadedKey)) openTabs.push(loadedKey);
+      delete tabData[sourceKey];
+      delete tabNav[sourceKey];
+      if(activeTabKey === sourceKey) activeTabKey = loadedKey;
+    } else if(!openTabs.includes(loadedKey)){
+      openTabs.push(loadedKey);
+    }
+
+    tabData[loadedKey] = payload;
+    const resolvedNav = navInfo || sourceNav || tabNav[loadedKey] || null;
+    if(resolvedNav) {
+      setTabNavContext(
+        loadedKey,
+        resolvedNav.label,
+        resolvedNav.stage,
+        resolvedNav.items,
+        resolvedNav.key
+      );
+    } else if(!tabNav[loadedKey]){
+      setTabNavContext(loadedKey, 'Открыто', '', [], 'open');
+    }
+    reconcileO1NavRow_(payload?.profileName, payload?.row);
+    return loadedKey;
+  }
 
   function setTabNavContext(tabKey, label, stage, items, ctxKey){
     tabNav[tabKey] = { label: label||'—', stage: stage||'', items: Array.isArray(items)?items:[], key: ctxKey||'' };
@@ -1211,7 +2371,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
   function ensureTab(profilePayload, navInfo, opts = {}){
     if(!profilePayload?.row) return;
     mergeO1LocalValues_(profilePayload);
-    const k=getTabKey(profilePayload.row);
+    const k=getTabKey(profilePayload.row, profilePayload.profileName);
     tabData[k]=profilePayload;
     if(!openTabs.includes(k)) openTabs.push(k);
     if(opts.activate !== false){
@@ -1282,7 +2442,10 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     if(idx>=0) openTabs.splice(idx,1);
 
     const row = tabData[k]?.row || '';
-    const pending = row ? getO1PendingCountForRow(row) : 0;
+    const pending = row ? getO1PendingCountForRow(row, {
+      tabKey:k,
+      profileName:tabData[k]?.profileName || ''
+    }) : 0;
     if(pending > 0){
       logSave_('O1', 'tab closed with pending writes', { row, pending, tabKey: k });
       toast('Сохранение продолжится в фоне');
@@ -1307,7 +2470,8 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
   }
 
   function clearAllTabs(){
-    const pending = Array.from(_o1RowPendingWrites.values()).reduce((sum, n)=>sum + Number(n || 0), 0);
+    const pending = Array.from(_o1RowPendingWrites.values())
+      .reduce((sum, entry)=>sum + Number(entry?.count || 0), 0);
     if(pending > 0) toast('Сохранение продолжится в фоне');
     openTabs.splice(0, openTabs.length);
     for(const k of Object.keys(tabData)) delete tabData[k];
@@ -1497,28 +2661,45 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
 
   function toggleDeleted(){
     if(!current?.row) return;
-    const prev = !!current.isDeleted;
-    const next = !current.isDeleted;
-    current.isDeleted = next;
+    const targetProfile = current;
+    const targetContext = o1WriteContext_(targetProfile.row, {
+      profileName:targetProfile.profileName || '',
+      tabKey:getTabKey('', targetProfile.profileName || '')
+    });
+    const isTargetActive = ()=>(
+      current === targetProfile
+      && isO1WriteContextActive_(targetContext)
+    );
+    const prev = !!targetProfile.isDeleted;
+    const next = !targetProfile.isDeleted;
+    targetProfile.isDeleted = next;
     updateHeader();
     refreshColors({ source:'o1', skipFilters:true });
     google.script.run.withSuccessHandler(r=>{
       if(!r || r.ok===false){
-        current.isDeleted = prev;
-        updateHeader();
-        refreshColors({ source:'o1', skipFilters:true });
+        targetProfile.isDeleted = prev;
+        if(isTargetActive()){
+          updateHeader();
+          refreshColors({ source:'o1', skipFilters:true });
+        }
         toast(r?.error || 'Ошибка');
         return;
       }
-      current.isDeleted = !!r.isDeleted;
-      updateHeader();
-      refreshColors({ source:'o1', skipFilters:true });
+      targetProfile.isDeleted = !!r.isDeleted;
+      if(isTargetActive()){
+        updateHeader();
+        refreshColors({ source:'o1', skipFilters:true });
+      }
     }).withFailureHandler(err=>{
-      current.isDeleted = prev;
-      updateHeader();
-      refreshColors({ source:'o1', skipFilters:true });
+      targetProfile.isDeleted = prev;
+      if(isTargetActive()){
+        updateHeader();
+        refreshColors({ source:'o1', skipFilters:true });
+      }
       toast(String(err));
-    }).toggleProfileDeleted(current.row, next, { profileName: current.profileName || '' });
+    }).toggleProfileDeleted(targetProfile.row, next, {
+      profileName:targetProfile.profileName || ''
+    });
   }
 
   function updateHeaderNav(){
@@ -1551,7 +2732,12 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     const items = [...nav.items].sort((a,b)=>Number(a.row)-Number(b.row));
     nav.items = items;
 
-    const idx = items.findIndex(x=>Number(x.row)===Number(current.row));
+    const byProfile = items.findIndex(
+      (item)=>String(item?.profileName || '').trim() === String(current.profileName || '').trim()
+    );
+    const idx = byProfile >= 0
+      ? byProfile
+      : items.findIndex(x=>Number(x.row)===Number(current.row));
     const total = items.length;
 
     const hasPrev = idx>0;
@@ -1570,22 +2756,33 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     const nav=getActiveNav();
     if(!nav || !nav.items.length || !current) return;
     const items=[...nav.items].sort((a,b)=>Number(a.row)-Number(b.row));
-    const idx=items.findIndex(x=>Number(x.row)===Number(current.row));
+    const byProfile=items.findIndex((item)=>String(item?.profileName || '').trim() === String(current.profileName || '').trim());
+    const idx=byProfile >= 0 ? byProfile : items.findIndex(x=>Number(x.row)===Number(current.row));
     if(idx<=0) return;
-    openByRow(items[idx-1].row, { navInfo: nav, propagateNav:true });
+    openByRow(items[idx-1].row, {
+      navInfo: nav,
+      propagateNav:true,
+      expectedProfileName:items[idx-1].profileName
+    });
   }
   function navNext(){
     const nav=getActiveNav();
     if(!nav || !nav.items.length || !current) return;
     const items=[...nav.items].sort((a,b)=>Number(a.row)-Number(b.row));
-    const idx=items.findIndex(x=>Number(x.row)===Number(current.row));
+    const byProfile=items.findIndex((item)=>String(item?.profileName || '').trim() === String(current.profileName || '').trim());
+    const idx=byProfile >= 0 ? byProfile : items.findIndex(x=>Number(x.row)===Number(current.row));
     if(idx<0 || idx>=items.length-1) return;
-    openByRow(items[idx+1].row, { navInfo: nav, propagateNav:true });
+    openByRow(items[idx+1].row, {
+      navInfo: nav,
+      propagateNav:true,
+      expectedProfileName:items[idx+1].profileName
+    });
   }
 
   function syncProfile(){
     if(!current?.row) return;
     const requestRow = current.row;
+    const requestProfileName = String(current.profileName || '').trim();
     const requestTabKey = activeTabKey;
     const requestWriteRevision = _o1WriteRevision;
     const scrollSnap = captureSproutScroll_('sync-current-profile');
@@ -1596,23 +2793,28 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
         toast(res?.error || 'Ошибка синхронизации');
         return;
       }
-      if(!isActiveO1Row_(requestRow) || activeTabKey !== requestTabKey){
+      if(
+        activeTabKey !== requestTabKey
+        || String(current?.profileName || '').trim() !== requestProfileName
+      ){
         restoreSproutScroll_(scrollSnap);
         logSave_('O1', 'skip stale sync response because active row changed', { requestRow, activeRow: current?.row || '', requestTabKey, activeTabKey });
         return;
       }
-      if(getO1PendingCountForRow(requestRow) > 0 || requestWriteRevision !== _o1WriteRevision){
+      const pending = getO1PendingCountForRow(requestRow, {
+        tabKey:requestTabKey,
+        profileName:requestProfileName
+      });
+      if(pending > 0 || requestWriteRevision !== _o1WriteRevision){
         mergeO1LocalValues_(res);
         restoreSproutScroll_(scrollSnap);
-        logSave_('O1', 'skip sync response while writes pending or changed', { row: requestRow, pending: getO1PendingCountForRow(requestRow), requestWriteRevision, currentWriteRevision: _o1WriteRevision });
+        logSave_('O1', 'skip sync response while writes pending or changed', { row: requestRow, pending, requestWriteRevision, currentWriteRevision: _o1WriteRevision });
         toast('Сохранение ещё выполняется');
         return;
       }
       mergeO1LocalValues_(res);
-      const k=getTabKey(res.row);
-      const oldNav = tabNav[k] || getActiveNav() || null;
-
-      tabData[k]=res;
+      const oldNav = tabNav[requestTabKey] || getActiveNav() || null;
+      const k=adoptLoadedO1Tab_(requestTabKey, res, oldNav);
       current=tabData[k];
       activeTabKey=k;
 
@@ -1626,64 +2828,90 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     }).withFailureHandler(err=>{
       restoreSproutScroll_(scrollSnap);
       toast(String(err));
-    }).getProfileByRow(requestRow);
+    }).getProfileByRow(requestRow, { profileName:requestProfileName });
   }
 
   function mccSyncProfile(){
     if(!mccProfile?.profileName) return;
     const scrollSnap = captureSproutScroll_('sync-current-profile');
     const requestWriteRevision = _mccWriteRevision;
+    const requestProfileName = String(mccProfile.profileName || '').trim();
+    const requestProfileKey = getMccProfileKey(requestProfileName);
     toast('Синхронизация…');
     google.script.run.withSuccessHandler(res=>{
-      if(!res || res.ok===false){
+      const payload = apiPayload(res);
+      if(!payload || payload.ok===false){
         restoreSproutScroll_(scrollSnap);
-        toast(res?.error || 'Ошибка синхронизации');
+        toast(payload?.error || 'Ошибка синхронизации');
         return;
       }
-      if(_mccPendingWrites > 0 || requestWriteRevision !== _mccWriteRevision){
+      if(
+        _mccPendingWrites > 0
+        || requestWriteRevision !== _mccWriteRevision
+        || mccReadBlockedByRename_(requestProfileName)
+        || mccActiveProfileKey !== requestProfileKey
+        || String(mccProfile?.profileName || '').trim() !== requestProfileName
+      ){
         restoreSproutScroll_(scrollSnap);
         logSave_('MCC', 'skip sync response while writes pending or changed', { pending: _mccPendingWrites, requestWriteRevision, currentWriteRevision: _mccWriteRevision });
         toast('Сохранение ещё выполняется');
         return;
       }
-      mccProfile = res;
+      mergeMccLocalValues_(payload);
+      cacheMccProfile(payload);
+      mccProfile = payload;
       renderMccProfile({ preserveScrollSnapshot: scrollSnap });
       preloadMccApellIndex();
       updateMccPassLookupAndApply();
-      addMccProfileTab(res);
+      addMccProfileTab(payload);
       rememberMccActiveAccount();
       refreshColors({ source:'mcc', skipFilters:true });
       toast('Обновлено');
     }).withFailureHandler(err=>{
       restoreSproutScroll_(scrollSnap);
       toast(String(err));
-    }).getMccProfile(mccProfile.profileName);
+    }).getMccProfile(requestProfileName);
   }
 
   function mccToggleDeleted(){
     if(!mccProfile?.profileName) return;
-    const prev = !!mccProfile.isDeleted;
-    const next = !mccProfile.isDeleted;
-    mccProfile.isDeleted = next;
+    const targetProfile = mccProfile;
+    const targetKey = getMccProfileKey(targetProfile.profileName);
+    const isTargetActive = ()=>(
+      mccProfile === targetProfile
+      && mccActiveProfileKey === targetKey
+    );
+    const prev = !!targetProfile.isDeleted;
+    const next = !targetProfile.isDeleted;
+    targetProfile.isDeleted = next;
     updateMccActionButtons();
     refreshColors({ source:'mcc', skipFilters:true });
     google.script.run.withSuccessHandler(r=>{
       if(!r || r.ok===false){
-        mccProfile.isDeleted = prev;
-        updateMccActionButtons();
-        refreshColors({ source:'mcc', skipFilters:true });
+        targetProfile.isDeleted = prev;
+        cacheMccProfile(targetProfile);
+        if(isTargetActive()){
+          updateMccActionButtons();
+          refreshColors({ source:'mcc', skipFilters:true });
+        }
         toast(r?.error || 'Ошибка');
         return;
       }
-      mccProfile.isDeleted = !!r.isDeleted;
-      updateMccActionButtons();
-      refreshColors({ source:'mcc', skipFilters:true });
+      targetProfile.isDeleted = !!r.isDeleted;
+      cacheMccProfile(targetProfile);
+      if(isTargetActive()){
+        updateMccActionButtons();
+        refreshColors({ source:'mcc', skipFilters:true });
+      }
     }).withFailureHandler(err=>{
-      mccProfile.isDeleted = prev;
-      updateMccActionButtons();
-      refreshColors({ source:'mcc', skipFilters:true });
+      targetProfile.isDeleted = prev;
+      cacheMccProfile(targetProfile);
+      if(isTargetActive()){
+        updateMccActionButtons();
+        refreshColors({ source:'mcc', skipFilters:true });
+      }
       toast(String(err));
-    }).toggleMccProfileDeleted(mccProfile.profileName, next);
+    }).toggleMccProfileDeleted(targetProfile.profileName, next);
   }
 
   function search(){
@@ -1715,9 +2943,17 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     const navInfo = opts?.navInfo || null;
     const propagateNav = !!opts?.propagateNav;
     const focus = opts?.focus !== false;
+    const navItem = (Array.isArray(navInfo?.items) ? navInfo.items : [])
+      .find((item)=>Number(item?.row) === Number(row));
+    const expectedProfileName = String(
+      opts?.expectedProfileName
+      || opts?.profileName
+      || navItem?.profileName
+      || ''
+    ).trim();
 
     toast('Открываю…');
-    const targetKey=getTabKey(row);
+    const targetKey=getTabKey(row, expectedProfileName);
 
     if(tabData[targetKey]?.__loading){
       if(focus){
@@ -1730,7 +2966,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
       return;
     }
 
-    if(tabData[targetKey]){
+    if(tabData[targetKey] && !expectedProfileName){
       if(navInfo) setTabNavContext(targetKey, navInfo.label, navInfo.stage, navInfo.items, navInfo.key);
       else if(!tabNav[targetKey]) setTabNavContext(targetKey, 'Открыто', '', [], 'open');
       if(focus){
@@ -1746,8 +2982,16 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
       return;
     }
 
+    const cachedPayload = tabData[targetKey] && !tabData[targetKey].__loading
+      ? tabData[targetKey]
+      : null;
     if(!openTabs.includes(targetKey)) openTabs.push(targetKey);
-    tabData[targetKey] = { row:Number(row), profileName:`Аккаунт ${row}`, __loading:true };
+    tabData[targetKey] = {
+      ...(cachedPayload || {}),
+      row:Number(row),
+      profileName:expectedProfileName || cachedPayload?.profileName || `Аккаунт ${row}`,
+      __loading:true
+    };
     if(navInfo) setTabNavContext(targetKey, navInfo.label, navInfo.stage, navInfo.items, navInfo.key);
     else setTabNavContext(targetKey, 'Открыто', '', [], 'open');
     if(focus){
@@ -1785,12 +3029,30 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
             logSave_('O1', 'skip getProfileByRow response because tab was closed', { row, tabKey: targetKey });
             return;
           }
+          if(
+            expectedProfileName
+            && String(payload.profileName || '').trim() !== expectedProfileName
+          ){
+            delete tabData[targetKey];
+            delete tabNav[targetKey];
+            const mismatchIndex=openTabs.indexOf(targetKey);
+            if(mismatchIndex>=0) openTabs.splice(mismatchIndex,1);
+            if(activeTabKey === targetKey){
+              activeTabKey = openTabs[mismatchIndex-1] || openTabs[mismatchIndex] || openTabs[0] || '';
+              current = activeTabKey ? tabData[activeTabKey] : null;
+            }
+            renderTabs();
+            if(current) renderProfile(current);
+            else {
+              document.getElementById('out').innerHTML='';
+              updateHeader();
+            }
+            setError('Профиль в выбранной строке изменился; открытие остановлено');
+            return;
+          }
           mergeO1LocalValues_(payload);
-          const loadedKey = getTabKey(payload.row);
-          tabData[loadedKey] = payload;
-          if(navInfo) setTabNavContext(loadedKey, navInfo.label, navInfo.stage, navInfo.items, navInfo.key);
-          else if(!tabNav[loadedKey]) setTabNavContext(loadedKey, 'Открыто', '', [], 'open');
-          if(propagateNav && navInfo){
+          const loadedKey = adoptLoadedO1Tab_(targetKey, payload, navInfo);
+          if(propagateNav && navInfo) {
             setTabNavContext(loadedKey, navInfo.label, navInfo.stage, navInfo.items, navInfo.key);
           }
           if(activeTabKey === loadedKey){
@@ -1828,7 +3090,10 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
         } finally {
           resolve();
         }
-      }).getProfileByRow(row);
+      }).getProfileByRow(
+        row,
+        expectedProfileName ? { profileName:expectedProfileName } : undefined
+      );
     });
     o1OpenQueue = o1OpenQueue.then(loadJob, loadJob);
   }
@@ -1947,7 +3212,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
 
       div.addEventListener('click', ()=>{
         const navInfo={ label: cachedFilterLabel || 'Основной фильтр', stage, items: list, key:'filter' };
-        openByRow(it.row, { navInfo });
+        openByRow(it.row, { navInfo, expectedProfileName:it.profileName });
       });
 
       frag.appendChild(div);
@@ -2125,7 +3390,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
 
         div.addEventListener('click', ()=>{
           const navInfo={ label, stage: label, items: items, key:`work:${mode}:${gName}` };
-          openByRow(it.row, { navInfo });
+          openByRow(it.row, { navInfo, expectedProfileName:it.profileName });
         });
 
         itemsBox.appendChild(div);
@@ -2154,14 +3419,27 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
   }
 
   function openWorkGroupInTabs(items, navBase){
-    const rows = items.map(x=>Number(x.row)).filter(Boolean);
-    if(!rows.length) return;
+    const allItems = [];
+    const seenIdentities = new Set();
+    for(const item of (Array.isArray(items) ? items : [])){
+      const row = Number(item?.row);
+      const profileName = String(item?.profileName || '').trim();
+      const identityKey = profileName || `row:${row}`;
+      if(!row || seenIdentities.has(identityKey)) continue;
+      seenIdentities.add(identityKey);
+      allItems.push({ row, profileName });
+    }
+    const selectedItems = allItems.slice(0, BULK_TAB_WINDOW_LIMIT);
+    if(!selectedItems.length) return;
 
-    toast('Загрузка во вкладки…');
+    toast(allItems.length > selectedItems.length
+      ? `Загрузка первых ${selectedItems.length} из ${allItems.length} во вкладки…`
+      : 'Загрузка во вкладки…');
     clearAllTabs();
-    rows.forEach((row, idx)=>{
-      openByRow(row, {
+    selectedItems.forEach((item, idx)=>{
+      openByRow(item.row, {
         navInfo: { label:navBase.label, stage:navBase.stage, items, key:navBase.key },
+        expectedProfileName:item.profileName,
         focus: idx === 0
       });
     });
@@ -2234,18 +3512,28 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     return saveCellsInstant(row, { [c]: value }, onOk, onFail, opts);
   }
 
-  function getCommitted(row, col, fallback){
-    const key = `${row}:${col}`;
+  function getCommitted(row, col, fallback, meta = {}){
+    const key = o1CellKey_(o1WriteContext_(row, meta), col);
     return (_saveState.get(key)?.committed ?? fallback);
   }
 
-  function initO1SaveState_(row, col, committed){
+  function initO1SaveState_(row, col, committed, meta = {}){
     const c = String(col || '').toUpperCase().trim();
     if(!row || !c) return;
-    const key = `${row}:${c}`;
+    const context = o1WriteContext_(row, meta);
+    const key = o1CellKey_(context, c);
+    if(!key) return;
     const cur = _saveState.get(key);
     if(cur?.pending) return;
-    _saveState.set(key, { ...(cur || {}), token: cur?.token || 0, committed, pending:false, failed:false });
+    _saveState.set(key, {
+      ...(cur || {}),
+      token:cur?.token || 0,
+      committed,
+      pending:false,
+      failed:false,
+      row:Number(row) || row,
+      ownerKey:context.ownerKey
+    });
   }
 
   function cancelO1QueuedJob_(job){
@@ -2255,17 +3543,18 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     if(job.counted){
       job.counted = false;
       _o1PendingWrites = Math.max(0, _o1PendingWrites - job.cols.length);
-      adjustO1PendingRow_(job.row, -job.cols.length);
+      adjustO1PendingRow_(job.row, -job.cols.length, job.context);
       emitLocalQueue_();
     }
     return true;
   }
 
-  function tryCollapseO1SingleWrite_(row, normalized, onOk){
+  function tryCollapseO1SingleWrite_(row, normalized, onOk, context){
     const cols = Object.keys(normalized || {});
     if(cols.length !== 1) return false;
     const col = cols[0];
-    const key = `${row}:${col}`;
+    const key = o1CellKey_(context, col);
+    if(!key) return false;
     const prevJob = _o1QueuedSingleByCell.get(key);
     if(!prevJob || prevJob.started || prevJob.canceled) return false;
     const nextValue = String(normalized[col] ?? '');
@@ -2279,7 +3568,17 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     cur.nextValue = committed;
     cur.committed = committed;
     _saveState.set(key, cur);
-    rememberO1LocalValues_(row, { [col]: committed });
+    rememberO1LocalValues_(row, { [col]: committed }, context);
+    // Both renderer jobs were canceled before reaching the durable queue, so
+    // there is no server confirmation to wait for and no overlay to retain.
+    retireO1LocalValues_(context, [col], { refresh:false });
+    clearFailedDrafts_('O1', row, [col], {
+      profileName:context.profileName
+    });
+    clearEditDraft_(
+      o1EditDraftDescriptor_(context, col, committed),
+      committed
+    );
     onOk?.({ ok:true, canceled:true, applied:{ [col]: committed } });
     refreshColors({ source:'o1', skipFilters:true });
     return true;
@@ -2295,37 +3594,53 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     const cols = Object.keys(normalized);
     if(!cols.length){ onFail?.('Нет данных для сохранения'); return; }
 
-    if(tryCollapseO1SingleWrite_(row, normalized, onOk)) return { page:'O1', row:Number(row), cols, canceled:true };
+    const context = o1WriteContext_(row, opts);
+    if(!context.ownerKey || !context.profileName){
+      const error = 'РќРµ СѓРґР°Р»РѕСЃСЊ РїСЂРёРІСЏР·Р°С‚СЊ Р·Р°РїРёСЃСЊ Рє РїСЂРѕС„РёР»СЋ O1';
+      onFail?.(error);
+      return null;
+    }
+    if(tryCollapseO1SingleWrite_(row, normalized, onOk, context)){
+      return { page:'O1', row:Number(row), cols, ...context, canceled:true };
+    }
 
     const tokens = {};
     const writeId = ++_o1WriteSeq;
-    const tabKey = opts.tabKey || getTabKey(row);
-    const profileName = opts.profileName || tabData[tabKey]?.profileName || (current?.row && String(current.row) === String(row) ? current.profileName : '');
-    const ctx = { page:'O1', row:Number(row), cols, tabKey, profileName, writeId };
+    const ctx = { page:'O1', row:Number(row), cols, ...context, writeId };
 
     for(const c of cols){
-      const key = `${row}:${c}`;
+      const key = o1CellKey_(ctx, c);
       const st = _saveState.get(key) || { token: 0, committed: '' };
       st.token += 1;
       tokens[c] = st.token;
       st.pending = true;
       st.lastWriteId = writeId;
       st.nextValue = normalized[c];
+      st.row = Number(row) || row;
+      st.ownerKey = ctx.ownerKey;
       _saveState.set(key, st);
     }
 
-    rememberO1LocalValues_(row, normalized);
+    rememberO1LocalValues_(row, normalized, ctx);
     _o1PendingWrites += cols.length;
     emitLocalQueue_();
-    adjustO1PendingRow_(row, cols.length);
-    logSave_('O1', 'write queued', { row, cols, writeId, tabKey, profileName, pending: _o1PendingWrites });
+    adjustO1PendingRow_(row, cols.length, ctx);
+    logSave_('O1', 'write queued', {
+      row,
+      cols,
+      writeId,
+      tabKey:ctx.tabKey,
+      profileName:ctx.profileName,
+      pending:_o1PendingWrites
+    });
 
-    const singleKey = cols.length === 1 ? `${row}:${cols[0]}` : '';
+    const singleKey = cols.length === 1 ? o1CellKey_(ctx, cols[0]) : '';
     const job = {
       page:'O1',
       row,
       cols,
       writeId,
+      context:ctx,
       singleKey,
       prevCommitted: singleKey ? String((_saveState.get(singleKey)?.committed) ?? '') : '',
       counted:true,
@@ -2349,7 +3664,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
         clearTimeout(timer);
 
         const staleCols = cols.filter((c)=>{
-          const cur = _saveState.get(`${row}:${c}`);
+          const cur = _saveState.get(o1CellKey_(ctx, c));
           return !cur || cur.token !== tokens[c];
         });
         const activeContext = isO1WriteContextActive_(ctx);
@@ -2362,7 +3677,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
             const acceptedApplied = {};
             for(const c of cols){
               if(staleCols.includes(c)) continue;
-              const key = `${row}:${c}`;
+              const key = o1CellKey_(ctx, c);
               const cur = _saveState.get(key) || { token: 0, committed: '' };
               cur.committed = Object.prototype.hasOwnProperty.call(rawApplied, c) ? rawApplied[c] : normalized[c];
               cur.pending = false;
@@ -2372,7 +3687,17 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
             }
             if(Object.keys(acceptedApplied).length){
               _o1WriteRevision += 1;
-              rememberO1LocalValues_(row, acceptedApplied);
+              rememberO1LocalValues_(row, acceptedApplied, ctx);
+              clearFailedDrafts_('O1', row, Object.keys(acceptedApplied), {
+                profileName:ctx.profileName
+              });
+              for(const [acceptedCol, acceptedValue] of Object.entries(acceptedApplied)){
+                clearEditDraft_(
+                  o1EditDraftDescriptor_(ctx, acceptedCol, acceptedValue),
+                  acceptedValue
+                );
+              }
+              trackO1ServerConvergence_(ctx, acceptedApplied, payload);
             }
             if(staleCols.length){
               logSave_('O1', 'stale success settled without UI overwrite', { row, cols, staleCols, writeId });
@@ -2389,13 +3714,21 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
             logSave_('O1', 'success/applied', { row, cols, writeId, applied: acceptedApplied, ms: Date.now() - startedAt });
           } else {
             _o1FailedWrites += staleCols.length === cols.length ? 0 : 1;
+            const failedUpdates = {};
             for(const c of cols){
-              const cur = _saveState.get(`${row}:${c}`);
+              const key = o1CellKey_(ctx, c);
+              const cur = _saveState.get(key);
               if(cur && cur.token === tokens[c]){
                 cur.pending = false;
                 cur.failed = true;
-                _saveState.set(`${row}:${c}`, cur);
+                _saveState.set(key, cur);
+                failedUpdates[c] = normalized[c];
               }
+            }
+            if(Object.keys(failedUpdates).length){
+              recordFailedDraft_('O1', row, failedUpdates, {
+                profileName:ctx.profileName
+              }, error);
             }
             if(staleCols.length === cols.length){
               logSave_('O1', 'stale failure settled', { row, cols, writeId, error });
@@ -2412,10 +3745,16 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
             job.counted = false;
             _o1PendingWrites = Math.max(0, _o1PendingWrites - cols.length);
             emitLocalQueue_();
-            adjustO1PendingRow_(row, -cols.length);
+            adjustO1PendingRow_(row, -cols.length, ctx);
           }
-          replayInactiveO1PendingNext_(ctx, normalized, activeContext);
-          logSave_('O1', 'queue settle', { row, cols, writeId, pending: _o1PendingWrites, rowPending: getO1PendingCountForRow(row) });
+          replayInactiveO1PendingNext_(ctx, normalized, activeContext, _writeBarrierActive ? 0 : (success ? 0 : PENDING_REPLAY_AFTER_FAILURE_MS));
+          logSave_('O1', 'queue settle', {
+            row,
+            cols,
+            writeId,
+            pending:_o1PendingWrites,
+            rowPending:getO1PendingCountForRow(row, ctx)
+          });
           resolve();
         }
       };
@@ -2429,7 +3768,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
         google.script.run
         .withSuccessHandler((r)=>settle('success', r))
         .withFailureHandler((err)=>settle('failure', { ok:false, error:String(err) }))
-        .updateCells(row, normalized, { profileName });
+        .updateCells(row, normalized, { profileName:ctx.profileName });
       } catch (err) {
         settle('failure', { ok:false, error:String(err) });
       }
@@ -2445,27 +3784,30 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     const field = opts?.field || null;
     const value = opts?.value ?? '';
     if(!row || !col) return null;
+    const saveContext = o1WriteContext_(row, opts.saveOptions || {});
 
     if(el && el.dataset.saving === '1'){
-      const queued = _o1QueuedSingleByCell.get(`${row}:${col}`);
-      if(queued && !queued.started && !queued.canceled && String(value ?? '') === String(queued.prevCommitted ?? '')){
-        if(field) field.value = value;
-        if('value' in el) el.value = value;
-        else el.textContent = value;
-        delete el.dataset.pendingNextValue;
+      if(field) field.value = value;
+      if('value' in el) el.value = value;
+      else el.textContent = value;
+      delete el.dataset.pendingNextValue;
+      markFieldSaving(el, true);
+      logSave_('O1', 'superseding value enqueued immediately', { row, col, value });
+      return saveCellInstant(row, col, value, (r)=>{
+        const applied = o1AppliedValue_(r, col, value);
+        if(field) field.value = applied;
+        if('value' in el) el.value = applied;
+        else el.textContent = applied;
         el.dataset.saving = '0';
-        return saveCellInstant(row, col, value, (r)=>{
-          markFieldSaved(el);
-          opts.onSaved?.(r, value);
-        }, (err)=>{
-          markFieldSaveError(el);
-          opts.onFailed?.(err);
-        }, opts.saveOptions || {});
-      }
-      el.dataset.pendingNextValue = String(value ?? '');
-      setO1PendingNext_(row, col, value, opts.saveOptions || {});
-      logSave_('O1', 'pendingNextValue detected', { row, col, value: el.dataset.pendingNextValue });
-      return null;
+        delete el.dataset.unsaved;
+        markFieldSaved(el);
+        opts.onSaved?.(r, applied);
+      }, (err)=>{
+        el.dataset.saving = '0';
+        el.dataset.unsaved = '1';
+        markFieldSaveError(el);
+        opts.onFailed?.(err);
+      }, opts.saveOptions || {});
     }
 
     if(el){
@@ -2487,16 +3829,21 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
         if(ok) delete el.dataset.unsaved;
         else el.dataset.unsaved = '1';
 
-        if(ok && hasPending){
-          takeO1PendingNext_(row, col);
+        if(hasPending){
+          takeO1PendingNext_(row, col, saveContext);
           if(String(pendingValue) !== String(committedValue)){
             if('value' in el) el.value = pendingValue;
             else el.textContent = pendingValue;
-            logSave_('O1', 'pendingNextValue replay', { row, col, value: pendingValue });
-            setTimeout(()=>commitO1CellFromElement({ ...opts, value: pendingValue }), 0);
+            const replay = ()=>{
+              const latestValue = ('value' in el) ? el.value : pendingValue;
+              logSave_('O1', 'pendingNextValue replay', { row, col, value: latestValue });
+              commitO1CellFromElement({ ...opts, value: latestValue });
+            };
+            setTimeout(
+              replay,
+              _writeBarrierActive ? 0 : (ok ? 0 : PENDING_REPLAY_AFTER_FAILURE_MS)
+            );
           }
-        } else if(!ok && hasPending){
-          el.dataset.pendingNextValue = pendingValue;
         }
       }
     };
@@ -3243,7 +4590,8 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
       apFillPending: false,
       codeText: 'Готов к заказу',
       codeValue: '',
-      orderRow: null
+      orderRow: null,
+      orderOwnerKey: ''
     };
   }
 
@@ -3259,8 +4607,35 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     return 'SMSPool';
   }
 
-  function smsStateKey(row){
+  function smsProfileContext_(profile = current){
+    const payload = profile && typeof profile === 'object' ? profile : {};
+    const row = Number(payload.row) || payload.row || '';
+    const profileName = String(payload.profileName || '').trim();
+    const tabKey = profileName ? getTabKey('', profileName) : '';
+    return {
+      row,
+      profileName,
+      tabKey,
+      ownerKey:o1OwnerKey_({ profileName, tabKey })
+    };
+  }
+
+  function smsStateKey(context){
+    const ownerKey = String(context?.ownerKey || '').trim();
+    if(!ownerKey) return '';
+    if(typeof _stableIdentityKeys.smsProfileStateKey === 'function'){
+      return _stableIdentityKeys.smsProfileStateKey(smsServiceKey(), ownerKey);
+    }
+    return identityTupleKey_('sms-profile-state', [smsServiceKey(), ownerKey]);
+  }
+
+  function legacySmsStateKey_(row){
     return `${smsServiceKey()}:${String(row || '')}`;
+  }
+
+  function isSmsProfileContextActive_(context){
+    if(!context?.ownerKey || smsPoolUIState.profileOwnerKey !== context.ownerKey) return false;
+    return smsProfileContext_(current).ownerKey === context.ownerKey;
   }
 
   function smsApiMethod(action){
@@ -3269,8 +4644,23 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
 
   function smsDirectPayload(action, args){
     const list = Array.isArray(args) ? args : [];
-    if(action === 'Order') return { country: smsPoolUIState.selectedCountry || '0', service: 'go' };
-    if(action === 'Check' || action === 'Refund') return { orderId: list[0] };
+    const options = (
+      list.find(value=>value && typeof value === 'object' && !Array.isArray(value))
+      || {}
+    );
+    const ownerIdentity = {
+      profileName:String(options.ownerIdentity?.profileName || '').trim()
+    };
+    if(action === 'Order') return {
+      country:String(options.country || smsPoolUIState.selectedCountry || '0'),
+      service:'go',
+      ownerIdentity
+    };
+    if(action === 'Check' || action === 'Refund') return {
+      orderId:list[0],
+      ownerIdentity
+    };
+    if(action === 'GetState') return { ownerIdentity };
     if(action === 'Catalog') return { service: 'go', force: !!list[0]?.force };
     return {};
   }
@@ -3283,12 +4673,30 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
         else toast(err.message);
         return;
       }
-      window.sproutg.heroSms(action, smsDirectPayload(action, args))
-        .then((res)=>{ if(onSuccess) onSuccess(res); })
-        .catch((err)=>{
-          if(onFailure) onFailure(err);
-          else toast(String(err?.message || err));
-        });
+      const isMutation = ['Catalog', 'Order', 'Check', 'Refund', 'GetState']
+        .includes(String(action || ''));
+      if(!isMutation && _writeBarrierActive) return;
+      const invoke = (resolve)=>{
+        const payload = smsDirectPayload(action, args);
+        const readKey = `${action}:${JSON.stringify(payload)}`;
+        if(!isMutation && _heroSmsReadJobs.has(readKey)){
+          resolve?.();
+          return;
+        }
+        const job = window.sproutg.heroSms(action, payload)
+          .then((res)=>{ if(onSuccess) onSuccess(res); })
+          .catch((err)=>{
+            if(onFailure) onFailure(err);
+            else toast(String(err?.message || err));
+          })
+          .finally(()=>{
+            if(!isMutation) _heroSmsReadJobs.delete(readKey);
+            resolve?.();
+          });
+        if(!isMutation) _heroSmsReadJobs.set(readKey, job);
+      };
+      if(isMutation) enqueueWrite_('HeroSMS', invoke);
+      else invoke();
       return;
     }
     const method = smsApiMethod(action);
@@ -3302,24 +4710,62 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     runner[method](...(Array.isArray(args) ? args : []));
   }
 
-  function smsPoolStoreState(row){
-    if(!row) return;
-    smsPoolProfileStates.set(smsStateKey(row), {
+  function smsPoolStoreState(profile = current){
+    const context = smsProfileContext_(profile);
+    const key = smsStateKey(context);
+    if(!key || smsPoolUIState.profileOwnerKey !== context.ownerKey) return;
+    smsPoolProfileStates.set(key, {
+      service:smsServiceKey(),
+      ownerKey:context.ownerKey,
+      profileName:context.profileName,
+      rowHint:context.row,
       activeOrder: smsPoolUIState.activeOrder,
       balanceLastTs: smsPoolUIState.balanceLastTs,
       balanceText: smsPoolUIState.balanceText,
       apFillPending: smsPoolUIState.apFillPending,
       codeText: smsPoolUIState.codeText,
       codeValue: smsPoolUIState.codeValue,
-      orderRow: smsPoolUIState.orderRow
+      orderRow: smsPoolUIState.orderRow,
+      orderOwnerKey:smsPoolUIState.orderOwnerKey
     });
   }
 
-  function smsPoolLoadState(row){
+  function smsPoolLoadState(profile = current){
+    const context = smsProfileContext_(profile);
     const base = smsPoolDefaultState();
-    const stored = smsPoolProfileStates.get(smsStateKey(row));
+    const key = smsStateKey(context);
+    let stored = key ? smsPoolProfileStates.get(key) : null;
+    if(!stored && context.ownerKey && context.row){
+      const legacyKey = legacySmsStateKey_(context.row);
+      const legacy = smsPoolProfileStates.get(legacyKey);
+      const legacyOwner = String(
+        legacy?.ownerKey
+        || o1OwnerKey_({ profileName:legacy?.profileName || '' })
+        || ''
+      );
+      if(legacy && legacyOwner === context.ownerKey){
+        stored = {
+          ...legacy,
+          service:smsServiceKey(),
+          ownerKey:context.ownerKey,
+          profileName:context.profileName,
+          rowHint:context.row
+        };
+        smsPoolProfileStates.set(key, stored);
+        smsPoolProfileStates.delete(legacyKey);
+      }
+    }
+    if(stored?.ownerKey !== context.ownerKey) stored = null;
     const next = stored ? { ...base, ...stored } : base;
-    smsPoolUIState.profileRow = row;
+    if(next.activeOrder && next.orderOwnerKey !== context.ownerKey){
+      next.activeOrder = null;
+      next.orderRow = null;
+      next.orderOwnerKey = '';
+      next.apFillPending = false;
+    }
+    smsPoolUIState.profileRow = context.row;
+    smsPoolUIState.profileName = context.profileName;
+    smsPoolUIState.profileOwnerKey = context.ownerKey;
     smsPoolUIState.activeOrder = next.activeOrder;
     smsPoolUIState.balanceLastTs = next.balanceLastTs;
     smsPoolUIState.balanceText = next.balanceText;
@@ -3327,17 +4773,47 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     smsPoolUIState.codeText = next.codeText;
     smsPoolUIState.codeValue = next.codeValue;
     smsPoolUIState.orderRow = next.orderRow;
+    smsPoolUIState.orderOwnerKey = next.orderOwnerKey || '';
   }
 
-  function smsPoolFindOrderRow(orderId){
+  function smsPoolFindOrderOwner_(orderId){
     if(!orderId) return '';
-    const prefix = `${smsServiceKey()}:`;
-    for(const [rowKey, state] of smsPoolProfileStates.entries()){
-      if(!String(rowKey).startsWith(prefix)) continue;
+    for(const state of smsPoolProfileStates.values()){
+      if(state?.service !== smsServiceKey()) continue;
       const storedId = state?.activeOrder?.order_id;
-      if(storedId && String(storedId) === String(orderId)) return String(rowKey).slice(prefix.length);
+      if(
+        storedId
+        && String(storedId) === String(orderId)
+        && state.orderOwnerKey
+        && state.orderOwnerKey === state.ownerKey
+      ) return state.orderOwnerKey;
     }
     return '';
+  }
+
+  function smsPoolStoreOrderForContext_(context, order, response){
+    const key = smsStateKey(context);
+    if(!key) return false;
+    const normalizedOrder = order && typeof _smsOwner.normalizeOwnedOrder === 'function'
+      ? _smsOwner.normalizeOwnedOrder(order, response)
+      : order;
+    const returnedOwnerKey = normalizedOrder
+      ? o1OwnerKey_({ profileName:normalizedOrder.ownerIdentity?.profileName || '' })
+      : context.ownerKey;
+    if(order && (!normalizedOrder || returnedOwnerKey !== context.ownerKey)) return false;
+    const previous = smsPoolProfileStates.get(key) || smsPoolDefaultState();
+    smsPoolProfileStates.set(key, {
+      ...previous,
+      service:smsServiceKey(),
+      ownerKey:context.ownerKey,
+      profileName:context.profileName,
+      rowHint:context.row,
+      activeOrder:normalizedOrder || null,
+      orderRow:normalizedOrder ? context.row : null,
+      orderOwnerKey:normalizedOrder ? context.ownerKey : '',
+      apFillPending:false
+    });
+    return true;
   }
 
   // ✅ FarmA_0.3.9.7_dev: dynamic TOTP button color by timer
@@ -3779,11 +5255,14 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
   function smsPoolMaybeFillAP(code){
     if(!code) return;
     if(!current?.row) return;
+    const targetProfile = current;
+    const context = smsProfileContext_(targetProfile);
+    if(!context.ownerKey || smsPoolUIState.profileOwnerKey !== context.ownerKey) return;
     const order = smsPoolUIState.activeOrder;
     if(!order?.number) return;
-    if(!smsPoolUIState.orderRow || String(smsPoolUIState.orderRow) !== String(current.row)) return;
+    if(smsPoolUIState.orderOwnerKey !== context.ownerKey) return;
     if(smsPoolUIState.apFillPending) return;
-    const existing = getO1FieldValue(current, 'AP');
+    const existing = getO1FieldValue(targetProfile, 'AP');
     if(existing) return;
     const digits = String(order.number || '').replace(/[^\d]/g, '');
     const apValue = digits.length === 11 && digits.startsWith('1') ? digits.slice(1) : digits;
@@ -3791,14 +5270,23 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
 
     smsPoolUIState.apFillPending = true;
     toast('Сохранение AP…');
-    saveCellInstant(current.row, 'AP', apValue, ()=>{
-      setO1FieldValue(current, 'AP', apValue);
+    saveCellInstant(context.row, 'AP', apValue, ()=>{
+      const state = smsPoolProfileStates.get(smsStateKey(context));
+      if(state) state.apFillPending = false;
+      setO1FieldValue(targetProfile, 'AP', apValue);
+      if(!isSmsProfileContextActive_(context)) return;
       updateApFieldUI(apValue);
       smsPoolUIState.apFillPending = false;
       toast('AP заполнен');
     }, (err)=>{
+      const state = smsPoolProfileStates.get(smsStateKey(context));
+      if(state) state.apFillPending = false;
+      if(!isSmsProfileContextActive_(context)) return;
       smsPoolUIState.apFillPending = false;
       toast(err || 'Ошибка');
+    }, {
+      tabKey:context.tabKey,
+      profileName:context.profileName
     });
   }
 
@@ -3828,6 +5316,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     el.refundBtn.disabled = true;
     smsPoolUIState.apFillPending = false;
     smsPoolUIState.orderRow = null;
+    smsPoolUIState.orderOwnerKey = '';
     smsPoolSetOrderLoading(false);
   }
 
@@ -3835,9 +5324,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     const el = smsPoolUIState.elements;
     const order = smsPoolUIState.activeOrder;
     if(!el || !order) return;
-    if(!smsPoolUIState.orderRow && current?.row){
-      smsPoolUIState.orderRow = current.row;
-    }
+    if(!smsPoolUIState.orderOwnerKey) return;
     smsPoolRenderNumber(order.number);
     smsPoolRenderPrice(order.price ?? order.cost);
     el.refundBtn.disabled = false;
@@ -3855,6 +5342,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
       stopSmsPool();
       smsPoolUIState.activeOrder = null;
       smsPoolUIState.orderRow = null;
+      smsPoolUIState.orderOwnerKey = '';
       el.timer.textContent = 'Время истекло';
       smsPoolSetCodeDisplay('', 'Время истекло');
       smsPoolRenderNumber('');
@@ -3881,9 +5369,17 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     const order = smsPoolUIState.activeOrder;
     const el = smsPoolUIState.elements;
     if(!order || !el) return;
-    const profileRow = smsPoolUIState.profileRow;
-    smsRun('Check', [order.order_id], (res)=>{
-      if(!profileRow || smsPoolUIState.profileRow !== profileRow || String(current?.row || '') !== String(profileRow)) return;
+    const context = smsProfileContext_(current);
+    if(
+      !context.ownerKey
+      || smsPoolUIState.profileOwnerKey !== context.ownerKey
+      || smsPoolUIState.orderOwnerKey !== context.ownerKey
+    ) return;
+    smsRun('Check', [
+      order.order_id,
+      { ownerIdentity:{ profileName:context.profileName } }
+    ], (res)=>{
+      if(!isSmsProfileContextActive_(context) || smsPoolUIState.orderOwnerKey !== context.ownerKey) return;
       if(!res || res.ok === false){
         el.code.textContent = res?.error || 'Ошибка проверки';
         return;
@@ -3907,6 +5403,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
         smsPoolSetCodeDisplay('', 'Ожидание…');
       }
     }, (err)=>{
+      if(!isSmsProfileContextActive_(context)) return;
       smsPoolSetCodeDisplay('', String(err));
     });
   }
@@ -3925,12 +5422,20 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     const isSmsActivate = smsServiceKey() === 'herosms';
     smsActivateSetCatalogVisible(isSmsActivate);
     if(isSmsActivate) smsActivateLoadCatalog();
-    const preserve = opts.preserve === true;
-    const profileRow = current?.row ? String(current.row) : '';
-    if(!profileRow) return;
+    const preserveRequested = opts.preserve === true;
+    const context = smsProfileContext_(current);
+    if(!context.ownerKey || !context.row) return;
+    const preserve = !!(
+      preserveRequested
+      && smsPoolUIState.profileOwnerKey === context.ownerKey
+      && (
+        !smsPoolUIState.activeOrder
+        || smsPoolUIState.orderOwnerKey === context.ownerKey
+      )
+    );
     if(!preserve){
       stopSmsPool();
-      smsPoolLoadState(profileRow);
+      smsPoolLoadState(current);
       smsPoolUIState.apFillPending = false;
       smsPoolSetCodeDisplay('', 'Загрузка…');
       smsPoolRenderNumber('');
@@ -3939,7 +5444,9 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
       el.refundBtn.disabled = true;
       smsPoolSetOrderLoading(false);
     } else {
-      smsPoolUIState.profileRow = profileRow;
+      smsPoolUIState.profileRow = context.row;
+      smsPoolUIState.profileName = context.profileName;
+      smsPoolUIState.profileOwnerKey = context.ownerKey;
     }
 
     smsPoolStartBalancePoll();
@@ -3961,22 +5468,39 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
       return;
     }
 
-    smsRun('GetState', [], (res)=>{
+    smsRun('GetState', [{ ownerIdentity:{ profileName:context.profileName } }], (res)=>{
       if(!res || res.ok === false){
         smsPoolSetCodeDisplay('', res?.error || 'Ошибка загрузки');
         return;
       }
-      if(!smsPoolUIState.profileRow || smsPoolUIState.profileRow !== profileRow) return;
-      const incomingOrder = res.order || null;
-      const orderRowMatch = incomingOrder ? smsPoolFindOrderRow(incomingOrder.order_id) : '';
-      if(orderRowMatch && String(orderRowMatch) !== String(profileRow)){
+      if(!isSmsProfileContextActive_(context)) return;
+      const rawIncomingOrder = res.order || null;
+      const incomingOrder = rawIncomingOrder && typeof _smsOwner.normalizeOwnedOrder === 'function'
+        ? _smsOwner.normalizeOwnedOrder(rawIncomingOrder, res)
+        : rawIncomingOrder;
+      const persistedOwner = incomingOrder
+        ? o1OwnerKey_({ profileName:incomingOrder.ownerIdentity?.profileName || '' })
+        : '';
+      const orderOwner = persistedOwner || (
+        smsServiceKey() === 'herosms'
+          ? ''
+          : smsPoolFindOrderOwner_(incomingOrder?.order_id)
+      );
+      if(rawIncomingOrder && (!incomingOrder || orderOwner !== context.ownerKey)){
         smsPoolUIState.activeOrder = null;
         smsPoolUIState.orderRow = null;
+        smsPoolUIState.orderOwnerKey = '';
         smsPoolRenderIdle();
+        logSave_('SMS', 'provider order ignored because stable owner is unknown or different', {
+          profileName:context.profileName,
+          orderId:rawIncomingOrder.order_id || ''
+        });
         return;
       }
+      smsPoolStoreOrderForContext_(context, incomingOrder, res);
       smsPoolUIState.activeOrder = incomingOrder;
-      smsPoolUIState.orderRow = smsPoolUIState.activeOrder ? profileRow : null;
+      smsPoolUIState.orderRow = smsPoolUIState.activeOrder ? context.row : null;
+      smsPoolUIState.orderOwnerKey = smsPoolUIState.activeOrder ? context.ownerKey : '';
       if(!smsPoolUIState.activeOrder){
         smsPoolRenderIdle();
         return;
@@ -3992,17 +5516,42 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
   function smsPoolOrder(){
     const el = smsPoolUIState.elements;
     if(!el) return;
+    const context = smsProfileContext_(current);
+    if(!context.ownerKey || smsPoolUIState.profileOwnerKey !== context.ownerKey){
+      toast('Не удалось привязать SMS-заказ к профилю');
+      return;
+    }
     smsPoolSetOrderLoading(true);
     el.code.textContent = 'Заказ…';
-    smsRun('Order', [], (res)=>{
+    smsRun('Order', [{
+      country:smsPoolUIState.selectedCountry || '0',
+      ownerIdentity:{ profileName:context.profileName }
+    }], (res)=>{
+      const rawOrder = res?.order || null;
+      const order = rawOrder && typeof _smsOwner.normalizeOwnedOrder === 'function'
+        ? _smsOwner.normalizeOwnedOrder(rawOrder, res)
+        : rawOrder;
+      const returnedOwner = order
+        ? o1OwnerKey_({ profileName:order.ownerIdentity?.profileName || '' })
+        : '';
+      if(rawOrder && (!order || returnedOwner !== context.ownerKey)){
+        if(isSmsProfileContextActive_(context)){
+          smsPoolSetOrderLoading(false);
+          smsPoolSetCodeDisplay('', 'HeroSMS вернул заказ без подтверждённого владельца');
+        }
+        return;
+      }
+      if(res?.ok !== false) smsPoolStoreOrderForContext_(context, order, res);
+      if(!isSmsProfileContextActive_(context)) return;
       smsPoolSetOrderLoading(false);
       if(!res || res.ok === false){
         smsPoolSetCodeDisplay('', res?.error || 'Ошибка заказа');
         return;
       }
-      smsPoolUIState.activeOrder = res.order || null;
+      smsPoolUIState.activeOrder = order;
       smsPoolUIState.apFillPending = false;
-      smsPoolUIState.orderRow = smsPoolUIState.activeOrder ? current?.row : null;
+      smsPoolUIState.orderRow = smsPoolUIState.activeOrder ? context.row : null;
+      smsPoolUIState.orderOwnerKey = smsPoolUIState.activeOrder ? context.ownerKey : '';
       if(!smsPoolUIState.activeOrder){
         smsPoolRenderIdle();
         return;
@@ -4012,6 +5561,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
       smsPoolStartPoll();
       smsPoolUpdateBalance({ force:true });
     }, (err)=>{
+      if(!isSmsProfileContextActive_(context)) return;
       smsPoolSetOrderLoading(false);
       smsPoolSetCodeDisplay('', String(err));
     });
@@ -4021,9 +5571,16 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     const el = smsPoolUIState.elements;
     const order = smsPoolUIState.activeOrder;
     if(!el || !order) return;
+    const context = smsProfileContext_(current);
+    if(!context.ownerKey || smsPoolUIState.orderOwnerKey !== context.ownerKey) return;
     if(!confirm('Отменить номер и вернуть средства?')) return;
     el.refundBtn.disabled = true;
-    smsRun('Refund', [order.order_id], (res)=>{
+    smsRun('Refund', [
+      order.order_id,
+      { ownerIdentity:{ profileName:context.profileName } }
+    ], (res)=>{
+      if(res?.ok !== false) smsPoolStoreOrderForContext_(context, null);
+      if(!isSmsProfileContextActive_(context)) return;
       if(!res || res.ok === false){
         el.refundBtn.disabled = false;
         toast(res?.error || 'Ошибка Refund');
@@ -4032,11 +5589,13 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
       stopSmsPool();
       smsPoolUIState.activeOrder = null;
       smsPoolUIState.orderRow = null;
+      smsPoolUIState.orderOwnerKey = '';
       smsPoolRenderIdle();
       toast('Refund выполнен');
       smsPoolStartBalancePoll();
       smsPoolUpdateBalance({ force:true });
     }, (err)=>{
+      if(!isSmsProfileContextActive_(context)) return;
       el.refundBtn.disabled = false;
       toast(String(err));
     });
@@ -4056,8 +5615,14 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     // stop old totp timer (important when switching tabs/profiles)
     stopTotp();
     if(res?.row) mergeO1LocalValues_(res);
-    if(current?.row) smsPoolStoreState(current.row);
-    const preserveSmsPool = !!opts.preserveSmsPool && current?.row && res?.row && current.row === res.row;
+    const previousSmsContext = smsProfileContext_(current);
+    const nextSmsContext = smsProfileContext_(res);
+    if(previousSmsContext.ownerKey) smsPoolStoreState(current);
+    const preserveSmsPool = !!(
+      opts.preserveSmsPool
+      && previousSmsContext.ownerKey
+      && previousSmsContext.ownerKey === nextSmsContext.ownerKey
+    );
     if(!preserveSmsPool) stopSmsPool();
 
     current = res;
@@ -4118,23 +5683,39 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
       if(banBtn && !banBtn.dataset.bound){
         banBtn.dataset.bound='1';
         banBtn.addEventListener('click', ()=>{
-          const prevActive = banBtn.classList.contains('active');
-          banBtn.classList.toggle('active', !prevActive);
-          if(!prevActive) banBtn.classList.add('banRed');
-          google.script.run.withSuccessHandler(r=>{
-            if(!r || r.ok===false){
-              banBtn.classList.toggle('active', prevActive);
-              if(!prevActive) banBtn.classList.remove('banRed');
-              toast(r?.error || 'Ошибка BAN');
-              return;
-            }
+          const banCol = String(g.ban?.col || '').toUpperCase().trim();
+          const currentBanValue = String(g.ban?.value || '').trim();
+          if(!banCol){
+            toast('Для этой группы не настроена колонка BAN');
+            return;
+          }
+          if(currentBanValue && currentBanValue !== 'Бан почты'){
+            toast(`В колонке ${banCol} уже стоит значение "${currentBanValue}". Измени вручную через выпадающий список.`);
+            return;
+          }
+
+          const desiredValue = currentBanValue === 'Бан почты' ? '' : 'Бан почты';
+          const applyBanUi = (value)=>{
+            const normalizedValue = String(value || '').trim();
+            g.ban.value = normalizedValue;
+            banBtn.classList.toggle('active', normalizedValue === 'Бан почты');
+            banBtn.classList.remove('banRed', 'banYellow');
+            const colorClass = banClassForValue(normalizedValue);
+            if(colorClass) banBtn.classList.add(colorClass);
+          };
+
+          applyBanUi(desiredValue);
+          saveCellInstant(res.row, banCol, desiredValue, (r)=>{
+            applyBanUi(o1AppliedValue_(r, banCol, desiredValue));
             scheduleFiltersRefresh('status-change');
             syncProfile();
-          }).withFailureHandler(err=>{
-            banBtn.classList.toggle('active', prevActive);
-            if(!prevActive) banBtn.classList.remove('banRed');
-            toast(String(err));
-          }).toggleBan(res.row, g.name, { profileName: res.profileName || current?.profileName || '' });
+          }, (err)=>{
+            applyBanUi(currentBanValue);
+            toast(err || 'Ошибка BAN');
+          }, {
+            tabKey: getTabKey(res.row),
+            profileName: res.profileName || current?.profileName || ''
+          });
         });
       }
 
@@ -4239,7 +5820,10 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
           const curRaw = String(f.value ?? '').trim();
           const curNorm = normOpt(curRaw);
 
-          initO1SaveState_(res.row, f.col, curRaw);
+          initO1SaveState_(res.row, f.col, curRaw, {
+            tabKey:getTabKey('', res.profileName),
+            profileName:res.profileName || ''
+          });
 
           const optEmpty=document.createElement('option');
           optEmpty.value=''; optEmpty.textContent='';
@@ -4398,7 +5982,10 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
           inp.dataset.prevValue = String(f.value || '');
           applySheetCellColorHint(inp, f.bg);
 
-          initO1SaveState_(res.row, f.col, String(f.value||''));
+          initO1SaveState_(res.row, f.col, String(f.value||''), {
+            tabKey:getTabKey('', res.profileName),
+            profileName:res.profileName || ''
+          });
 
           const onDatePick = ()=>{
             const newVal = inp.value;
@@ -4477,24 +6064,49 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
               inp.dataset.placeholderDefault = '1';
             }
             applyBSColor(inp, inp.value);
+            const enqueueBsValue = (rawValue)=>{
+              const durableValue = String(rawValue ?? '');
+              if(inp.dataset.lastDurableValue === durableValue) return;
+              inp.dataset.lastDurableValue = durableValue;
+              inp.dataset.saving = '1';
+              delete inp.dataset.pendingNextValue;
+              toast('Сохранение…');
+              markFieldSaving(inp, true);
+              saveO1RechekExpenseInstant(res.row, durableValue, fieldMap, {
+                fieldsWrap,
+                tabKey:getTabKey('', res.profileName),
+                profileName:res.profileName || '',
+                onSaved:()=>{
+                  inp.dataset.saving = '0';
+                  delete inp.dataset.unsaved;
+                  markFieldSaved(inp);
+                  updateAllGroupBadges();
+                  updateO1TabsColors();
+                  toast('Сохранено');
+                },
+                onFailed:(err)=>{
+                  inp.dataset.saving = '0';
+                  inp.dataset.unsaved = '1';
+                  markFieldSaveError(inp);
+                  updateAllGroupBadges();
+                  toast(err||'Ошибка');
+                }
+              });
+            };
             inp.addEventListener('input', ()=>{
               delete inp.dataset.placeholderDefault;
               inp.dataset.dirty = '1';
               applyBSColor(inp, inp.value);
               if(inp.dataset.saving === '1'){
-                inp.dataset.pendingNextValue = inp.value;
-                setO1PendingNext_(res.row, 'BS', inp.value, {
-                  tabKey: getTabKey(res.row),
-                  profileName: res.profileName || '',
-                  replay: (value)=>saveO1RechekExpenseInstant(res.row, value, fieldMap, {
-                    fieldsWrap,
-                    tabKey: getTabKey(res.row),
-                    profileName: res.profileName || ''
-                  })
+                logSave_('O1', 'superseding BS value enqueued immediately', {
+                  row:res.row,
+                  col:'BS',
+                  value:inp.value
                 });
-                logSave_('O1', 'pendingNextValue detected', { row: res.row, col:'BS', value: inp.value });
+                enqueueBsValue(inp.value);
               }
             });
+            inp.__enqueueBsValue = enqueueBsValue;
           }
           applySheetCellColorHint(inp, f.bg);
 
@@ -4508,63 +6120,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
             const isProxyMain = g.name === 'Прокси' && col === 'F';
 
             if(g.name==='Речек' && col==='BS'){
-              if(inp.dataset.saving === '1'){
-                inp.dataset.pendingNextValue = nextValue;
-                setO1PendingNext_(res.row, 'BS', nextValue, {
-                  tabKey: getTabKey(res.row),
-                  profileName: res.profileName || '',
-                  replay: (value)=>saveO1RechekExpenseInstant(res.row, value, fieldMap, {
-                    fieldsWrap,
-                    tabKey: getTabKey(res.row),
-                    profileName: res.profileName || ''
-                  })
-                });
-                logSave_('O1', 'pendingNextValue detected', { row: res.row, col:'BS', value: nextValue });
-                return;
-              }
-              const committedValue = nextValue;
-              inp.dataset.saving = '1';
-              toast('Сохранение…');
-              markFieldSaving(inp, true);
-
-              const finishRechek = (ok)=>{
-                inp.dataset.saving = '0';
-                const hasPending = Object.prototype.hasOwnProperty.call(inp.dataset, 'pendingNextValue');
-                const pendingValue = hasPending ? inp.dataset.pendingNextValue : null;
-                delete inp.dataset.pendingNextValue;
-                if(ok) delete inp.dataset.unsaved;
-                else inp.dataset.unsaved = '1';
-                if(ok && hasPending){
-                  takeO1PendingNext_(res.row, 'BS');
-                  if(String(pendingValue) !== String(committedValue)){
-                    inp.value = pendingValue;
-                    applyBSColor(inp, pendingValue);
-                    logSave_('O1', 'pendingNextValue replay', { row: res.row, col:'BS', value: pendingValue });
-                    setTimeout(()=>inp.dispatchEvent(new Event('blur')), 0);
-                  }
-                } else if(!ok && hasPending){
-                  inp.dataset.pendingNextValue = pendingValue;
-                }
-              };
-
-              saveO1RechekExpenseInstant(res.row, committedValue, fieldMap, {
-                fieldsWrap,
-                tabKey: getTabKey(res.row),
-                profileName: res.profileName || '',
-                onSaved: ()=>{
-                  markFieldSaved(inp);
-                  finishRechek(true);
-                  updateAllGroupBadges();
-                  updateO1TabsColors();
-                  toast('Сохранено');
-                },
-                onFailed: (err)=>{
-                  markFieldSaveError(inp);
-                  finishRechek(false);
-                  updateAllGroupBadges();
-                  toast(err||'Ошибка');
-                }
-              });
+              inp.__enqueueBsValue?.(nextValue);
               return;
             }
 
@@ -4678,6 +6234,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     updateHeader();
     updateActiveListMarkers();
     applyPassGeoBadges();
+    bindRenderedO1EditDrafts_(res);
     runProfileReveal(shell);
     if(opts.preserveScrollSnapshot) restoreSproutScroll_(opts.preserveScrollSnapshot);
   }
@@ -4724,6 +6281,10 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
   }
 
   async function syncPassCatalog(opts = {}){
+    if(_passAwaitingConfirmations.size && !opts.confirmed){
+      renderPassModalStatus('Ожидание подтверждения сохранения...');
+      return;
+    }
     if(passState.loading && !opts.force) return;
     passState.loading = true;
     renderPassModalStatus('Синхронизация...');
@@ -4972,7 +6533,18 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
         const input = document.createElement('input');
         input.className = 'passItemInput';
         input.value = item.value || '';
-        input.addEventListener('change', ()=>savePassItem(item, input.value));
+        input.dataset.row = String(item.row || '');
+        input.dataset.col = String(item.col || '').toUpperCase();
+        const descriptor = editDraftDescriptor_(
+          'PASS',
+          [String(item.value ?? '')],
+          item.col,
+          item.row,
+          item.value
+        );
+        bindEditDraftInput_(input, descriptor);
+        if(_passSaveInFlight.has(descriptor.key)) input.disabled = true;
+        input.addEventListener('change', ()=>savePassItem(item, input.value, input, descriptor));
         row.appendChild(input);
       } else {
         const btn = document.createElement('button');
@@ -4986,15 +6558,54 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     }
   }
 
-  async function savePassItem(item, value){
+  async function savePassItem(item, value, input = null, descriptor = null){
+    const expectedValue = item.value;
+    const draftDescriptor = descriptor || editDraftDescriptor_(
+      'PASS',
+      [String(expectedValue ?? '')],
+      item.col,
+      item.row,
+      expectedValue
+    );
+    if(_passSaveInFlight.has(draftDescriptor.key)) return;
+    _passSaveInFlight.add(draftDescriptor.key);
+    if(input){
+      input.disabled = true;
+      input.dataset.saving = '1';
+    }
     try{
-      const res = await window.sproutgApi.updatePassCell(item.row, item.col, value);
+      const res = await window.sproutgApi.updatePassCell(item.row, item.col, value, {
+        expectedValue
+      });
       if(!res || res.ok === false) throw new Error(apiErrorText(res, 'Ошибка сохранения PASS'));
+      clearEditDraft_(draftDescriptor, value, input);
       item.value = value;
-      await syncPassCatalog({ force:true });
+      const durableResult = apiPayload(res) || res;
+      const writeId = String(durableResult?.writeId || '').trim();
+      if(
+        writeId
+        && durableResult?.serverConfirmed !== true
+        && !_confirmedQueueWriteIds.has(writeId)
+      ){
+        _passAwaitingConfirmations.set(draftDescriptor.key, writeId);
+      } else if(!_passAwaitingConfirmations.size) {
+        await syncPassCatalog({ force:true, confirmed:true });
+      }
       toast('Сохранено');
     }catch(error){
+      if(input) input.dataset.unsaved = '1';
       toast(String(error?.message || error));
+    }finally{
+      _passSaveInFlight.delete(draftDescriptor.key);
+      if(input){
+        input.disabled = false;
+        input.dataset.saving = '0';
+      }
+      for(const candidate of document.querySelectorAll('[data-edit-draft-key]')){
+        if(candidate.dataset.editDraftKey !== draftDescriptor.key) continue;
+        candidate.disabled = false;
+        candidate.dataset.saving = '0';
+      }
     }
   }
 
@@ -5273,18 +6884,22 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
   }
 
   function getMccProfileKey(name){
-    return String(name || '').trim().toLowerCase();
+    const profileName = String(name || '').trim();
+    return profileName ? identityTupleKey_('mcc-profile', [profileName]) : '';
   }
 
   function openMccProfilesInTabs(items = [], opts = {}){
     const seen = new Set();
     const profiles = [];
+    let totalProfiles = 0;
     for(const raw of Array.isArray(items) ? items : []){
       const profileName = String(raw?.profileName || raw?.name || '').trim();
       if(!profileName) continue;
       const key = getMccProfileKey(profileName);
       if(!key || seen.has(key)) continue;
       seen.add(key);
+      totalProfiles += 1;
+      if(profiles.length >= BULK_TAB_WINDOW_LIMIT) continue;
       profiles.push({
         key,
         profileName,
@@ -5309,22 +6924,32 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     pruneMccProfileTabs();
     persistMccProfileTabs();
     renderMccProfileTabsSelect();
-    toast(`Во вкладках: ${profiles.length}`);
+    toast(totalProfiles > profiles.length
+      ? `Во вкладках: ${profiles.length} из ${totalProfiles}`
+      : `Во вкладках: ${profiles.length}`);
     const first = profiles[0];
     openMccProfileByName(first.profileName, { targetAccountName:first.lastAccount || '' });
     profiles.slice(1).forEach(queueMccProfilePreload);
   }
 
   function queueMccProfilePreload(entry){
-    const key = String(entry?.key || getMccProfileKey(entry?.profileName)).trim();
     const name = String(entry?.profileName || '').trim();
+    const key = getMccProfileKey(name);
     if(!key || !name || getCachedMccProfile(key) || mccProfilePreloadInflight.has(key)) return;
     mccProfilePreloadInflight.add(key);
+    const requestWriteRevision = _mccWriteRevision;
     const job = ()=>new Promise((resolve)=>{
       google.script.run.withSuccessHandler(res=>{
         try{
           const payload = apiPayload(res);
-          if(payload && payload.ok !== false){
+          if(
+            payload
+            && payload.ok !== false
+            && requestWriteRevision === _mccWriteRevision
+            && !mccReadBlockedByRename_(name)
+            && String(payload.profileName || '').trim() === name
+          ){
+            mergeMccLocalValues_(payload);
             cacheMccProfile(payload);
             const tab = mccProfileTabMap.get(key);
             if(tab){
@@ -5358,7 +6983,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
       for(const item of items){
         const name = String(item?.profileName || '').trim();
         if(!name) continue;
-        const key = String(item?.key || getMccProfileKey(name)).trim();
+        const key = getMccProfileKey(name);
         if(!key) continue;
         const entry = {
           key,
@@ -5381,8 +7006,10 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
       const data = JSON.parse(raw);
       const items = Array.isArray(data?.items) ? data.items : [];
       for(const item of items){
-        if(!item?.key || !item?.profile) continue;
-        mccProfileCache.set(String(item.key), { profile: item.profile, lastUsed: Number(item.lastUsed || 0) });
+        if(!item?.profile) continue;
+        const key = getMccProfileKey(item.profile.profileName);
+        if(!key) continue;
+        mccProfileCache.set(key, { profile:item.profile, lastUsed:Number(item.lastUsed || 0) });
       }
       pruneMccProfileCache();
     }catch(e){}
@@ -5444,6 +7071,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
   }
 
   function cacheMccProfile(profile){
+    mergeMccLocalValues_(profile);
     const name = String(profile?.profileName || '').trim();
     if(!name) return;
     const key = getMccProfileKey(name);
@@ -5455,7 +7083,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     const entry = mccProfileCache.get(key);
     if(!entry?.profile) return null;
     entry.lastUsed = Date.now();
-    return entry.profile;
+    return mergeMccLocalValues_(entry.profile);
   }
 
   function openMccProfileTab(entry, opts = {}){
@@ -5483,21 +7111,29 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
       }));
 
       const requestWriteRevision = _mccWriteRevision;
+      const requestProfileName = String(entry.profileName || '').trim();
+      const requestProfileKey = getMccProfileKey(requestProfileName);
       google.script.run.withSuccessHandler(res=>{
         const payload = apiPayload(res);
         if(!payload || payload.ok === false) return;
-        if(_mccPendingWrites > 0 || requestWriteRevision !== _mccWriteRevision){
+        if(
+          _mccPendingWrites > 0
+          || requestWriteRevision !== _mccWriteRevision
+          || mccReadBlockedByRename_(requestProfileName)
+        ){
           logSave_('MCC', 'skip getMccProfile response while writes pending or changed', { pending: _mccPendingWrites, requestWriteRevision, currentWriteRevision: _mccWriteRevision });
           return;
         }
+        if(String(payload.profileName || '').trim() !== requestProfileName) return;
+        mergeMccLocalValues_(payload);
         cacheMccProfile(payload);
         const key = getMccProfileKey(payload.profileName);
-        if(mccActiveProfileKey !== key) return;
+        if(mccActiveProfileKey !== key || key !== requestProfileKey) return;
         const scrollSnap = captureSproutScroll_('mcc-refresh');
         mccProfile = payload;
         mccEditMode = false;
         renderMccProfile({ preserveScrollSnapshot: scrollSnap });
-      }).getMccProfile(entry.profileName);
+      }).getMccProfile(requestProfileName);
       return;
     }
 
@@ -5570,6 +7206,35 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     cacheMccProfile(profile);
     persistMccProfileTabs();
     renderMccProfileTabsSelect();
+  }
+
+  function canMigrateMccProfileIdentity_(oldKey, newKey, profile){
+    if(!oldKey || !newKey || oldKey === newKey) return true;
+    const tabCollision = mccProfileTabMap.get(newKey);
+    const cacheCollision = mccProfileCache.get(newKey)?.profile;
+    return (!tabCollision || tabCollision === mccProfileTabMap.get(oldKey))
+      && (!cacheCollision || cacheCollision === profile);
+  }
+
+  function migrateMccProfileIdentity_(profile, oldName, newName){
+    const oldKey = getMccProfileKey(oldName);
+    const newKey = getMccProfileKey(newName);
+    if(!canMigrateMccProfileIdentity_(oldKey, newKey, profile)) return false;
+
+    const entry = mccProfileTabMap.get(oldKey);
+    if(entry){
+      mccProfileTabMap.delete(oldKey);
+      entry.key = newKey;
+      entry.profileName = newName;
+      entry.lastUsed = Date.now();
+      mccProfileTabMap.set(newKey, entry);
+    }
+    mccProfileCache.delete(oldKey);
+    mccProfileCache.set(newKey, { profile, lastUsed:Date.now() });
+    if(mccActiveProfileKey === oldKey) mccActiveProfileKey = newKey;
+    persistMccProfileTabs();
+    renderMccProfileTabsSelect();
+    return true;
   }
 
 
@@ -5667,6 +7332,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     setMccError('');
     toast('Загрузка MCC…');
     const token = nextReqToken('mcc');
+    const requestWriteRevision = _mccWriteRevision;
 
     google.script.run.withSuccessHandler(res=>{
       if(!isLatestReq('mcc', token)) return;
@@ -5677,6 +7343,20 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
         setMccError(sug ? `${msg}\n${sug}` : msg);
         return;
       }
+      if(
+        requestWriteRevision !== _mccWriteRevision
+        || mccReadBlockedByRename_(name)
+        || String(payload.profileName || '').trim() !== name
+      ){
+        logSave_('MCC', 'skip search response while writes pending or identity changed', {
+          requestProfileName:name,
+          requestWriteRevision,
+          currentWriteRevision:_mccWriteRevision
+        });
+        return;
+      }
+      mergeMccLocalValues_(payload);
+      cacheMccProfile(payload);
       const key = getMccProfileKey(payload.profileName);
       mccActiveProfileKey = key;
       mccProfile = payload;
@@ -5723,19 +7403,75 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
       const inp = document.createElement('input');
       inp.type = 'text';
       inp.className = 'value';
-      inp.value = mccProfile.profileName || '';
+      const capturedProfile = mccProfile;
+      const oldProfileName = String(capturedProfile.profileName || '').trim();
+      const oldProfileKey = getMccProfileKey(oldProfileName);
+      inp.value = oldProfileName;
+      const renameDraft = editDraftDescriptor_(
+        'MCC_RENAME',
+        [oldProfileName],
+        'PROFILE_NAME',
+        capturedProfile.profileRow?.row || capturedProfile.profileRow || '',
+        oldProfileName
+      );
+      bindEditDraftInput_(inp, renameDraft);
       inp.addEventListener('blur', ()=>{
         const next = String(inp.value || '').trim();
-        if(!next || next === mccProfile.profileName) return;
-        const rows = (mccProfile.rows || []).map(r=>r.row);
+        if(!next) return;
+        if(next === oldProfileName){
+          clearEditDraft_(renameDraft, next, inp);
+          return;
+        }
+        const nextProfileKey = getMccProfileKey(next);
+        if(!canMigrateMccProfileIdentity_(oldProfileKey, nextProfileKey, capturedProfile)){
+          inp.dataset.unsaved = '1';
+          toast('Профиль с таким точным именем уже открыт; переименование остановлено');
+          return;
+        }
+        const rows = (capturedProfile.rows || []).map(r=>r.row);
+        const renameAttempt = {
+          oldProfileName,
+          nextProfileName:next,
+          profile:capturedProfile,
+          writeId:'',
+          startedAt:Date.now()
+        };
+        _mccPendingRenamesByOld.set(oldProfileName, renameAttempt);
+        _mccWriteRevision += 1;
         toast('Сохранение…');
         google.script.run.withSuccessHandler(r=>{
-          if(!r || r.ok===false){ toast(r?.error || 'Ошибка'); return; }
-          mccProfile.profileName = next;
-          for (const row of mccProfile.rows || []) row.values.B = next;
+          const result = apiPayload(r) || r;
+          if(!result || result.ok===false || result.blocked === true){
+            settleMccPendingRename_(oldProfileName, next);
+            _mccWriteRevision += 1;
+            inp.dataset.unsaved = '1';
+            toast(result?.error || result?.lastError || 'Переименование заблокировано');
+            return;
+          }
+          renameAttempt.writeId = String(result?.writeId || '').trim();
+          _mccWriteRevision += 1;
+          clearEditDraft_(renameDraft, next, inp);
+          capturedProfile.profileName = next;
+          for (const row of capturedProfile.rows || []) row.values.B = next;
+          migrateMccProfileIdentity_(capturedProfile, oldProfileName, next);
+          if(
+            result?.serverConfirmed === true
+            || (renameAttempt.writeId && _confirmedQueueWriteIds.has(renameAttempt.writeId))
+          ){
+            settleMccPendingRename_(oldProfileName, next);
+            if(!mccReadBlockedByRename_(next)) scheduleMccConfirmedRefresh_(next);
+          }
           toast('Сохранено');
-          refreshColors({ source:'mcc', skipFilters:true });
-        }).withFailureHandler(err=>toast(String(err))).updateMccProfileName(rows, next, mccProfile.profileName || '');
+          if(mccProfile === capturedProfile){
+            updateMccHeader();
+            refreshColors({ source:'mcc', skipFilters:true });
+          }
+        }).withFailureHandler(err=>{
+          settleMccPendingRename_(oldProfileName, next);
+          _mccWriteRevision += 1;
+          inp.dataset.unsaved = '1';
+          toast(String(err));
+        }).updateMccProfileName(rows, next, oldProfileName);
       });
       pill.appendChild(inp);
     } else {
@@ -6049,7 +7785,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
   }
 
 
-  function applyMccSavedValues_(row, values){
+  function applyMccSavedValues_(row, values, identity = {}){
     const normalized = Object.entries(values || {}).reduce((acc, [col, value])=>{
       const c = String(col || '').toUpperCase().trim();
       if(c) acc[c] = value;
@@ -6057,8 +7793,20 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     }, {});
     const cols = Object.keys(normalized);
     if(!cols.length || !mccProfile?.rows) return;
+    const profileName = String(identity?.profileName || '').trim();
+    const accountName = String(identity?.accountName || '').trim();
+    if(
+      !profileName
+      || !accountName
+      || String(mccProfile.profileName || '').trim() !== profileName
+    ) return;
     const targetRow = Number(row);
-    const rowObj = mccProfile.rows.find((item)=>Number(item?.row) === targetRow);
+    const rowObj = mccProfile.rows.find((item)=>(
+      String(item?.accountName || item?.values?.C || '').trim() === accountName
+    )) || mccProfile.rows.find((item)=>(
+      Number(item?.row) === targetRow
+      && String(item?.accountName || item?.values?.C || '').trim() === accountName
+    ));
     if(!rowObj?.values) return;
     for(const c of cols) rowObj.values[c] = normalized[c];
     cacheMccProfile(mccProfile);
@@ -6070,6 +7818,22 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
       profileName: String(mccProfile?.profileName || '').trim(),
       accountName: String(rowObj?.accountName || rowObj?.values?.C || '').trim()
     };
+  }
+
+  function mccWriteContext_(row, identity = mccWriteIdentity_(row)){
+    const normalized = {
+      profileName:String(identity?.profileName || '').trim(),
+      accountName:String(identity?.accountName || '').trim()
+    };
+    return {
+      ownerKey:mccOwnerKey_(normalized),
+      identity:normalized,
+      row:Number(row) || row
+    };
+  }
+
+  function mccCellKey_(context, col, namespace = 'mcc-save'){
+    return stableCellKey_(namespace, context?.ownerKey, col);
   }
 
   function cancelMccQueuedJob_(job){
@@ -6084,11 +7848,12 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     return true;
   }
 
-  function tryCollapseMccSingleWrite_(row, normalized, onOk){
+  function tryCollapseMccSingleWrite_(row, normalized, onOk, context){
     const cols = Object.keys(normalized || {});
     if(cols.length !== 1) return false;
     const col = cols[0];
-    const key = `mcc:${row}:${col}`;
+    const key = mccCellKey_(context, col);
+    if(!key) return false;
     const prevJob = _mccQueuedSingleByCell.get(key);
     if(!prevJob || prevJob.started || prevJob.canceled) return false;
     const nextValue = String(normalized[col] ?? '');
@@ -6098,8 +7863,20 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     const cur = _mccSaveState.get(key) || { token: 0, committed };
     cur.token += 1;
     cur.committed = committed;
+    cur.pending = false;
+    cur.failed = false;
+    cur.row = Number(row) || row;
+    cur.ownerKey = context.ownerKey;
     _mccSaveState.set(key, cur);
-    applyMccSavedValues_(row, { [col]: committed });
+    rememberMccLocalValues_(context, { [col]: committed });
+    // Both renderer jobs were canceled before reaching the durable queue, so
+    // there is no server confirmation to wait for and no overlay to retain.
+    retireMccLocalValues_(context, [col], { refresh:false });
+    clearFailedDrafts_('MCC', row, [col], context.identity);
+    clearEditDraft_(
+      mccEditDraftDescriptor_(context, col, committed),
+      committed
+    );
     onOk?.({ ok:true, canceled:true, applied:{ [col]: committed } });
     refreshColors({ source:'mcc', skipFilters:true });
     return true;
@@ -6114,15 +7891,42 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     const cols = Object.keys(normalized);
     if(!cols.length){ onFail?.('Нет данных для сохранения'); return; }
 
-    if(tryCollapseMccSingleWrite_(row, normalized, onOk)) return;
+    const identity = mccWriteIdentity_(row);
+    const context = mccWriteContext_(row, identity);
+    if(!context.ownerKey){
+      onFail?.('Не удалось привязать запись к профилю и аккаунту MCC');
+      return;
+    }
+    if(tryCollapseMccSingleWrite_(row, normalized, onOk, context)) return;
 
+    rememberMccLocalValues_(context, normalized);
     _mccPendingWrites += cols.length;
     emitLocalQueue_();
-    logSave_('MCC', 'queued updateMccCells', { row, cols, pending: _mccPendingWrites });
-    const singleKey = cols.length === 1 ? `mcc:${row}:${cols[0]}` : '';
+    logSave_('MCC', 'queued updateMccCells', {
+      row,
+      cols,
+      identity,
+      pending:_mccPendingWrites
+    });
+    const tokens = {};
+    const keys = {};
+    for(const c of cols){
+      const key = mccCellKey_(context, c);
+      const state = _mccSaveState.get(key) || { token:0, committed:'' };
+      state.token += 1;
+      state.pending = true;
+      state.failed = false;
+      state.row = Number(row) || row;
+      state.ownerKey = context.ownerKey;
+      tokens[c] = state.token;
+      keys[c] = key;
+      _mccSaveState.set(key, state);
+    }
+    const singleKey = cols.length === 1 ? keys[cols[0]] : '';
     const job = {
       row,
       cols,
+      context,
       singleKey,
       prevCommitted: singleKey ? String((_mccSaveState.get(singleKey)?.committed) ?? '') : '',
       counted:true,
@@ -6130,59 +7934,118 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
       canceled:false
     };
     if(singleKey) _mccQueuedSingleByCell.set(singleKey, job);
-    const identity = mccWriteIdentity_(row);
     enqueueWrite_('MCC', (resolve)=>{
       if(job.canceled){ resolve(); return; }
       job.started = true;
       if(job.singleKey && _mccQueuedSingleByCell.get(job.singleKey) === job) _mccQueuedSingleByCell.delete(job.singleKey);
-      google.script.run
-      .withSuccessHandler((r)=>{
-        if(!r || r.ok === false){
-          onFail?.(r?.error || 'Ошибка');
+      let settled = false;
+      const startedAt = Date.now();
+      const settle = (kind, payload)=>{
+        if(settled){
+          logSave_('MCC', `late ${kind} ignored`, { row, cols });
+          return;
+        }
+        settled = true;
+        clearTimeout(timer);
+        const staleCols = cols.filter((c)=>{
+          const state = _mccSaveState.get(keys[c]);
+          return !state || state.token !== tokens[c];
+        });
+        const success = kind === 'success' && payload && payload.ok !== false;
+        const error = success
+          ? ''
+          : (payload?.error || payload?.message || String(payload || 'Ошибка'));
+        try {
+          if(success){
+            const rawApplied = (payload.applied && typeof payload.applied === 'object') ? payload.applied : normalized;
+            const acceptedApplied = {};
+            for(const c of cols){
+              if(staleCols.includes(c)) continue;
+              const state = _mccSaveState.get(keys[c]) || { token:tokens[c], committed:'' };
+              state.committed = Object.prototype.hasOwnProperty.call(rawApplied, c)
+                ? rawApplied[c]
+                : normalized[c];
+              state.pending = false;
+              state.failed = false;
+              _mccSaveState.set(keys[c], state);
+              acceptedApplied[c] = state.committed;
+            }
+            if(Object.keys(acceptedApplied).length){
+              _mccWriteRevision += 1;
+              try { applyMccSavedValues_(row, acceptedApplied, identity); } catch(error_) { console.error(error_); }
+              try { clearFailedDrafts_('MCC', row, Object.keys(acceptedApplied), identity); } catch(error_) { console.error(error_); }
+              for(const [acceptedCol, acceptedValue] of Object.entries(acceptedApplied)){
+                try {
+                  clearEditDraft_(
+                    mccEditDraftDescriptor_(context, acceptedCol, acceptedValue),
+                    acceptedValue
+                  );
+                } catch(error_) { console.error(error_); }
+              }
+              try {
+                trackMccServerConvergence_(context, acceptedApplied, payload);
+              } catch(error_) { console.error(error_); }
+              try { onOk?.({ ...payload, applied:acceptedApplied }); } catch(error_) { console.error(error_); }
+              if(Object.keys(acceptedApplied).some((c)=>['N','O','U','V','Z','D','T','W','X'].includes(c))){
+                try { scheduleFiltersRefresh('status-change'); } catch(error_) { console.error(error_); }
+              }
+              try { updateMccTabsColors(); } catch(error_) { console.error(error_); }
+              try { refreshColors({ source:'mcc', skipFilters:true }); } catch(error_) { console.error(error_); }
+            } else {
+              logSave_('MCC', 'stale success settled without UI overwrite', { row, cols, identity });
+            }
+            logSave_('MCC', 'confirmed updateMccCells', {
+              row,
+              cols,
+              acceptedCols:Object.keys(acceptedApplied),
+              pending:_mccPendingWrites,
+              ms:Date.now() - startedAt
+            });
+          } else {
+            const failedUpdates = {};
+            for(const c of cols){
+              if(staleCols.includes(c)) continue;
+              const state = _mccSaveState.get(keys[c]);
+              if(state && state.token === tokens[c]){
+                state.pending = false;
+                state.failed = true;
+                _mccSaveState.set(keys[c], state);
+                failedUpdates[c] = normalized[c];
+              }
+            }
+            if(Object.keys(failedUpdates).length){
+              try { recordFailedDraft_('MCC', row, failedUpdates, identity, error); } catch(error_) { console.error(error_); }
+              try { onFail?.(error); } catch(error_) { console.error(error_); }
+            }
+            logSave_('MCC', kind === 'timeout' ? 'timeout updateMccCells' : 'failed updateMccCells', {
+              row,
+              cols,
+              staleCols,
+              pending:_mccPendingWrites,
+              error,
+              ms:Date.now() - startedAt
+            });
+          }
+        } finally {
           if(job.counted){
             job.counted = false;
             _mccPendingWrites = Math.max(0, _mccPendingWrites - cols.length);
             emitLocalQueue_();
           }
-          logSave_('MCC', 'failed updateMccCells', { row, cols, pending: _mccPendingWrites, error: r?.error || 'Ошибка' });
           resolve();
-          return;
         }
-        const applied = (r.applied && typeof r.applied === 'object') ? r.applied : normalized;
-        for(const c of cols){
-          const key = `mcc:${row}:${c}`;
-          const cur = _mccSaveState.get(key) || { token: 0, committed: '' };
-          cur.token += 1;
-          cur.committed = Object.prototype.hasOwnProperty.call(applied, c) ? applied[c] : normalized[c];
-          _mccSaveState.set(key, cur);
-        }
-        _mccWriteRevision += 1;
-        applyMccSavedValues_(row, applied);
-        onOk?.(r);
-        if(cols.some((c)=>['N','O','U','V','Z','D','T','W','X'].includes(c))){
-          scheduleFiltersRefresh('status-change');
-        }
-        updateMccTabsColors();
-        refreshColors({ source:'mcc', skipFilters:true });
-        if(job.counted){
-          job.counted = false;
-          _mccPendingWrites = Math.max(0, _mccPendingWrites - cols.length);
-          emitLocalQueue_();
-        }
-        logSave_('MCC', 'confirmed updateMccCells', { row, cols, pending: _mccPendingWrites });
-        resolve();
-      })
-      .withFailureHandler((err)=>{
-        onFail?.(String(err));
-        if(job.counted){
-          job.counted = false;
-          _mccPendingWrites = Math.max(0, _mccPendingWrites - cols.length);
-          emitLocalQueue_();
-        }
-        logSave_('MCC', 'transport error updateMccCells', { row, cols, pending: _mccPendingWrites, error: String(err) });
-        resolve();
-      })
-      .updateMccCells(row, normalized, identity);
+      };
+      const timer = setTimeout(()=>{
+        settle('timeout', { ok:false, error:'Таймаут сохранения' });
+      }, MCC_SAVE_TIMEOUT_MS);
+      try {
+        google.script.run
+        .withSuccessHandler((r)=>settle('success', r))
+        .withFailureHandler((err)=>settle('failure', { ok:false, error:String(err) }))
+        .updateMccCells(row, normalized, identity);
+      } catch(err) {
+        settle('failure', { ok:false, error:String(err) });
+      }
     });
   }
 
@@ -6224,33 +8087,23 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
 
     inp.addEventListener('input', ()=>{
       if(inp.dataset.saving === '1'){
-        inp.dataset.pendingNextValue = inp.value;
         opts.onPending?.(inp.value);
+        commit();
       }
     });
 
     const commit = ()=>{
       const nextValue = inp.value;
-      if(inp.dataset.saving === '1'){
-        inp.dataset.pendingNextValue = nextValue;
-        opts.onPending?.(nextValue);
-        return;
-      }
+      if(inp.dataset.saving === '1' && inp.dataset.lastDurableValue === String(nextValue)) return;
+      inp.dataset.lastDurableValue = String(nextValue);
+      delete inp.dataset.pendingNextValue;
 
       const committedValue = nextValue;
       const finish = (ok)=>{
         inp.dataset.saving = '0';
-        const hasPending = Object.prototype.hasOwnProperty.call(inp.dataset, 'pendingNextValue');
-        const pendingValue = hasPending ? inp.dataset.pendingNextValue : null;
         delete inp.dataset.pendingNextValue;
         if(ok) delete inp.dataset.unsaved;
         else inp.dataset.unsaved = '1';
-        if(ok && hasPending && String(pendingValue) !== String(committedValue)){
-          inp.value = pendingValue;
-          setTimeout(commit, 0);
-        } else if(!ok && hasPending){
-          inp.dataset.pendingNextValue = pendingValue;
-        }
       };
 
       if(typeof opts.onCommit === 'function'){
@@ -6289,23 +8142,32 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     applySheetCellColorHint(inp, rowObj?.bgMap?.[col]);
 
     const commit = ()=>{
-      if(inp.dataset.saving === '1') return;
       const iso = inp.value;
+      if(inp.dataset.saving === '1' && inp.dataset.lastDurableValue === String(iso)) return;
+      if(inp.dataset.saving === '1') opts.onPending?.(iso);
+      inp.dataset.lastDurableValue = String(iso);
+      delete inp.dataset.pendingNextValue;
       const prevValue = String(rowObj.values[col] ?? '');
       rowObj.values[col] = iso;
+      const finish = (ok)=>{
+        inp.dataset.saving = '0';
+        delete inp.dataset.pendingNextValue;
+        if(ok) delete inp.dataset.unsaved;
+        else inp.dataset.unsaved = '1';
+      };
 
       if(typeof opts.onCommit === 'function'){
         inp.dataset.saving = '1';
         opts.onCommit(iso, { prevValue,
-          done: ()=>{ inp.dataset.saving = '0'; },
-          fail: ()=>{ inp.dataset.saving = '0'; }
+          done: ()=>finish(true),
+          fail: ()=>finish(false)
         });
         return;
       }
 
       inp.dataset.saving = '1';
       toast('Сохранение…');
-      saveMccCellInstant(rowObj.row, col, iso, ()=>{ inp.dataset.saving = '0'; toast('Сохранено'); }, (err)=>{ inp.dataset.saving = '0'; toast(err||'Ошибка'); });
+      saveMccCellInstant(rowObj.row, col, iso, ()=>{ finish(true); toast('Сохранено'); }, (err)=>{ finish(false); toast(err||'Ошибка'); });
       updateMccTabsColors();
     };
 
@@ -6337,8 +8199,11 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     sel.value = String(value ?? '');
     sel.dataset.prevValue = String(value ?? '');
     sel.dataset.uiValue = String(value ?? '');
-    const saveKey = `mcc:${rowObj.row}:${col}`;
-    if(!_mccSaveState.has(saveKey)) _mccSaveState.set(saveKey, { token: 0, committed: String(value ?? '') });
+    const saveContext = mccWriteContext_(rowObj.row);
+    const saveKey = mccCellKey_(saveContext, col);
+    if(saveKey && !_mccSaveState.has(saveKey)){
+      _mccSaveState.set(saveKey, { token:0, committed:String(value ?? '') });
+    }
     applySheetCellColorHint(sel, rowObj?.bgMap?.[col]);
 
     sel.addEventListener('change', ()=>{
@@ -6536,7 +8401,9 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
 
     const head = document.createElement('div');
     head.className = 'appealModalHead';
-    head.innerHTML = `<b>Апелляция • ${rowObj.accountName || ''}</b>`;
+    const headTitle = document.createElement('b');
+    headTitle.textContent = `Апелляция • ${rowObj.accountName || ''}`;
+    head.appendChild(headTitle);
     const xBtn = document.createElement('button');
     xBtn.type = 'button'; xBtn.className = 'btn'; xBtn.textContent = '×';
     xBtn.addEventListener('click', close);
@@ -6658,8 +8525,12 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
       google.script.run
         .withSuccessHandler((res)=>resolve(res && res.ok ? res : null))
         .withFailureHandler(()=>resolve(null))
-        .getO1AppealRowData(rowNum);
+        .getO1AppealRowData(rowNum, { profileName:String(profile?.profileName || '').trim() });
     });
+    if(!rowData){
+      toast('Не удалось безопасно сверить строку профиля; апелляция остановлена');
+      return;
+    }
 
     const linkValue = String(rowData?.link || '').trim();
     const dateDisplay = String(rowData?.dateDisplay || '').trim();
@@ -6677,7 +8548,9 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
 
     const head = document.createElement('div');
     head.className = 'appealModalHead';
-    head.innerHTML = `<b>Апелляция • ${profile?.profileName || ''}</b>`;
+    const headTitle = document.createElement('b');
+    headTitle.textContent = `Апелляция • ${profile?.profileName || ''}`;
+    head.appendChild(headTitle);
     const xBtn = document.createElement('button');
     xBtn.type = 'button'; xBtn.className = 'btn'; xBtn.textContent = '×';
     xBtn.addEventListener('click', close);
@@ -6799,12 +8672,15 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
       const info = mccPassLookupState.byFio?.[fio];
       const nextAddr = String(info?.address || '').trim();
       if(!fio || !nextAddr || curAddr) continue;
-      const key = `addrfill:${rowObj.row}:${addrCol}`;
+      const context = mccWriteContext_(rowObj.row);
+      const key = mccCellKey_(context, addrCol, 'mcc-addrfill');
+      if(!key) continue;
       if(_mccSaveState.get(key)) continue;
       _mccSaveState.set(key, { token:1, pending:true });
       rowObj.values[addrCol] = nextAddr;
       saveMccCellInstant(rowObj.row, addrCol, nextAddr, ()=>{
         _mccSaveState.delete(key);
+        if(mccWriteContext_(rowObj.row).ownerKey !== context.ownerKey) return;
         const el = document.querySelector(`#mccOut [data-row="${rowObj.row}"][data-col="${addrCol}"]`);
         if(el){ if('value' in el) el.value = nextAddr; else el.textContent = nextAddr; }
       }, ()=>_mccSaveState.delete(key));
@@ -7541,6 +9417,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     applyMccFioVisualMarks();
     applyPassGeoBadges();
     mccSetupAccountScrollSpy();
+    bindRenderedMccEditDrafts_(mccProfile);
     runProfileReveal(shell);
     if(opts.preserveScrollSnapshot) restoreSproutScroll_(opts.preserveScrollSnapshot);
   }
@@ -8042,6 +9919,92 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     return Array.from(document.querySelectorAll('#companyFormGrid input[data-company-col]'));
   }
 
+  function readCompanyInlineDraft_(){
+    if(_companyInlineDraftIntegrityBlocked) return [];
+    try {
+      const raw = localStorage.getItem(COMPANY_INLINE_DRAFT_KEY);
+      const parsed = JSON.parse(raw || '[]');
+      if(!Array.isArray(parsed)) throw new Error('Формат встроенного черновика компании повреждён');
+      if(
+        parsed.length > 6
+        || parsed.some(value=>value != null && typeof value === 'object')
+      ){
+        throw new Error('Встроенный черновик компании содержит неподдерживаемые данные');
+      }
+      return parsed.map(value=>String(value ?? ''));
+    } catch(error) {
+      let raw = null;
+      try {
+        raw = localStorage.getItem(COMPANY_INLINE_DRAFT_KEY);
+        if(raw != null){
+          _companyInlineDraftQuarantineKey = `${COMPANY_INLINE_DRAFT_KEY}:quarantine:${Date.now()}`;
+          localStorage.setItem(_companyInlineDraftQuarantineKey, raw);
+          if(localStorage.getItem(_companyInlineDraftQuarantineKey) !== raw){
+            throw new Error('проверка карантинной копии не пройдена');
+          }
+        }
+      } catch(quarantineError) {
+        _companyInlineDraftQuarantineKey = '';
+        _companyInlineDraftStorageError = `Не удалось создать карантинную копию: ${quarantineError?.message || quarantineError}`;
+      }
+      _companyInlineDraftIntegrityBlocked = true;
+      _companyInlineDraftStorageError = [
+        String(error?.message || error),
+        _companyInlineDraftStorageError
+      ].filter(Boolean).join('; ');
+      window.__sproutgCompanyInlineDraftIntegrityRisk = 1;
+      window.__sproutgCompanyInlineDraftIntegrityError = _companyInlineDraftStorageError;
+      return [];
+    }
+  }
+
+  function persistCompanyInlineDraft_(){
+    const inputs = getCompanyInputs();
+    const values = inputs.map(input=>String(input.value || ''));
+    if(_companyInlineDraftIntegrityBlocked){
+      _companyInlineDraftStorageError = (
+        'Исходный встроенный черновик компании сохранён без перезаписи'
+        + (_companyInlineDraftQuarantineKey ? ` (${_companyInlineDraftQuarantineKey})` : '')
+      );
+      window.__sproutgCompanyInlineDraftIntegrityRisk = 1;
+      window.__sproutgCompanyInlineDraftIntegrityError = _companyInlineDraftStorageError;
+      for(const input of inputs) input.dataset.unsaved = '1';
+      return false;
+    }
+    try {
+      if(values.some(value=>value.trim())){
+        const serialized = JSON.stringify(values);
+        localStorage.setItem(COMPANY_INLINE_DRAFT_KEY, serialized);
+        if(localStorage.getItem(COMPANY_INLINE_DRAFT_KEY) !== serialized){
+          throw new Error('проверка встроенного черновика компании не пройдена');
+        }
+      } else {
+        localStorage.removeItem(COMPANY_INLINE_DRAFT_KEY);
+        if(localStorage.getItem(COMPANY_INLINE_DRAFT_KEY) != null){
+          throw new Error('удаление встроенного черновика компании не подтверждено');
+        }
+      }
+      _companyInlineDraftStorageError = '';
+      window.__sproutgCompanyInlineDraftIntegrityRisk = 0;
+      window.__sproutgCompanyInlineDraftIntegrityError = '';
+      for(const input of inputs) delete input.dataset.unsaved;
+      return true;
+    } catch(error) {
+      _companyInlineDraftStorageError = String(error?.message || error);
+      window.__sproutgCompanyInlineDraftIntegrityRisk = 1;
+      window.__sproutgCompanyInlineDraftIntegrityError = _companyInlineDraftStorageError;
+      for(const input of inputs){
+        if(String(input.value || '').trim()) input.dataset.unsaved = '1';
+      }
+      return false;
+    }
+  }
+  readCompanyInlineDraft_();
+  if(!_companyInlineDraftIntegrityBlocked){
+    window.__sproutgCompanyInlineDraftIntegrityRisk = 0;
+    window.__sproutgCompanyInlineDraftIntegrityError = '';
+  }
+
   function validateCompanyValues(values){
     const clean = (Array.isArray(values) ? values : []).map(v=>String(v || '').trim());
     if(clean.length !== 6) return { ok:false, error:'Нужно заполнить 6 полей' };
@@ -8076,6 +10039,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     const grid = document.getElementById('companyFormGrid');
     if(!grid) return;
     grid.innerHTML = '';
+    const draft = readCompanyInlineDraft_();
     for(let i=0;i<6;i++){
       const row = document.createElement('div');
       row.className = 'field';
@@ -8086,6 +10050,8 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
       inp.type = 'text';
       inp.className = 'value';
       inp.dataset.companyCol = String.fromCharCode(65+i);
+      inp.value = draft[i] || '';
+      inp.addEventListener('input', persistCompanyInlineDraft_);
       if(i === 0){
         inp.addEventListener('input', ()=>scheduleCompanyDuplicateCheck(inp));
       }
@@ -8093,6 +10059,9 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
       row.appendChild(inp);
       row.appendChild(document.createElement('div')).className = 'actions';
       grid.appendChild(row);
+    }
+    if(!persistCompanyInlineDraft_() && _companyInlineDraftStorageError){
+      setCompanyError(`Черновик компании требует восстановления: ${_companyInlineDraftStorageError}`);
     }
   }
 
@@ -8124,33 +10093,12 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     }, 260);
   }
 
-  function isCompanyBridgeTimeout_(error){
-    const text = String(error?.code || error?.message || error || '').toLowerCase();
-    return text.includes('bridge_timeout') || text.includes('timeout') || text.includes('слишком долго') || text.includes('too long');
-  }
-
-  function companyWait_(ms){
-    return new Promise((resolve)=>setTimeout(resolve, ms));
-  }
-
-  async function confirmCompanyStored_(companyName){
-    const value = String(companyName || '').trim();
-    if(!value) return false;
-    for(const delay of [350, 700, 1200, 1800]){
-      await companyWait_(delay);
-      try{
-        const res = await window.sproutgApi.callApi('company.checkDuplicate', { value }, { timeoutMs: 3000 });
-        if(res && res.ok !== false && res.data?.duplicate) return true;
-        if(res && res.ok !== false && res.duplicate) return true;
-      }catch(error){
-        if(!isCompanyBridgeTimeout_(error)) throw error;
-      }
-    }
-    return false;
-  }
-
   async function submitCompanyForm(){
     setCompanyError('');
+    if(_companyInlineDraftIntegrityBlocked){
+      setCompanyError(`Черновик компании требует восстановления: ${_companyInlineDraftStorageError}`);
+      return;
+    }
     const inputs = getCompanyInputs();
     const values = inputs.map(i=>String(i.value || '').trim());
     const vr = validateCompanyValues(values);
@@ -8170,18 +10118,11 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
       });
       toast('Компания добавлена');
       inputs.forEach(i=>{ i.value = ''; });
+      persistCompanyInlineDraft_();
     };
     try{
-      let stored = false;
-      try{
-        const res = await window.sproutgApi.callApi('company.addRow', { values: vr.values }, { cache:false, timeoutMs:3500 });
-        if(!res || res.ok===false){ setCompanyError(res?.error || 'Ошибка сохранения'); return; }
-        stored = true;
-      }catch(error){
-        if(!isCompanyBridgeTimeout_(error)) throw error;
-        stored = await confirmCompanyStored_(vr.values[0]);
-        if(!stored) throw error;
-      }
+      const res = await window.sproutgApi.callApi('company.addRow', { values: vr.values }, { cache:false, timeoutMs:3500 });
+      if(!res || res.ok===false){ setCompanyError(res?.error || 'Ошибка сохранения'); return; }
       finish();
     }catch(error){
       setCompanyError(String(error?.message || error));

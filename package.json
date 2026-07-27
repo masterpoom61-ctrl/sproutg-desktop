@@ -1,25 +1,30 @@
 {
   "name": "sproutg-desktop",
   "productName": "SproutG",
-  "version": "2.2.2",
+  "version": "2.3.0",
   "description": "SproutG Desktop (local Electron UI with Apps Script bridge/API and GitHub auto-updates)",
   "main": "src/main.js",
   "license": "MIT",
   "scripts": {
     "start": "electron .",
     "dev": "electron .",
+    "check": "node scripts/check-js.js",
+    "test": "node --test && node scripts/check-js.js",
     "make-ico": "node scripts/make-ico.js",
     "dist:win": "electron-builder --win",
     "dist:win:publish": "electron-builder --win --publish always"
   },
   "dependencies": {
     "electron-store": "^8.2.0",
-    "electron-updater": "^6.3.9"
+    "electron-updater": "^6.8.9"
   },
   "devDependencies": {
-    "electron": "^35.0.0",
-    "electron-builder": "^24.13.3",
+    "electron": "^43.2.0",
+    "electron-builder": "^26.15.3",
     "png-to-ico": "^2.1.0"
+  },
+  "overrides": {
+    "brace-expansion": "5.0.8"
   },
   "repository": {
     "type": "git",

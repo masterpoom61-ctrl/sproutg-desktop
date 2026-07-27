@@ -9,10 +9,16 @@ const submitBtn = $('companySubmitBtn');
 const errEl = $('companyErr');
 const closeBtn = $('companyCloseBtn');
 const COMPANY_LABELS = ['Компания', 'Адресс', 'Индекс', 'Город', 'EE', 'DUNS'];
+const COMPANY_DRAFT_KEY = 'sproutg:companyDraft:v1';
+let companyDraftIntegrityBlocked = false;
+let companyDraftIntegrityError = '';
+let companyDraftQuarantineKey = '';
 
 let duplicateTimer = null;
 let duplicateState = { value: '', duplicate: false, checking: false };
 let closing = false;
+let writeBarrierActive = false;
+let submitJob = null;
 
 function prepareClose() {
   if (closing) return;
@@ -130,32 +136,6 @@ function setError(msg) {
   errEl.textContent = msg || '';
 }
 
-function wait(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function isBridgeTimeout(error) {
-  const text = String(error?.code || error?.message || error || '').toLowerCase();
-  return text.includes('bridge_timeout') || text.includes('timeout') || text.includes('слишком долго') || text.includes('too long');
-}
-
-async function confirmCompanyStored(companyName) {
-  const value = String(companyName || '').trim();
-  if (!value) return false;
-  const delays = [350, 700, 1200, 1800];
-  for (const delay of delays) {
-    await wait(delay);
-    try {
-      const res = await window.sproutgCompany.apiCall('company.checkDuplicate', { value }, { timeoutMs: 3000 });
-      const payload = res?.data && typeof res.data === 'object' ? res.data : res;
-      if (res && res.ok !== false && payload?.duplicate) return true;
-    } catch (error) {
-      if (!isBridgeTimeout(error)) throw error;
-    }
-  }
-  return false;
-}
-
 function emitCompanyPoints() {
   window.sproutgCompany.addPoints?.({
     kind: 'company',
@@ -177,6 +157,7 @@ function resetCompanyForm(message) {
     delete input.dataset.state;
   });
   duplicateState = { value: '', duplicate: false, checking: false };
+  persistCompanyDraft();
   setError(message || 'Компания добавлена');
   setTimeout(() => setError(''), 1300);
 }
@@ -193,6 +174,144 @@ function getInputs() {
 
 function getValues() {
   return getInputs().map((input) => String(input.value || '').trim());
+}
+
+function readCompanyDraft() {
+  try {
+    const raw = localStorage.getItem(COMPANY_DRAFT_KEY);
+    const parsed = JSON.parse(raw || '[]');
+    if (!Array.isArray(parsed)) throw new Error('Формат черновика компании повреждён');
+    if (
+      parsed.length > 6
+      || parsed.some((value) => value != null && typeof value === 'object')
+    ) {
+      throw new Error('Черновик компании содержит неподдерживаемые данные');
+    }
+    return parsed.slice(0, 6).map((value) => String(value ?? ''));
+  } catch (error) {
+    let raw = null;
+    try {
+      raw = localStorage.getItem(COMPANY_DRAFT_KEY);
+      if (raw != null) {
+        companyDraftQuarantineKey = `${COMPANY_DRAFT_KEY}:quarantine:${Date.now()}`;
+        localStorage.setItem(companyDraftQuarantineKey, raw);
+        if (localStorage.getItem(companyDraftQuarantineKey) !== raw) {
+          throw new Error('проверка карантинной копии не пройдена');
+        }
+      }
+    } catch (quarantineError) {
+      companyDraftQuarantineKey = '';
+      companyDraftIntegrityError = `Не удалось создать карантинную копию: ${quarantineError?.message || quarantineError}`;
+    }
+    companyDraftIntegrityBlocked = true;
+    companyDraftIntegrityError = [
+      String(error?.message || error),
+      companyDraftIntegrityError
+    ].filter(Boolean).join('; ');
+    window.__sproutgCompanyDraftIntegrityRisk = 1;
+    window.__sproutgCompanyDraftIntegrityError = companyDraftIntegrityError;
+    return [];
+  }
+}
+
+function persistCompanyDraft() {
+  const values = getInputs().map((input) => String(input.value || ''));
+  if (companyDraftIntegrityBlocked) {
+    companyDraftIntegrityError = (
+      'Исходный черновик компании сохранён без перезаписи'
+      + (companyDraftQuarantineKey ? ` (${companyDraftQuarantineKey})` : '')
+    );
+    window.__sproutgCompanyDraftIntegrityRisk = 1;
+    window.__sproutgCompanyDraftIntegrityError = companyDraftIntegrityError;
+    for (const input of getInputs()) input.dataset.unsaved = '1';
+    return false;
+  }
+  try {
+    if (values.some((value) => value.trim())) {
+      localStorage.setItem(COMPANY_DRAFT_KEY, JSON.stringify(values));
+    } else {
+      localStorage.removeItem(COMPANY_DRAFT_KEY);
+    }
+    window.__sproutgCompanyDraftIntegrityRisk = 0;
+    window.__sproutgCompanyDraftIntegrityError = '';
+    for (const input of getInputs()) delete input.dataset.unsaved;
+    return true;
+  } catch (error) {
+    companyDraftIntegrityError = String(error?.message || error);
+    window.__sproutgCompanyDraftIntegrityRisk = 1;
+    window.__sproutgCompanyDraftIntegrityError = companyDraftIntegrityError;
+    for (const input of getInputs()) {
+      if (String(input.value || '').trim()) input.dataset.unsaved = '1';
+    }
+    return false;
+  }
+}
+
+async function waitForCompanySubmit(timeoutMs) {
+  const activeSubmit = submitJob;
+  if (!activeSubmit) return true;
+  let timer = null;
+  const completed = await Promise.race([
+    activeSubmit.then(() => true, () => true),
+    new Promise((resolve) => {
+      timer = setTimeout(() => resolve(false), Math.max(500, Number(timeoutMs || 5000)));
+    })
+  ]);
+  clearTimeout(timer);
+  return completed;
+}
+
+async function requestCompanyClose() {
+  if (!(await waitForCompanySubmit(5000))) {
+    setError('Добавление компании ещё сохраняется. Окно оставлено открытым.');
+    return;
+  }
+  if (!persistCompanyDraft()) {
+    setError('Черновик компании не удалось сохранить локально. Окно оставлено открытым.');
+    return;
+  }
+  prepareClose();
+  window.sproutgCompany.closeWindow().catch(() => {});
+}
+
+function releaseWriteBarrier() {
+  writeBarrierActive = false;
+  document.documentElement.removeAttribute('data-write-barrier');
+  document.body.style.pointerEvents = '';
+}
+
+async function prepareWriteBarrier(request = {}) {
+  writeBarrierActive = true;
+  document.documentElement.dataset.writeBarrier = '1';
+  document.body.style.pointerEvents = 'none';
+  try { document.activeElement?.blur?.(); } catch (_error) {}
+  const activeSubmit = submitJob;
+  if (activeSubmit) {
+    const submitWaitMs = Math.max(
+      500,
+      Math.min(5000, Number(request.timeoutMs || 6000) - 1000)
+    );
+    if (!(await waitForCompanySubmit(submitWaitMs))) {
+      return {
+        ok:false,
+        error:'Добавление компании ещё сохраняется. Повтори операцию через несколько секунд.'
+      };
+    }
+  }
+  const persisted = persistCompanyDraft();
+  const values = getValues();
+  const hasDraft = values.some(Boolean);
+  const draftWouldChangeTarget = (
+    request.reason === 'logout'
+    || (request.reason === 'change-endpoint' && request.allowDurableFailures !== true)
+  );
+  if (!persisted) {
+    return { ok:false, error:'Черновик компании не удалось сохранить локально' };
+  }
+  if (hasDraft && draftWouldChangeTarget) {
+    return { ok:false, error:'Сначала отправь или очисти черновик компании' };
+  }
+  return { ok:true, persistedDraft:hasDraft };
 }
 
 function validate(values) {
@@ -324,6 +443,7 @@ function setupAuxWindowDrag(api){
 
 function renderInputs() {
   grid.innerHTML = '';
+  const draft = readCompanyDraft();
   for (let i = 0; i < 6; i += 1) {
     const row = document.createElement('div');
     row.className = 'field';
@@ -338,7 +458,9 @@ function renderInputs() {
     input.className = 'input';
     input.dataset.companyCol = String.fromCharCode(65 + i);
     input.autocomplete = 'off';
+    input.value = draft[i] || '';
     input.addEventListener('input', () => {
+      persistCompanyDraft();
       if (i === 0) scheduleDuplicateCheck(input);
       else setSubmitEnabled();
     });
@@ -354,6 +476,10 @@ function renderInputs() {
     grid.appendChild(row);
   }
   setSubmitEnabled();
+  const persisted = persistCompanyDraft();
+  if (!persisted && companyDraftIntegrityError) {
+    setError(`Черновик компании требует восстановления: ${companyDraftIntegrityError}`);
+  }
   const first = grid.querySelector('input');
   if (first) first.focus();
 }
@@ -364,50 +490,63 @@ async function loadMeta() {
 }
 
 async function submitCompany() {
-  const vr = validate(getValues());
-  if (!vr.ok) {
-    setError(vr.error);
-    setSubmitEnabled();
-    return;
-  }
+  if (submitJob) return submitJob;
+  const job = (async () => {
+    const vr = validate(getValues());
+    if (!vr.ok) {
+      setError(vr.error);
+      setSubmitEnabled();
+      return;
+    }
 
-  submitBtn.disabled = true;
-  setError('');
-  try {
-    let stored = false;
+    submitBtn.disabled = true;
+    setError('');
     try {
       const res = await window.sproutgCompany.apiCall('company.addRow', { values: vr.values }, { cache: false, timeoutMs: 3500 });
       if (!res || res.ok === false) throw new Error(res?.error || 'Ошибка сохранения');
-      stored = true;
+      emitCompanyPoints();
+      resetCompanyForm('Компания добавлена');
     } catch (error) {
-      if (!isBridgeTimeout(error)) throw error;
-      stored = await confirmCompanyStored(vr.values[0]);
-      if (!stored) throw error;
+      setError(String(error?.message || error));
+    } finally {
+      setSubmitEnabled();
     }
-    emitCompanyPoints();
-    resetCompanyForm(stored ? 'Компания добавлена' : 'Компания добавлена, синхронизация продолжается');
-  } catch (error) {
-    setError(String(error?.message || error));
+  })();
+  submitJob = job;
+  try {
+    return await job;
   } finally {
-    setSubmitEnabled();
+    if (submitJob === job) submitJob = null;
   }
 }
 
 submitBtn.addEventListener('click', submitCompany);
-closeBtn?.addEventListener('click', () => {
-  prepareClose();
-  window.sproutgCompany.closeWindow().catch(() => {});
-});
+closeBtn?.addEventListener('click', requestCompanyClose);
 
 window.sproutgCompany.onApplySettings((settings) => {
   if (settings) applySettingsUi(settings);
 });
 window.sproutgCompany.onPrepareClose(prepareClose);
+window.sproutgCompany.onPrepareWriteBarrier(async (request) => {
+  try {
+    window.sproutgCompany.completeWriteBarrier({
+      id:request?.id,
+      ...(await prepareWriteBarrier(request))
+    });
+  } catch (error) {
+    window.sproutgCompany.completeWriteBarrier({
+      id:request?.id,
+      ok:false,
+      error:String(error?.message || error)
+    });
+  }
+});
+window.sproutgCompany.onReleaseWriteBarrier(releaseWriteBarrier);
+window.sproutgCompany.onNativeCloseRequest(requestCompanyClose);
 
 document.addEventListener('keydown', (event) => {
   if (event.key === 'Escape') {
-    prepareClose();
-    window.sproutgCompany.closeWindow().catch(() => {});
+    requestCompanyClose();
   }
 });
 

@@ -1,3 +1,30 @@
+function smsOwnedOptions(value) {
+  const input = value && typeof value === 'object' ? value : {};
+  return {
+    ...input,
+    ownerIdentity:{
+      profileName:String(input.ownerIdentity?.profileName || '').trim()
+    }
+  };
+}
+
+const SMS_POOL_ORDER_SPEC = {
+  action:'smspool.orderO1',
+  payload:([options])=>smsOwnedOptions(options)
+};
+const SMS_POOL_CHECK_SPEC = {
+  action:'smspool.checkO1',
+  payload:([orderId, options])=>({ ...smsOwnedOptions(options), orderId })
+};
+const SMS_POOL_REFUND_SPEC = {
+  action:'smspool.refundO1',
+  payload:([orderId, options])=>({ ...smsOwnedOptions(options), orderId })
+};
+const SMS_POOL_STATE_SPEC = {
+  action:'smspool.stateO1',
+  payload:([options])=>smsOwnedOptions(options)
+};
+
 const READ_ACTIONS = new Set([
   'meta.config',
   'dropdown.maps',
@@ -9,28 +36,27 @@ const READ_ACTIONS = new Set([
   'o1.workLists',
   'o1.groupDateList',
   'o1.cleanupList',
+  'o1.proxyFields',
   'mcc.profile',
   'mcc.overview',
   'mcc.lists',
   'mcc.stageList',
   'mcc.workList',
   'mcc.verificationPools',
+  'mcc.proxyFields',
   'apell.index',
   'pass.lookupFios',
   'pass.catalog',
   'company.formMeta',
-  'smspool.checkO1',
-  'smspool.stateO1',
+  'company.checkDuplicate',
   'smspool.balanceO1',
-  'herosms.checkO1',
-  'herosms.stateO1',
   'herosms.balanceO1'
 ]);
 
 const LEGACY_TO_ACTION = {
   findProfile: { action: 'o1.profileByName', payload: ([profileName]) => ({ profileName }) },
-  getProfileByRow: { action: 'o1.profileByRow', payload: ([row]) => ({ row }) },
-  getO1AppealRowData: { action: 'o1.appealRow', payload: ([row]) => ({ row }) },
+  getProfileByRow: { action: 'o1.profileByRow', payload: ([row, identity]) => ({ row, identity }) },
+  getO1AppealRowData: { action: 'o1.appealRow', payload: ([row, identity]) => ({ row, identity }) },
   getProfilesByRows: { action: 'o1.profilesByRows', payload: ([rows]) => ({ rows }) },
   listProfilesForCleanup: { action: 'o1.cleanupList', payload: ([limit]) => ({ limit }) },
   listProfilesByGroupDate: {
@@ -41,7 +67,6 @@ const LEGACY_TO_ACTION = {
   updateCell: { action: 'o1.updateCells', payload: ([row, col, value, identity]) => ({ row, updates: { [String(col || '').toUpperCase()]: value }, identity }) },
   updateCells: { action: 'o1.updateCells', payload: ([row, updates, identity]) => ({ row, updates, identity }) },
   updateProxyFromValue: { action: 'o1.proxyFields', payload: ([row, value, identity]) => ({ row, value, identity }) },
-  toggleBan: { action: 'o1.toggleBan', payload: ([row, group, identity]) => ({ row, group, identity }) },
   toggleProfileDeleted: { action: 'o1.toggleDeleted', payload: ([row, enabled, identity]) => ({ row, enabled, identity }) },
   setGroupNumber: { action: 'o1.setNumber', payload: ([row, group, enabled, identity]) => ({ row, group, enabled, identity }) },
 
@@ -64,19 +89,23 @@ const LEGACY_TO_ACTION = {
   getApellDataIndex: { action: 'apell.index', payload: ([options]) => (options || {}) },
   getPassLookupForFios: { action: 'pass.lookupFios', payload: ([fios]) => ({ fios }) },
   getPassCatalog: { action: 'pass.catalog', payload: ([geos]) => ({ geos }) },
-  updatePassCell: { action: 'pass.updateCell', payload: ([row, col, value]) => ({ row, col, value }) },
+  updatePassCell: { action: 'pass.updateCell', payload: ([row, col, value, identity]) => ({ row, col, value, identity }) },
   getCompanyFormMeta: { action: 'company.formMeta', payload: () => ({}) },
   addCompanyRow: { action: 'company.addRow', payload: ([values]) => ({ values }) },
 
-  smspoolOrderO1: { action: 'smspool.orderO1', payload: () => ({}) },
-  smspoolCheckO1: { action: 'smspool.checkO1', payload: ([orderId]) => ({ orderId }) },
-  smspoolRefundO1: { action: 'smspool.refundO1', payload: ([orderId]) => ({ orderId }) },
-  smspoolGetStateO1: { action: 'smspool.stateO1', payload: () => ({}) },
+  smsPoolOrderO1: SMS_POOL_ORDER_SPEC,
+  smsPoolCheckO1: SMS_POOL_CHECK_SPEC,
+  smsPoolRefundO1: SMS_POOL_REFUND_SPEC,
+  smsPoolGetStateO1: SMS_POOL_STATE_SPEC,
+  smspoolOrderO1: SMS_POOL_ORDER_SPEC,
+  smspoolCheckO1: SMS_POOL_CHECK_SPEC,
+  smspoolRefundO1: SMS_POOL_REFUND_SPEC,
+  smspoolGetStateO1: SMS_POOL_STATE_SPEC,
   smspoolBalanceO1: { action: 'smspool.balanceO1', payload: () => ({}) },
-  heroSmsOrderO1: { action: 'herosms.orderO1', payload: () => ({}) },
-  heroSmsCheckO1: { action: 'herosms.checkO1', payload: ([orderId]) => ({ orderId }) },
-  heroSmsRefundO1: { action: 'herosms.refundO1', payload: ([orderId]) => ({ orderId }) },
-  heroSmsGetStateO1: { action: 'herosms.stateO1', payload: () => ({}) },
+  heroSmsOrderO1: { action: 'herosms.orderO1', payload: ([options]) => smsOwnedOptions(options) },
+  heroSmsCheckO1: { action: 'herosms.checkO1', payload: ([orderId, options]) => ({ ...smsOwnedOptions(options), orderId }) },
+  heroSmsRefundO1: { action: 'herosms.refundO1', payload: ([orderId, options]) => ({ ...smsOwnedOptions(options), orderId }) },
+  heroSmsGetStateO1: { action: 'herosms.stateO1', payload: ([options]) => smsOwnedOptions(options) },
   heroSmsBalanceO1: { action: 'herosms.balanceO1', payload: () => ({}) }
 };
 

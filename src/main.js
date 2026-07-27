@@ -8,25 +8,73 @@ const crypto = require('crypto');
 const Store = require('electron-store');
 const { BridgeManager } = require('./main/bridgeManager');
 const { registerApiIpc } = require('./main/apiIpc');
+const {
+  classifyHeroSmsOrderResponse,
+  classifyHeroSmsRefundResponse,
+  normalizeHeroSmsOwnerIdentity,
+  sameHeroSmsOwnerIdentity
+} = require('./main/heroSmsSafety');
+const { MutationRegistry } = require('./main/mutationRegistry');
+const { createRollbackBackup } = require('./main/rollbackBackup');
+const { isHeroSmsStateMutation } = require('./main/heroSmsMutationPolicy');
+const { prepareStoreBootstrap } = require('./main/storeRecovery');
+
+// Acquire process ownership before electron-store or the durable WAL are
+// opened. A losing process must never initialize either persistence writer.
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
+if (!hasSingleInstanceLock) {
+  app.quit();
+} else {
 
 const TOPBAR_HEIGHT = 38;
 const PARTITION = 'persist:sproutg';
 const MIN_WIDTH = 420;   // allow 9:16 portrait-like
 const MIN_HEIGHT = 560;
 const RUNTIME_SESSION_ID = String(Date.now());
+const USER_DATA_DIR = app.getPath('userData');
+const DURABLE_WAL_PATH = path.join(USER_DATA_DIR, 'sproutg-pending-writes.wal.json');
 
-const store = new Store({
-  name: 'sproutg-desktop',
-  defaults: {
+const STORE_DEFAULTS = {
     ui: { statsBounds: null, companyBounds: null },
     points: { days: {}, workDays: {} },
     statusState: {},
     settings: { theme: 'dark-classic', zoom: 1.0, fontScale: 1.0, alwaysOnTop: false, graphicsMode: 'ultra', contrastMode: false, classicTrafficLights: false, mccVerificationInline: true, statCardGlow: true, smsService: 'smspool', customThemeId: '', customThemes: [] },
-    heroSms: { apiKey: '', activeOrder: null, country: '0', service: 'go', catalog: null, catalogTs: 0 },
+    heroSms: {
+      apiKey: '',
+      activeOrder: null,
+      orderIntent: null,
+      refundIntent: null,
+      country: '0',
+      service: 'go',
+      catalog: null,
+      catalogTs: 0
+    },
     window: { bounds: null, isMaximized: false },
     web: { url: null },
-    pendingWrites: []
-  }
+    pendingWrites: [],
+    pendingWritesBackup: [],
+    pendingWritesSnapshot: { schemaVersion: 0, revision: 0, completedIds: [], items: [] }
+};
+let storeBootstrap;
+try {
+  storeBootstrap = prepareStoreBootstrap({
+    userDataDir:USER_DATA_DIR,
+    baseName:'sproutg-desktop',
+    walPath:DURABLE_WAL_PATH
+  });
+} catch (error) {
+  dialog.showErrorBox(
+    'SproutG: локальное хранилище недоступно',
+    `Приложение остановлено до безопасного восстановления данных.\n\n${error?.message || error}`
+  );
+  app.quit();
+  throw error;
+}
+const storageIntegrity = Object.freeze({ ...storeBootstrap.integrity });
+const store = new Store({
+  name:storeBootstrap.storeName,
+  clearInvalidConfig:false,
+  defaults:STORE_DEFAULTS
 });
 
 function clamp(n, min, max){ return Math.max(min, Math.min(max, n)); }
@@ -34,8 +82,22 @@ function clamp(n, min, max){ return Math.max(min, Math.min(max, n)); }
 function normalizeWebUrl(input){
   const raw = String(input || '').trim();
   if (!raw) return null;
-  if (/^https?:\/\//i.test(raw)) return raw;
-  if (/^[a-zA-Z0-9_-]{20,}$/.test(raw)) return `https://script.google.com/macros/s/${raw}/exec`;
+  if (/^[a-zA-Z0-9_-]{20,}$/.test(raw)) {
+    return `https://script.google.com/macros/s/${raw}/exec`;
+  }
+  try {
+    const url = new URL(raw);
+    if (
+      url.protocol !== 'https:'
+      || url.hostname !== 'script.google.com'
+      || !/^\/macros\/s\/[a-zA-Z0-9_-]{20,}\/exec\/?$/.test(url.pathname)
+    ) {
+      return null;
+    }
+    url.search = '';
+    url.hash = '';
+    return url.toString().replace(/\/+$/, '');
+  } catch (_error) {}
   return null;
 }
 
@@ -107,6 +169,13 @@ function sanitizeBounds(bounds){
 
 let mainWindow = null;
 let bridgeManager = null;
+let writeQueueController = null;
+let writeGateClosed = false;
+let writeBarrierState = 'open';
+let activeWriteBarrierToken = '';
+let writeBarrierSeq = 0;
+const writeBarrierWaiters = new Map();
+const directMutationRegistry = new MutationRegistry();
 let settingsWindow = null;
 let statsWindow = null;
 let companyWindow = null;
@@ -115,6 +184,14 @@ let bridgeLoginWindow = null;
 let ses = null;
 let lastSettingsClosedAt = 0;
 let isQuitting = false;
+let quitApproved = false;
+
+app.on('second-instance', () => {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  if (!mainWindow.isVisible()) mainWindow.show();
+  mainWindow.focus();
+});
 
 function getSession(){
   if (!ses) ses = session.fromPartition(PARTITION);
@@ -123,6 +200,14 @@ function getSession(){
 
 async function flushGoogleSession(){
   try { await getSession().cookies.flushStore(); } catch(e) {}
+}
+
+async function flushRendererStorageData(){
+  await Promise.all([
+    session.defaultSession.flushStorageData(),
+    getSession().flushStorageData(),
+    getSession().cookies.flushStore()
+  ]);
 }
 
 const UPDATE_PLACEHOLDER_RE = /^(CHANGE_ME|YOUR_|OWNER_|REPO_|example$)/i;
@@ -141,6 +226,16 @@ let updateState = {
 };
 let updateCheckMode = 'manual';
 let rollbackInfoCache = null;
+let installBarrierToken = '';
+let installBarrierWatchdog = null;
+
+function cancelInstallExitBarrier(){
+  clearTimeout(installBarrierWatchdog);
+  installBarrierWatchdog = null;
+  quitApproved = false;
+  if (installBarrierToken) releaseWriteBarrier(installBarrierToken);
+  installBarrierToken = '';
+}
 
 function isPlaceholderValue(v){
   const raw = String(v || '').trim();
@@ -229,6 +324,35 @@ function sendDesktopNotice(payload){
   try { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('sproutg:notice', payload); } catch(e) {}
 }
 
+function publicStorageIntegrity(){
+  return {
+    active:storageIntegrity.active === true,
+    code:String(storageIntegrity.code || ''),
+    message:String(storageIntegrity.message || ''),
+    walValid:storageIntegrity.walValid === true,
+    sheetWritesBlocked:storageIntegrity.sheetWritesBlocked === true,
+    heroSmsBlocked:storageIntegrity.heroSmsBlocked === true,
+    primaryPath:String(storageIntegrity.primaryPath || ''),
+    recoveryPath:String(storageIntegrity.recoveryPath || ''),
+    quarantinePaths:Array.isArray(storageIntegrity.quarantines)
+      ? storageIntegrity.quarantines.map((item) => String(item?.path || '')).filter(Boolean)
+      : []
+  };
+}
+
+function notifyStorageIntegrity(){
+  if (!storageIntegrity.active) return;
+  const state = publicStorageIntegrity();
+  safeSend(mainWindow, 'sproutg:storage-integrity', state);
+  sendDesktopNotice({
+    type:'error',
+    title:'Защита локальных данных включена',
+    body:state.message,
+    durationMs:0,
+    dismissible:false
+  });
+}
+
 function notifyUpdateAvailable(version){
   const clean = String(version || '').replace(/^v/i, '');
   const title = 'Доступно обновление SproutG';
@@ -245,7 +369,8 @@ function currentBootKey(){
 }
 
 function broadcastBridgeState(state){
-  const payload = state || (bridgeManager ? bridgeManager.getState() : { status:'idle', ready:false });
+  const base = state || (bridgeManager ? bridgeManager.getState() : { status:'idle', ready:false });
+  const payload = { ...base, storageIntegrity:publicStorageIntegrity() };
   try { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('sproutg:bridge-state', payload); } catch(e) {}
   try { if (settingsWindow && !settingsWindow.isDestroyed()) settingsWindow.webContents.send('sproutg:bridge-state', payload); } catch(e) {}
 }
@@ -324,6 +449,7 @@ autoUpdater.on('update-downloaded', (info) => {
 
 autoUpdater.on('error', (err) => {
   const msg = err?.message || String(err || 'Неизвестная ошибка обновления');
+  if (installBarrierToken && !isQuitting) cancelInstallExitBarrier();
   setUpdateState({ status: 'error', message: 'Ошибка обновления', error: msg, progress: null });
 });
 
@@ -350,7 +476,7 @@ async function checkForUpdates(manual, mode){
 function scheduleBootUpdateNoticeCheck(){
   if (!app.isPackaged) return;
   const cfg = getUpdatesConfig();
-  if (!cfg.enabled) return;
+  if (!cfg.enabled || !cfg.autoCheckOnStart) return;
   setTimeout(() => { checkForUpdates(false, 'boot').catch(() => {}); }, 1800);
   setTimeout(() => { checkForUpdates(false, 'scheduled').catch(() => {}); }, 90 * 1000);
   setTimeout(() => { checkForUpdates(false, 'scheduled').catch(() => {}); }, 5 * 60 * 1000);
@@ -377,12 +503,49 @@ async function downloadUpdate(){
   return updateState;
 }
 
-function installDownloadedUpdate(){
+async function installDownloadedUpdate(){
   if (!app.isPackaged) return setUpdateState({ status: 'dev', message: 'Установка обновлений доступна только в установленной сборке Windows' });
   if (!updateState.downloaded) return setUpdateState({ status: updateState.status || 'idle', message: 'Сначала скачай обновление' });
+  const barrier = await beginWriteBarrier('install-update', 30000);
+  if (!barrier?.ok) {
+    return setUpdateState({
+      status:'error',
+      message:'Установка остановлена: последние изменения не сохранены',
+      error:barrier?.error || 'Интерфейс не подтвердил сохранение',
+      progress:null
+    });
+  }
+  setUpdateState({ status:'install-waiting', message:'Проверяем, что все данные сохранены...', error:null, progress:null });
+  const pending = writeQueueController
+    ? await writeQueueController.drain(60000)
+    : await waitForPendingWrites(60000);
+  if (pending > 0) {
+    releaseWriteBarrier(barrier.barrierToken);
+    return setUpdateState({
+      status:'error',
+      message:'Установка остановлена: остались несохранённые данные',
+      error:`В надёжной очереди: ${pending}. Дождись синхронизации с Google Таблицей.`,
+      progress:null
+    });
+  }
+  try { await flushGoogleSession(); } catch (_error) {}
   try {
+    installBarrierToken = barrier.barrierToken;
+    quitApproved = true;
+    clearTimeout(installBarrierWatchdog);
+    installBarrierWatchdog = setTimeout(() => {
+      if (!installBarrierToken || isQuitting) return;
+      cancelInstallExitBarrier();
+      setUpdateState({
+        status:'error',
+        message:'Установщик обновления не запустился',
+        error:'Защитный таймаут снял блокировку записи; попробуй установить обновление ещё раз',
+        progress:null
+      });
+    }, 20000);
     autoUpdater.quitAndInstall(false, true);
   } catch (e) {
+    cancelInstallExitBarrier();
     return setUpdateState({ status: 'error', message: 'Не удалось установить обновление', error: e?.message || String(e) });
   }
   return updateState;
@@ -475,6 +638,7 @@ async function getRollbackInfo(force = false){
 }
 
 async function waitForPendingWrites(timeoutMs = 60000){
+  if (writeQueueController) return writeQueueController.drain(timeoutMs);
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeoutMs) {
     const pending = store.get('pendingWrites');
@@ -486,33 +650,12 @@ async function waitForPendingWrites(timeoutMs = 60000){
 }
 
 function backupRollbackData(targetVersion){
-  const userData = app.getPath('userData');
-  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const backupDir = path.join(userData, 'rollback-backups', `${stamp}-to-${targetVersion}`);
-  fs.mkdirSync(backupDir, { recursive:true });
-  const copied = [];
-
-  const copy = (source, name) => {
-    try {
-      if (!source || !fs.existsSync(source)) return;
-      const target = path.join(backupDir, name);
-      fs.cpSync(source, target, { recursive:true, force:true, errorOnExist:false });
-      copied.push(name);
-    } catch (error) {
-      copied.push(`${name} (не удалось скопировать: ${error?.message || error})`);
-    }
-  };
-
-  copy(store.path, path.basename(store.path));
-  copy(path.join(userData, 'sproutg.config.json'), 'sproutg.config.json');
-  copy(path.join(userData, 'Partitions', 'sproutg', 'Local Storage'), 'Local Storage');
-  fs.writeFileSync(path.join(backupDir, 'rollback.json'), JSON.stringify({
+  return createRollbackBackup({
+    userData:app.getPath('userData'),
+    storePath:store.path,
     fromVersion:app.getVersion(),
-    toVersion:targetVersion,
-    createdAt:new Date().toISOString(),
-    copied
-  }, null, 2), 'utf8');
-  return backupDir;
+    targetVersion
+  });
 }
 
 async function downloadRollbackAsset(info){
@@ -521,21 +664,47 @@ async function downloadRollbackAsset(info){
   try { if (fs.existsSync(partialPath)) fs.rmSync(partialPath, { force:true }); } catch (e) {}
   try { if (fs.existsSync(finalPath)) fs.rmSync(finalPath, { force:true }); } catch (e) {}
 
-  const response = await net.fetch(info.assetUrl, {
-    redirect:'follow',
-    headers:{ 'User-Agent':`SproutG/${app.getVersion()}`, Accept:'application/octet-stream' }
-  });
-  if (!response.ok || !response.body) throw new Error(`Не удалось скачать установщик: HTTP ${response.status}`);
+  const controller = new AbortController();
+  const overallTimer = setTimeout(() => controller.abort(), 5 * 60 * 1000);
+  let response;
+  try {
+    response = await net.fetch(info.assetUrl, {
+      redirect:'follow',
+      signal:controller.signal,
+      headers:{ 'User-Agent':`SproutG/${app.getVersion()}`, Accept:'application/octet-stream' }
+    });
+  } catch (error) {
+    clearTimeout(overallTimer);
+    throw new Error(error?.name === 'AbortError'
+      ? 'Скачивание установщика превысило безопасный таймаут'
+      : (error?.message || String(error)));
+  }
+  if (!response.ok || !response.body) {
+    clearTimeout(overallTimer);
+    throw new Error(`Не удалось скачать установщик: HTTP ${response.status}`);
+  }
 
   const total = Number(response.headers.get('content-length') || info.size || 0);
-  const file = await fs.promises.open(partialPath, 'w');
+  const file = await fs.promises.open(partialPath, 'w').catch((error) => {
+    clearTimeout(overallTimer);
+    throw error;
+  });
   const reader = response.body.getReader();
   let received = 0;
   let lastProgressAt = 0;
   const hash = crypto.createHash('sha256');
   try {
     while (true) {
-      const chunk = await reader.read();
+      let stallTimer = null;
+      const chunk = await Promise.race([
+        reader.read(),
+        new Promise((_, reject) => {
+          stallTimer = setTimeout(() => {
+            controller.abort();
+            reject(new Error('Скачивание установщика остановилось более чем на 45 секунд'));
+          }, 45000);
+        })
+      ]).finally(() => clearTimeout(stallTimer));
       if (chunk.done) break;
       const buffer = Buffer.from(chunk.value);
       await file.write(buffer, 0, buffer.length, null);
@@ -553,6 +722,7 @@ async function downloadRollbackAsset(info){
       }
     }
   } finally {
+    clearTimeout(overallTimer);
     await file.close();
   }
 
@@ -590,9 +760,19 @@ async function rollbackToPreviousVersion(){
   });
   if (confirmation.response !== 0) return { ok:false, canceled:true };
 
+  const barrier = await beginWriteBarrier('rollback-update', 30000);
+  if (!barrier?.ok) {
+    return setUpdateState({
+      status:'error',
+      message:'Откат остановлен: последние изменения не сохранены',
+      error:barrier?.error || 'Интерфейс не подтвердил сохранение',
+      progress:null
+    });
+  }
   setUpdateState({ status:'rollback-waiting', message:'Ждём завершения сохранения данных...', progress:null, error:null });
   const pending = await waitForPendingWrites(60000);
   if (pending > 0) {
+    releaseWriteBarrier(barrier.barrierToken);
     return setUpdateState({
       status:'error',
       message:'Откат остановлен: остались несохранённые данные',
@@ -602,15 +782,25 @@ async function rollbackToPreviousVersion(){
   }
 
   try {
+    try {
+      await Promise.all([
+        session.defaultSession.flushStorageData(),
+        getSession().flushStorageData(),
+        flushGoogleSession()
+      ]);
+    } catch (_error) {}
     backupRollbackData(info.version);
     setUpdateState({ status:'rollback-downloading', message:`Скачивание v${info.version} для отката...`, progress:{ percent:0 }, error:null });
     const installerPath = await downloadRollbackAsset(info);
     setUpdateState({ status:'rollback-ready', message:`Запускаем установщик v${info.version}...`, progress:null, error:null });
     const openError = await shell.openPath(installerPath);
     if (openError) throw new Error(openError);
+    quitApproved = true;
     setTimeout(() => app.quit(), 1400);
     return { ok:true, version:info.version };
   } catch (error) {
+    quitApproved = false;
+    releaseWriteBarrier(barrier.barrierToken);
     return setUpdateState({ status:'error', message:'Не удалось выполнить откат', error:error?.message || String(error), progress:null });
   }
 }
@@ -655,9 +845,19 @@ function heroSmsApiKey(){
 
 function setHeroSmsApiKey(key){
   const clean = String(key || '').trim();
+  const previous = heroSmsApiKey();
+  const activeOrder = store.get('heroSms.activeOrder');
+  const orderIntent = store.get('heroSms.orderIntent');
+  const refundIntent = store.get('heroSms.refundIntent');
+  if (clean !== previous && (activeOrder || orderIntent || refundIntent)) {
+    return {
+      ok:false,
+      code:'HERO_SMS_ORDER_ACTIVE',
+      error:'Нельзя изменить или удалить API key, пока есть активная или восстанавливаемая HeroSMS-активация. Сначала заверши или отмени её.'
+    };
+  }
   store.set('heroSms.apiKey', clean);
-  if (!clean) {
-    store.set('heroSms.activeOrder', null);
+  if (clean !== previous) {
     store.set('heroSms.catalog', null);
     store.set('heroSms.catalogTs', 0);
   }
@@ -673,21 +873,42 @@ function heroSmsHeaders(json = false){
   };
 }
 
+async function heroSmsFetch(url, options = {}, timeoutMs = 20000){
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), Math.max(1000, Number(timeoutMs || 20000)));
+  try {
+    return await fetch(url, { ...options, signal:controller.signal });
+  } catch (error) {
+    if (error?.name === 'AbortError') throw new Error('HeroSMS не ответил за 20 секунд');
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function heroSmsHandlerFetch(params = {}, opts = {}){
   const key = heroSmsApiKey();
-  if (!key) return { ok:false, error:'Укажи HeroSMS API key в настройках' };
+  if (!key) return { ok:false, sent:false, error:'Укажи HeroSMS API key в настройках' };
   const query = new URLSearchParams({ ...params, api_key: key });
-  const res = await fetch(`${HERO_SMS_HANDLER_BASE}?${query.toString()}`, {
+  const res = await heroSmsFetch(`${HERO_SMS_HANDLER_BASE}?${query.toString()}`, {
     method: 'GET',
     headers: heroSmsHeaders(!!opts.json)
   });
   const text = String(await res.text() || '').trim();
-  if (!res.ok) return { ok:false, error:`HeroSMS HTTP ${res.status}: ${text || res.statusText}` };
-  if (!opts.json) return { ok:true, text };
+  if (!res.ok) {
+    return {
+      ok:false,
+      sent:true,
+      status:Number(res.status || 0),
+      text,
+      error:`HeroSMS HTTP ${res.status}: ${text || res.statusText}`
+    };
+  }
+  if (!opts.json) return { ok:true, sent:true, text };
   try {
-    return { ok:true, text, data: JSON.parse(text) };
+    return { ok:true, sent:true, text, data: JSON.parse(text) };
   } catch (e) {
-    return { ok:false, error:heroSmsTranslate(text) };
+    return { ok:false, sent:true, text, error:heroSmsTranslate(text) };
   }
 }
 
@@ -696,7 +917,7 @@ async function heroSmsApiFetch(pathname, params = {}){
   if (!key) return { ok:false, error:'Укажи HeroSMS API key в настройках' };
   const query = new URLSearchParams(params);
   const suffix = query.toString() ? `?${query.toString()}` : '';
-  const res = await fetch(`${HERO_SMS_API_BASE}${pathname}${suffix}`, {
+  const res = await heroSmsFetch(`${HERO_SMS_API_BASE}${pathname}${suffix}`, {
     method: 'GET',
     headers: heroSmsHeaders(true)
   });
@@ -847,6 +1068,89 @@ function heroSmsGetActiveOrder(){
   return order;
 }
 
+function normalizeHeroSmsActivations(data){
+  const root = data && typeof data === 'object' ? data : {};
+  const rows = (
+    root.activeActivations
+    || root.activations
+    || root.data?.activeActivations
+    || root.data?.activations
+    || (Array.isArray(root.data) ? root.data : null)
+    || (Array.isArray(root) ? root : null)
+    || []
+  );
+  return (Array.isArray(rows) ? rows : Object.values(rows || {}))
+    .map((row) => {
+      const item = row && typeof row === 'object' ? row : {};
+      return {
+        id:String(item.activationId ?? item.activation_id ?? item.order_id ?? item.id ?? '').trim(),
+        number:String(item.phoneNumber ?? item.phone_number ?? item.number ?? item.phone ?? '').trim(),
+        service:String(item.serviceCode ?? item.service_code ?? item.service ?? '').trim(),
+        country:String(item.countryCode ?? item.country_code ?? item.countryId ?? item.country_id ?? item.country ?? '').trim()
+      };
+    })
+    .filter((item) => item.id);
+}
+
+async function heroSmsActiveActivations(){
+  const result = await heroSmsHandlerFetch({ action:'getActiveActivations' }, { json:true });
+  if (!result.ok) return { ok:false, error:result.error || 'Не удалось сверить активные HeroSMS-заказы' };
+  return { ok:true, items:normalizeHeroSmsActivations(result.data) };
+}
+
+function heroSmsOrderFromActivation(activation, intent){
+  const catalog = Array.isArray(store.get('heroSms.catalog')) ? store.get('heroSms.catalog') : [];
+  const countryInfo = catalog.find((item) => String(item.id) === String(intent.country)) || {};
+  const now = Date.now();
+  return {
+    order_id:String(activation.id),
+    number:String(activation.number || ''),
+    price:countryInfo.cost ?? '',
+    country:String(intent.country),
+    countryName:countryInfo.rus || countryInfo.eng || '',
+    service:String(intent.service),
+    provider:'herosms',
+    ownerIdentity:normalizeHeroSmsOwnerIdentity(intent.ownerIdentity),
+    expiresAtMs:now + 20 * 60 * 1000,
+    createdAtMs:Number(intent.createdAtMs || now),
+    recovered:true
+  };
+}
+
+async function reconcileHeroSmsOrderIntent(){
+  const intent = store.get('heroSms.orderIntent');
+  if (!intent || typeof intent !== 'object') return { ok:true, order:null };
+  if (!intent.baselineKnown) {
+    return {
+      ok:false,
+      uncertain:true,
+      error:'Предыдущий HeroSMS-заказ имеет неопределённый статус; проверь активные заказы у провайдера'
+    };
+  }
+  const active = await heroSmsActiveActivations();
+  if (!active.ok) return { ...active, uncertain:true };
+  const baseline = new Set(Array.isArray(intent.baselineIds) ? intent.baselineIds.map(String) : []);
+  const candidates = active.items.filter((item) => {
+    if (baseline.has(item.id)) return false;
+    if (item.service && intent.service && item.service !== String(intent.service)) return false;
+    if (item.country && intent.country && item.country !== String(intent.country)) return false;
+    return true;
+  });
+  if (candidates.length !== 1) {
+    return {
+      ok:false,
+      uncertain:true,
+      error:candidates.length > 1
+        ? 'Найдено несколько новых HeroSMS-заказов; автоматическое сопоставление остановлено'
+        : 'HeroSMS ещё не подтвердил предыдущий заказ; повторная покупка заблокирована'
+    };
+  }
+  const order = heroSmsOrderFromActivation(candidates[0], intent);
+  store.set('heroSms.activeOrder', order);
+  store.set('heroSms.orderIntent', null);
+  return { ok:true, order, recovered:true };
+}
+
 async function heroSmsBalance(){
   const res = await heroSmsHandlerFetch({ action:'getBalance' });
   if (!res.ok) return res;
@@ -856,36 +1160,142 @@ async function heroSmsBalance(){
 }
 
 async function heroSmsOrder(payload = {}){
+  const ownerIdentity = normalizeHeroSmsOwnerIdentity(payload.ownerIdentity);
+  if (!ownerIdentity.profileName) {
+    return {
+      ok:false,
+      code:'HERO_SMS_OWNER_REQUIRED',
+      error:'HeroSMS-заказ не привязан к профилю; покупка остановлена'
+    };
+  }
+  const refundIntent = store.get('heroSms.refundIntent');
+  if (refundIntent) {
+    if (!sameHeroSmsOwnerIdentity(refundIntent.ownerIdentity, ownerIdentity)) {
+      return {
+        ok:false,
+        code:'HERO_SMS_OWNER_MISMATCH',
+        error:'Незавершённая отмена HeroSMS принадлежит другому профилю'
+      };
+    }
+    const reconciledRefund = await reconcileHeroSmsRefundIntent(ownerIdentity);
+    if (!(reconciledRefund.ok && reconciledRefund.canceled)) {
+      return {
+        ...reconciledRefund,
+        ok:false,
+        code:reconciledRefund.code || 'HERO_SMS_REFUND_PENDING'
+      };
+    }
+  }
+  const existingOrder = heroSmsGetActiveOrder();
+  if (existingOrder) {
+    if (!sameHeroSmsOwnerIdentity(existingOrder.ownerIdentity, ownerIdentity)) {
+      return {
+        ok:false,
+        code:'HERO_SMS_OWNER_MISMATCH',
+        error:'Активный HeroSMS-заказ принадлежит другому профилю'
+      };
+    }
+    return { ok:true, order:existingOrder, idempotent:true };
+  }
+  const existingIntent = store.get('heroSms.orderIntent');
+  if (existingIntent) {
+    if (!sameHeroSmsOwnerIdentity(existingIntent.ownerIdentity, ownerIdentity)) {
+      return {
+        ok:false,
+        code:'HERO_SMS_OWNER_MISMATCH',
+        error:'Восстанавливаемый HeroSMS-заказ принадлежит другому профилю'
+      };
+    }
+    const recovered = await reconcileHeroSmsOrderIntent();
+    if (recovered.ok && recovered.order) return recovered;
+    return recovered;
+  }
   const country = String(payload.country || store.get('heroSms.country') || '0').trim() || '0';
   const service = String(payload.service || store.get('heroSms.service') || HERO_SMS_GOOGLE_SERVICE).trim() || HERO_SMS_GOOGLE_SERVICE;
   store.set('heroSms.country', country);
   store.set('heroSms.service', service);
-  const res = await heroSmsHandlerFetch({ action:'getNumber', service, country });
-  if (!res.ok) return res;
-  const text = res.text;
-  const parts = text.split(':');
-  if (parts[0] !== 'ACCESS_NUMBER' || parts.length < 3) return { ok:false, error:heroSmsTranslate(text) };
+  let baseline = { ok:false, items:[] };
+  try {
+    baseline = await heroSmsActiveActivations();
+  } catch (_error) {}
+  if (!baseline.ok) {
+    return {
+      ok:false,
+      error:baseline.error || 'Не удалось безопасно сверить активные HeroSMS-заказы; покупка не отправлена',
+      code:'HERO_SMS_BASELINE_UNAVAILABLE'
+    };
+  }
+  const intent = {
+    country,
+    service,
+    baselineKnown:true,
+    baselineIds:baseline.items.map((item) => item.id),
+    ownerIdentity,
+    createdAtMs:Date.now()
+  };
+  store.set('heroSms.orderIntent', intent);
+  let res;
+  try {
+    res = await heroSmsHandlerFetch({ action:'getNumber', service, country });
+  } catch (error) {
+    return {
+      ok:false,
+      uncertain:true,
+      code:'HERO_SMS_ORDER_UNCERTAIN',
+      error:`HeroSMS не подтвердил результат покупки: ${error?.message || error}. Повторная покупка заблокирована до сверки активных заказов.`
+    };
+  }
+  const classified = classifyHeroSmsOrderResponse(res);
+  if (classified.state === 'rejected') {
+    store.set('heroSms.orderIntent', null);
+    return {
+      ok:false,
+      code:classified.code || res.code || 'HERO_SMS_ORDER_REJECTED',
+      error:heroSmsTranslate(classified.text || res.error)
+    };
+  }
+  if (classified.state !== 'success') {
+    return {
+      ok:false,
+      uncertain:true,
+      code:'HERO_SMS_ORDER_UNCERTAIN',
+      error:`HeroSMS вернул неопределённый ответ: ${heroSmsTranslate(classified.text || res.error)}. Повторная покупка заблокирована до сверки активных заказов.`
+    };
+  }
   const catalog = Array.isArray(store.get('heroSms.catalog')) ? store.get('heroSms.catalog') : [];
   const countryInfo = catalog.find((item) => String(item.id) === country) || {};
   const now = Date.now();
   const order = {
-    order_id: String(parts[1] || ''),
-    number: String(parts.slice(2).join(':') || ''),
+    order_id: classified.id,
+    number: classified.number,
     price: countryInfo.cost ?? '',
     country,
     countryName: countryInfo.rus || countryInfo.eng || '',
     service,
     provider: 'herosms',
+    ownerIdentity,
     expiresAtMs: now + 20 * 60 * 1000,
     createdAtMs: now
   };
   store.set('heroSms.activeOrder', order);
+  store.set('heroSms.orderIntent', null);
   return { ok:true, order };
 }
 
 async function heroSmsCheck(payload = {}){
   const id = String(payload.orderId || payload.order_id || '').trim();
   if (!id) return { ok:false, error:'Не указан ID активации' };
+  const ownerIdentity = normalizeHeroSmsOwnerIdentity(payload.ownerIdentity);
+  const activeOrder = heroSmsGetActiveOrder();
+  if (!ownerIdentity.profileName) {
+    return { ok:false, code:'HERO_SMS_OWNER_REQUIRED', error:'Не указан владелец HeroSMS-заказа' };
+  }
+  if (!activeOrder || String(activeOrder.order_id || '') !== id) {
+    return { ok:false, code:'HERO_SMS_ORDER_MISMATCH', error:'HeroSMS-заказ не совпадает с активным заказом' };
+  }
+  if (!sameHeroSmsOwnerIdentity(activeOrder.ownerIdentity, ownerIdentity)) {
+    return { ok:false, code:'HERO_SMS_OWNER_MISMATCH', error:'HeroSMS-заказ принадлежит другому профилю' };
+  }
   const res = await heroSmsHandlerFetch({ action:'getStatus', id });
   if (!res.ok) return res;
   const text = res.text;
@@ -894,7 +1304,11 @@ async function heroSmsCheck(payload = {}){
     return { ok:true, status:'completed', sms, full_sms:sms };
   }
   if (text === 'STATUS_CANCEL') {
-    store.set('heroSms.activeOrder', null);
+    const latest = store.get('heroSms.activeOrder');
+    if (
+      String(latest?.order_id || '') === id
+      && sameHeroSmsOwnerIdentity(latest?.ownerIdentity, ownerIdentity)
+    ) store.set('heroSms.activeOrder', null);
     return { ok:true, status:text, sms:'0', full_sms:'', message:heroSmsTranslate(text) };
   }
   if (text.startsWith('STATUS_WAIT')) {
@@ -903,14 +1317,146 @@ async function heroSmsCheck(payload = {}){
   return { ok:false, error:heroSmsTranslate(text) };
 }
 
+function clearHeroSmsCanceledOrder(id, ownerIdentity) {
+  const activeOrder = store.get('heroSms.activeOrder');
+  if (
+    String(activeOrder?.order_id || '') === String(id || '')
+    && sameHeroSmsOwnerIdentity(activeOrder?.ownerIdentity, ownerIdentity)
+  ) {
+    store.set('heroSms.activeOrder', null);
+  }
+  const refundIntent = store.get('heroSms.refundIntent');
+  if (
+    String(refundIntent?.orderId || '') === String(id || '')
+    && sameHeroSmsOwnerIdentity(refundIntent?.ownerIdentity, ownerIdentity)
+  ) {
+    store.set('heroSms.refundIntent', null);
+  }
+}
+
+async function reconcileHeroSmsRefundIntent(ownerIdentity = null) {
+  const intent = store.get('heroSms.refundIntent');
+  if (!intent || typeof intent !== 'object') return { ok:true, canceled:false };
+  if (
+    ownerIdentity
+    && !sameHeroSmsOwnerIdentity(intent.ownerIdentity, ownerIdentity)
+  ) {
+    return {
+      ok:false,
+      code:'HERO_SMS_OWNER_MISMATCH',
+      error:'Отмена HeroSMS принадлежит другому профилю'
+    };
+  }
+  let result;
+  try {
+    result = await heroSmsHandlerFetch({
+      action:'getStatus',
+      id:String(intent.orderId || '')
+    });
+  } catch (error) {
+    return {
+      ok:false,
+      uncertain:true,
+      error:`Не удалось сверить отмену HeroSMS: ${error?.message || error}`
+    };
+  }
+  const classified = classifyHeroSmsRefundResponse(result);
+  if (classified.state === 'canceled') {
+    clearHeroSmsCanceledOrder(intent.orderId, intent.ownerIdentity);
+    store.set('heroSms.orderIntent', null);
+    return { ok:true, canceled:true, reconciled:true };
+  }
+  if (!result.ok) {
+    return {
+      ok:false,
+      uncertain:true,
+      error:result.error || 'Не удалось сверить отмену HeroSMS'
+    };
+  }
+  return {
+    ok:false,
+    pending:true,
+    canRetry:true,
+    error:'HeroSMS ещё не подтвердил отмену заказа'
+  };
+}
+
 async function heroSmsRefund(payload = {}){
   const id = String(payload.orderId || payload.order_id || '').trim();
   if (!id) return { ok:false, error:'Не указан ID активации' };
-  const res = await heroSmsHandlerFetch({ action:'setStatus', id, status:8 });
-  if (!res.ok) return res;
-  if (res.text !== 'ACCESS_CANCEL') return { ok:false, error:heroSmsTranslate(res.text) };
-  store.set('heroSms.activeOrder', null);
-  return { ok:true, message:heroSmsTranslate(res.text) };
+  const ownerIdentity = normalizeHeroSmsOwnerIdentity(payload.ownerIdentity);
+  if (!ownerIdentity.profileName) {
+    return { ok:false, code:'HERO_SMS_OWNER_REQUIRED', error:'Не указан владелец HeroSMS-заказа' };
+  }
+  const activeOrder = store.get('heroSms.activeOrder');
+  if (
+    !activeOrder
+    || String(activeOrder.order_id || '') !== id
+    || !sameHeroSmsOwnerIdentity(activeOrder.ownerIdentity, ownerIdentity)
+  ) {
+    const pendingIntent = store.get('heroSms.refundIntent');
+    if (
+      !pendingIntent
+      || String(pendingIntent.orderId || '') !== id
+      || !sameHeroSmsOwnerIdentity(pendingIntent.ownerIdentity, ownerIdentity)
+    ) {
+      return {
+        ok:false,
+        code:'HERO_SMS_ORDER_MISMATCH',
+        error:'Отменяется не тот HeroSMS-заказ или заказ принадлежит другому профилю'
+      };
+    }
+  }
+
+  const existingIntent = store.get('heroSms.refundIntent');
+  if (existingIntent) {
+    if (
+      String(existingIntent.orderId || '') !== id
+      || !sameHeroSmsOwnerIdentity(existingIntent.ownerIdentity, ownerIdentity)
+    ) {
+      return {
+        ok:false,
+        code:'HERO_SMS_REFUND_IN_PROGRESS',
+        error:'Уже восстанавливается отмена другого HeroSMS-заказа'
+      };
+    }
+    const reconciled = await reconcileHeroSmsRefundIntent(ownerIdentity);
+    if (reconciled.ok && reconciled.canceled) {
+      return { ok:true, message:'HeroSMS подтвердил отмену', reconciled:true };
+    }
+    if (!reconciled.canRetry) return reconciled;
+  } else {
+    store.set('heroSms.refundIntent', {
+      orderId:id,
+      ownerIdentity,
+      status:'pending',
+      createdAtMs:Date.now()
+    });
+  }
+
+  let res;
+  try {
+    res = await heroSmsHandlerFetch({ action:'setStatus', id, status:8 });
+  } catch (error) {
+    return {
+      ok:false,
+      uncertain:true,
+      code:'HERO_SMS_REFUND_UNCERTAIN',
+      error:`HeroSMS не подтвердил отмену: ${error?.message || error}`
+    };
+  }
+  const classified = classifyHeroSmsRefundResponse(res);
+  if (classified.state !== 'canceled') {
+    return {
+      ok:false,
+      uncertain:true,
+      code:'HERO_SMS_REFUND_UNCERTAIN',
+      error:heroSmsTranslate(classified.text || classified.error)
+    };
+  }
+  clearHeroSmsCanceledOrder(id, ownerIdentity);
+  store.set('heroSms.orderIntent', null);
+  return { ok:true, message:heroSmsTranslate(classified.text) };
 }
 
 async function heroSmsHandle(action, payload = {}){
@@ -922,7 +1468,39 @@ async function heroSmsHandle(action, payload = {}){
     if (name === 'Order') return heroSmsOrder(payload);
     if (name === 'Check') return heroSmsCheck(payload);
     if (name === 'Refund') return heroSmsRefund(payload);
-    if (name === 'GetState') return { ok:true, order:heroSmsGetActiveOrder() };
+    if (name === 'GetState') {
+      let order = heroSmsGetActiveOrder();
+      const requestedOwner = normalizeHeroSmsOwnerIdentity(payload.ownerIdentity);
+      if (store.get('heroSms.refundIntent')) {
+        const refund = await reconcileHeroSmsRefundIntent(
+          requestedOwner.profileName ? requestedOwner : null
+        );
+        if (refund.ok && refund.canceled) order = null;
+      }
+      if (!order && store.get('heroSms.orderIntent')) {
+        const recovered = await reconcileHeroSmsOrderIntent();
+        if (recovered.ok) order = recovered.order;
+        else return { ...recovered, order:null };
+      }
+      if (
+        order
+        && requestedOwner.profileName
+        && !sameHeroSmsOwnerIdentity(order.ownerIdentity, requestedOwner)
+      ) {
+        return {
+          ok:false,
+          code:'HERO_SMS_OWNER_MISMATCH',
+          error:'Активный HeroSMS-заказ принадлежит другому профилю',
+          order:null
+        };
+      }
+      return {
+        ok:true,
+        order,
+        ownerUnknown:!!order && !normalizeHeroSmsOwnerIdentity(order.ownerIdentity).profileName,
+        refundPending:!!store.get('heroSms.refundIntent')
+      };
+    }
     return { ok:false, error:'Неизвестное действие HeroSMS' };
   } catch (e) {
     return { ok:false, error:String(e?.message || e) };
@@ -1361,18 +1939,46 @@ function destroyAuxiliaryWindows(){
   try { if (bridgeManager) bridgeManager.destroy(); } catch(e) {}
 }
 
+let shutdownPromise = null;
 function shutdownApp(){
-  if (isQuitting) return;
-  isQuitting = true;
-  destroyAuxiliaryWindows();
-  try { flushGoogleSession(); } catch(e) {}
-  try {
-    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.destroy();
-  } catch(e) {}
-  setTimeout(() => {
-    try { app.exit(0); } catch(e) {}
-  }, 1200);
-  app.quit();
+  if (shutdownPromise) return shutdownPromise;
+  shutdownPromise = (async () => {
+    const barrier = await beginWriteBarrier('shutdown', 30000);
+    if (!barrier?.ok) {
+      notifyWriteBarrierFailure(barrier, 'Закрытие отменено');
+      shutdownPromise = null;
+      isQuitting = false;
+      return { ok:false, error:barrier?.error };
+    }
+    isQuitting = true;
+    try {
+      if (writeQueueController) await writeQueueController.drain(3000);
+    } catch (_error) {}
+    const queueState = writeQueueController?.getState?.() || {};
+    if (queueState.integrityBlocked || queueState.persistenceDirty) {
+      isQuitting = false;
+      shutdownPromise = null;
+      releaseWriteBarrier(barrier.barrierToken);
+      const result = {
+        ok:false,
+        error:queueState.restoreError || queueState.lastError || 'Локальная очередь не записана на диск'
+      };
+      notifyWriteBarrierFailure(result, 'Закрытие отменено');
+      return result;
+    }
+    try { await flushGoogleSession(); } catch (_error) {}
+    destroyAuxiliaryWindows();
+    try {
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.destroy();
+    } catch (_error) {}
+    quitApproved = true;
+    app.quit();
+    setTimeout(() => {
+      try { app.exit(0); } catch (_error) {}
+    }, 1200);
+    return { ok:true };
+  })();
+  return shutdownPromise;
 }
 
 function positionSettingsWindow(){
@@ -1396,6 +2002,134 @@ function safeSend(win, channel, payload){
   } catch(e) {
     return false;
   }
+}
+
+function requestWindowWriteBarrier(win, reason, timeoutMs = 30000, context = {}){
+  if (
+    !win
+    || win.isDestroyed()
+    || !win.webContents
+    || win.webContents.isDestroyed()
+    || (typeof win.webContents.isLoadingMainFrame === 'function'
+      && win.webContents.isLoadingMainFrame())
+  ) {
+    return Promise.resolve({ ok:true, skipped:true });
+  }
+  const id = `barrier-${Date.now()}-${++writeBarrierSeq}`;
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      writeBarrierWaiters.delete(id);
+      resolve({
+        ok:false,
+        error:'Интерфейс не подтвердил сохранение последних изменений'
+      });
+    }, Math.max(1000, Number(timeoutMs || 30000)));
+    writeBarrierWaiters.set(id, {
+      senderId:win.webContents.id,
+      resolve:(result) => {
+        clearTimeout(timer);
+        resolve(result);
+      }
+    });
+    if (!safeSend(win, 'sproutg:prepare-write-barrier', {
+      id,
+      reason:String(reason || 'operation'),
+      timeoutMs:Math.max(1000, Number(timeoutMs || 30000)) - 500,
+      allowDurableFailures:context.allowDurableFailures === true
+    })) {
+      clearTimeout(timer);
+      writeBarrierWaiters.delete(id);
+      resolve({ ok:false, error:'Не удалось запросить сохранение интерфейса' });
+    }
+  });
+}
+
+async function requestRendererWriteBarrier(reason, timeoutMs = 30000, context = {}){
+  const targets = [mainWindow, companyWindow]
+    .filter((win, index, list) => win && list.indexOf(win) === index);
+  const results = await Promise.all(
+    targets.map((win) => requestWindowWriteBarrier(win, reason, timeoutMs, context))
+  );
+  const failed = results.find((result) => !result?.ok);
+  if (failed) return failed;
+  return results.reduce((merged, result) => ({
+    ...merged,
+    ...(result || {}),
+    ok:true
+  }), { ok:true });
+}
+
+function releaseRendererWriteBarriers(){
+  safeSend(mainWindow, 'sproutg:release-write-barrier', {});
+  safeSend(companyWindow, 'sproutg:release-write-barrier', {});
+}
+
+async function beginWriteBarrier(reason, timeoutMs = 30000, context = {}){
+  if (writeBarrierState !== 'open') {
+    return { ok:false, error:'Другая операция сохранения уже выполняется' };
+  }
+  const barrierToken = `owner-${Date.now()}-${++writeBarrierSeq}`;
+  const startedAt = Date.now();
+  writeBarrierState = 'preparing';
+  activeWriteBarrierToken = barrierToken;
+  const result = await requestRendererWriteBarrier(reason, timeoutMs, context);
+  if (!result?.ok) {
+    if (activeWriteBarrierToken === barrierToken) {
+      writeBarrierState = 'open';
+      activeWriteBarrierToken = '';
+    }
+    releaseRendererWriteBarriers();
+    return result || { ok:false, error:'Не удалось сохранить последние изменения' };
+  }
+  if (activeWriteBarrierToken !== barrierToken) {
+    return { ok:false, error:'Барьер сохранения был отменён' };
+  }
+  writeGateClosed = true;
+  const directMutationPending = await directMutationRegistry.drain(
+    Math.max(0, Number(timeoutMs || 30000) - (Date.now() - startedAt))
+  );
+  if (directMutationPending > 0) {
+    writeGateClosed = false;
+    writeBarrierState = 'open';
+    activeWriteBarrierToken = '';
+    releaseRendererWriteBarriers();
+    return {
+      ok:false,
+      error:`Не завершены прямые операции записи: ${directMutationPending}`
+    };
+  }
+  try {
+    await flushRendererStorageData();
+  } catch (error) {
+    writeGateClosed = false;
+    writeBarrierState = 'open';
+    activeWriteBarrierToken = '';
+    releaseRendererWriteBarriers();
+    return {
+      ok:false,
+      error:`Локальные черновики не удалось записать на диск: ${error?.message || error}`
+    };
+  }
+  writeBarrierState = 'closed';
+  return { ...result, barrierToken };
+}
+
+function releaseWriteBarrier(barrierToken){
+  if (!barrierToken || barrierToken !== activeWriteBarrierToken) return false;
+  writeGateClosed = false;
+  writeBarrierState = 'open';
+  activeWriteBarrierToken = '';
+  releaseRendererWriteBarriers();
+  return true;
+}
+
+function notifyWriteBarrierFailure(result, title = 'Операция отменена'){
+  safeSend(mainWindow, 'sproutg:notice', {
+    type:'error',
+    title,
+    body:result?.error || 'Не все последние изменения удалось сохранить',
+    durationMs:9000
+  });
 }
 
 function closeWindowAnimated(win, delayMs = 420){
@@ -1592,6 +2326,7 @@ function positionCompanyWindow(){
 function closeCompanyWindow(){
   if (!companyWindow || companyWindow.isDestroyed()) return false;
   try { setStoredCompanyBounds(companyWindow.getBounds()); } catch(e) {}
+  companyWindow.__sproutgCloseApproved = true;
   return closeWindowAnimated(companyWindow);
 }
 
@@ -1600,7 +2335,7 @@ function openCompanyWindow(){
 
   if (companyWindow && !companyWindow.isDestroyed()) {
     if (companyWindow.isVisible()) {
-      closeCompanyWindow();
+      safeSend(companyWindow, 'sproutg:native-close-request', {});
       return;
     }
     positionCompanyWindow();
@@ -1652,7 +2387,12 @@ function openCompanyWindow(){
   companyWindow.on('moved', _saveCompanyBounds);
   companyWindow.on('resize', _saveCompanyBounds);
   companyWindow.on('resized', _saveCompanyBounds);
-  companyWindow.on('close', _saveCompanyBounds);
+  companyWindow.on('close', (event) => {
+    _saveCompanyBounds();
+    if (companyWindow?.__sproutgCloseApproved) return;
+    event.preventDefault();
+    safeSend(companyWindow, 'sproutg:native-close-request', {});
+  });
   companyWindow.on('closed', () => { companyWindow = null; });
   try { companyWindow.webContents.setVisualZoomLevelLimits(1, 1); companyWindow.webContents.setZoomFactor(1); } catch(e) {}
   companyWindow.webContents.on('before-input-event', (event, input) => {
@@ -1743,9 +2483,26 @@ function openBridgeLoginWindow(){
   bridgeLoginWindow.on('closed', () => {
     bridgeLoginWindow = null;
     flushGoogleSession();
-    if (bridgeManager) bridgeManager.reload();
+    reloadBridgeAfterLogin().catch(() => {});
   });
   return true;
+}
+
+async function reloadBridgeAfterLogin(){
+  if (!bridgeManager) return false;
+  const barrier = await beginWriteBarrier('bridge-login-reload', 30000, {
+    allowDurableFailures:true
+  });
+  if (!barrier?.ok) {
+    notifyWriteBarrierFailure(barrier, 'Переподключение Google отложено');
+    return false;
+  }
+  try {
+    bridgeManager.reload();
+    return true;
+  } finally {
+    releaseWriteBarrier(barrier.barrierToken);
+  }
 }
 
 function toggleAOT(){
@@ -1753,9 +2510,22 @@ function toggleAOT(){
   applySettings(next);
   return next;
 }
-function reloadWeb(){
+function performWebReload({ reloadBridge = true } = {}){
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.reload();
-  if (bridgeManager) bridgeManager.reload();
+  if (reloadBridge && bridgeManager) bridgeManager.reload();
+}
+async function reloadWeb(reason = 'reload'){
+  const barrier = await beginWriteBarrier(reason, 30000);
+  if (!barrier?.ok) {
+    notifyWriteBarrierFailure(barrier, 'Перезагрузка отменена');
+    return { ok:false, error:barrier?.error || 'Не удалось сохранить последние изменения' };
+  }
+  try {
+    performWebReload({ reloadBridge:false });
+    return { ok:true };
+  } finally {
+    releaseWriteBarrier(barrier.barrierToken);
+  }
 }
 function zoom(dir){
   const s = getSettings();
@@ -1853,7 +2623,10 @@ function createMainWindow(){
     loadWeb(url);
   }
 
-  mainWindow.webContents.on('did-finish-load', () => applySettings(getSettings()));
+  mainWindow.webContents.on('did-finish-load', () => {
+    applySettings(getSettings());
+    notifyStorageIntegrity();
+  });
   if (winState && winState.isMaximized) mainWindow.maximize();
 
   attachShortcuts(mainWindow.webContents);
@@ -1871,7 +2644,43 @@ app.whenReady().then(() => {
   bridgeManager = new BridgeManager({ getSession, partition: PARTITION, appDir: __dirname });
   bridgeManager.on('state', broadcastBridgeState);
   bridgeManager.on('state', (state) => { if (state?.status === 'ready') flushGoogleSession(); });
-  registerApiIpc(ipcMain, bridgeManager, store);
+  writeQueueController = registerApiIpc(ipcMain, bridgeManager, store, {
+    walPath:DURABLE_WAL_PATH,
+    getEndpointKey: () => bridgeManager?.getEndpointKey?.() || getWebUrl() || '',
+    isWriteGateClosed: () => writeGateClosed,
+    getStorageIntegrity:() => publicStorageIntegrity(),
+    getWriteIntegrityBlock: () => (
+      storageIntegrity.sheetWritesBlocked
+        ? publicStorageIntegrity()
+        : null
+    ),
+    confirmArchiveBlocked:async ({ state }) => {
+      const blocked = Math.max(0, Number(state?.blocked || 0));
+      const messageBoxOptions = {
+        type:'warning',
+        title:'Архивация блокированных записей',
+        message:`Архивировать ${blocked} блокированных записей и причинно зависимые изменения?`,
+        detail:'Сначала будет создан и проверен локальный архив. После этого записи будут удалены из активной очереди и больше не отправятся автоматически.',
+        buttons:['Отмена', 'Архивировать'],
+        defaultId:0,
+        cancelId:0,
+        noLink:true
+      };
+      const result = mainWindow && !mainWindow.isDestroyed()
+        ? await dialog.showMessageBox(mainWindow, messageBoxOptions)
+        : await dialog.showMessageBox(messageBoxOptions);
+      return result.response === 1;
+    },
+    trackMutation: (work) => directMutationRegistry.run(work),
+    onQueueState: (state) => {
+      if (bridgeManager) {
+        bridgeManager.setWriteQueueState({
+          ...state,
+          storageIntegrity:publicStorageIntegrity()
+        });
+      }
+    }
+  });
   createMainWindow();
   registerGlobal();
 
@@ -1884,24 +2693,70 @@ app.on('will-quit', () => {
   globalShortcut.unregisterAll();
   destroyAuxiliaryWindows();
 });
-app.on('before-quit', () => { isQuitting = true; flushGoogleSession(); });
+app.on('before-quit', (event) => {
+  if (!quitApproved) {
+    event.preventDefault();
+    shutdownApp();
+    return;
+  }
+  isQuitting = true;
+  flushGoogleSession();
+});
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 
 /* IPC */
+ipcMain.on('sproutg:write-barrier-result', (event, payload) => {
+  const id = String(payload?.id || '');
+  const waiter = writeBarrierWaiters.get(id);
+  if (!waiter || event.sender.id !== waiter.senderId) return;
+  writeBarrierWaiters.delete(id);
+  waiter.resolve({
+    ...payload,
+    id,
+    ok:payload?.ok === true
+  });
+});
+
 ipcMain.handle('sproutg:get-version', () => app.getVersion());
+ipcMain.handle('sproutg:get-storage-integrity', () => publicStorageIntegrity());
 ipcMain.handle('sproutg:get-update-state', () => ({ ...updateState, version: app.getVersion(), isPackaged: app.isPackaged }));
 ipcMain.handle('sproutg:check-for-updates', () => checkForUpdates(true));
 ipcMain.handle('sproutg:download-update', () => downloadUpdate());
 ipcMain.handle('sproutg:install-update', () => installDownloadedUpdate());
 ipcMain.handle('sproutg:get-rollback-info', () => getRollbackInfo(false));
 ipcMain.handle('sproutg:rollback-update', () => rollbackToPreviousVersion());
-ipcMain.handle('sproutg:hero-sms', (_e, action, payload) => heroSmsHandle(action, payload || {}));
+ipcMain.handle('sproutg:hero-sms', (_e, action, payload) => {
+  const mutation = isHeroSmsStateMutation(action);
+  if (storageIntegrity.heroSmsBlocked && mutation) {
+    return {
+      ok:false,
+      error:'Операция HeroSMS заблокирована: локальное хранилище повреждено, исход финансовой операции нельзя доказать безопасно',
+      code:'LOCAL_STORE_INTEGRITY_BLOCKED'
+    };
+  }
+  if (writeGateClosed && mutation) {
+    return {
+      ok:false,
+      error:'Операция временно остановлена: приложение завершает сохранение данных',
+      code:'WRITE_GATE_CLOSED'
+    };
+  }
+  return mutation
+    ? directMutationRegistry.run(() => heroSmsHandle(action, payload || {}))
+    : heroSmsHandle(action, payload || {});
+});
 ipcMain.handle('sproutg:get-settings', () => getSettings());
 ipcMain.handle('sproutg:set-setting', (_e, partial) => { const n = setSettings(partial); applySettings(n); return getSettings(); });
 ipcMain.handle('sproutg:choose-custom-theme-bg', () => chooseCustomThemeBackground());
 ipcMain.handle('sproutg:zoom', (_e, dir) => zoom(dir));
 ipcMain.handle('sproutg:toggle-aot', () => toggleAOT());
-ipcMain.handle('sproutg:reload-web', () => { reloadWeb(); return true; });
+ipcMain.handle('sproutg:reload-web', () => reloadWeb('manual-reload'));
+ipcMain.handle('sproutg:reconnect-bridge', async () => {
+  const ok = await reloadBridgeAfterLogin();
+  return ok
+    ? { ok:true }
+    : { ok:false, error:'Не удалось безопасно переподключить Google Таблицу' };
+});
 ipcMain.handle('sproutg:close-settings-window', () => closeSettingsWindow());
 ipcMain.handle('sproutg:close-stats-window', () => closeStatsWindow());
 ipcMain.handle('sproutg:close-company-window', () => closeCompanyWindow());
@@ -1911,20 +2766,49 @@ ipcMain.handle('sproutg:aux-window-drag-end', (event) => endAuxWindowDrag(event.
 ipcMain.handle('sproutg:get-storage-info', () => getStorageInfo());
 
 ipcMain.handle('sproutg:clear-cache', async () => {
-  const s = getSession();
-  await s.clearCache();
-  await flushGoogleSession();
-  reloadWeb();
-  return true;
+  const barrier = await beginWriteBarrier('clear-cache', 30000);
+  if (!barrier?.ok) {
+    notifyWriteBarrierFailure(barrier, 'Очистка кэша отменена');
+    return { ok:false, error:barrier?.error };
+  }
+  try {
+    const pending = writeQueueController ? await writeQueueController.drain(30000) : 0;
+    if (pending > 0) {
+      return {
+        ok:false,
+        error:`Очистка остановлена: в очереди ${pending} несохранённых записей`
+      };
+    }
+    const s = getSession();
+    await s.clearCache();
+    await flushGoogleSession();
+    performWebReload();
+    return { ok:true };
+  } finally {
+    releaseWriteBarrier(barrier.barrierToken);
+  }
 });
 ipcMain.handle('sproutg:logout', async () => {
-  await getSession().clearStorageData({ storages:['cookies','localstorage','indexdb','serviceworkers','caches'] });
-  store.set('points', { days: {}, workDays: {} });
+  const barrier = await beginWriteBarrier('logout', 30000);
+  if (!barrier?.ok) return { ok:false, error:barrier?.error };
+  try {
+    const pending = writeQueueController ? await writeQueueController.drain(30000) : 0;
+    if (pending > 0) {
+      return {
+        ok:false,
+        error:`Выход остановлен: в очереди ${pending} несохранённых записей`
+      };
+    }
+    await getSession().clearStorageData({ storages:['cookies','localstorage','indexdb','serviceworkers','caches'] });
+    store.set('points', { days: {}, workDays: {} });
     store.set('statusState', {});
-  if (statsWindow && !statsWindow.isDestroyed()) statsWindow.webContents.send('sproutg:points-updated', getPoints());
+    if (statsWindow && !statsWindow.isDestroyed()) statsWindow.webContents.send('sproutg:points-updated', getPoints());
     setTimeout(() => { try { statsWindow && !statsWindow.isDestroyed() && statsWindow.webContents.send('sproutg:points-updated', getPoints()); } catch(e){} }, 80);
-  reloadWeb();
-  return true;
+    performWebReload();
+    return { ok:true };
+  } finally {
+    releaseWriteBarrier(barrier.barrierToken);
+  }
 });
 
 ipcMain.handle('sproutg:open-settings', () => { openSettingsWindow(); return true; });
@@ -1935,12 +2819,46 @@ ipcMain.handle('sproutg:get-points', () => getPoints());
 ipcMain.handle('sproutg:open-url', (_e, firstRun) => { openUrlWindow(!!firstRun); return true; });
 ipcMain.handle('sproutg:open-bridge-login', () => openBridgeLoginWindow());
 
-ipcMain.handle('sproutg:set-web-url', (_e, input) => {
-  const url = setWebUrl(input);
+ipcMain.handle('sproutg:set-web-url', async (_e, input) => {
+  const url = normalizeWebUrl(input);
   if (!url) return { ok:false, error:'Неверный URL или ID' };
-  if (bridgeManager) loadWeb(url);
-  if (urlWindow && !urlWindow.isDestroyed()) urlWindow.close();
-  return { ok:true, url };
+  const initialEndpointBinding = !getWebUrl();
+  const barrier = await beginWriteBarrier('change-endpoint', 30000, {
+    allowDurableFailures:initialEndpointBinding
+  });
+  if (!barrier?.ok) return { ok:false, error:barrier?.error };
+  try {
+    const boundConflicts = writeQueueController
+      ? writeQueueController.hasBoundPendingForEndpointChange(url)
+      : 0;
+    if (boundConflicts > 0) {
+      return {
+        ok:false,
+        code:'PENDING_WRITES_ENDPOINT_MISMATCH',
+        error:`Нельзя сменить таблицу: ${boundConflicts} записей ещё привязаны к текущему Apps Script`
+      };
+    }
+    const binding = writeQueueController
+      ? writeQueueController.bindUnboundToEndpoint(url)
+      : { ok:true, bound:0 };
+    if (!binding.ok) return { ok:false, code:'WRITE_QUEUE_BIND_FAILED', error:binding.error };
+    const blocked = writeQueueController
+      ? writeQueueController.hasPendingForEndpointChange(url)
+      : 0;
+    if (blocked > 0) {
+      return {
+        ok:false,
+        code:'PENDING_WRITES_ENDPOINT_MISMATCH',
+        error:`Нельзя сменить таблицу: ${blocked} записей ещё привязаны к текущему Apps Script`
+      };
+    }
+    store.set('web.url', url);
+    if (bridgeManager) loadWeb(url);
+    if (urlWindow && !urlWindow.isDestroyed()) urlWindow.close();
+    return { ok:true, url };
+  } finally {
+    releaseWriteBarrier(barrier.barrierToken);
+  }
 });
 
 ipcMain.on('sproutg:window-control', (_e, action) => {
@@ -1965,3 +2883,4 @@ ipcMain.on('sproutg:web-message', (_e, msg) => {
 
 setInterval(() => { try { addPoints({ delta: 1, key: 'Desktop:Active10min', ts: Date.now() }); } catch(e) {} }, 10*60*1000);
 
+}

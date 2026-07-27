@@ -1,66 +1,66 @@
 # SproutG.Web Handoff
 
-Target project: `C:\Users\Poom\Documents\GitHub\FarmA`
+Target project: the sibling `FarmA/apps-script` repository.
 
-SproutG.Web is the Apps Script side of SproutG. Desktop SproutG renders the UI locally and uses SproutG.Web only as the hidden bridge/API to Google Sheets and server-side services.
+SproutG.Web is the Apps Script backend and hidden Google Sheets bridge used by
+SproutG Desktop. The desktop and deployed bridge versions must remain
+compatible.
 
-## Current Desktop Expectations
+## v2.3.0 Contract
 
-- App name in Apps Script: `SproutG.Web`.
-- Desktop app name: `SproutG`.
-- Versions should stay synchronized with desktop releases.
-- Current desktop version: `2.0.1-beta.1`.
-- Apps Script visible UI should not be the main user interface anymore.
-- Apps Script must keep exposing bridge methods:
+- Desktop version: `2.3.0`.
+- Apps Script `APP_VERSION`: `2.3.0`.
+- `Index.html` bridge version: `2.3.0`.
+- Desktop refuses to flush queued sheet mutations to a bridge older than
+  `2.3.0`.
+- Apps Script must expose:
   - `apiCall(action, payload, meta)`
   - `apiBatch(calls, meta)`
-- Bridge page must post:
-  - `BRIDGE_READY`
-  - `API_RESULT`
-  - `PONG`
-- Bridge source names expected by desktop:
-  - request source: `sproutg-desktop`
-  - response source: `sproutg-bridge`
+- The bridge must post `BRIDGE_READY`, `API_RESULT`, and `PONG`.
+- Request source: `sproutg-desktop`; response source: `sproutg-bridge`.
 
-## Required SproutG.Web Changes
+## Non-negotiable Data Rules
 
-- Bump `APP_VERSION` and bridge version to `2.0.1-beta.1`.
-- Keep the default `Index.html` as a small bridge-only page.
-- Keep old UI only behind `?legacy=1` if it is still needed for fallback/debug.
-- Remove or archive obsolete Apps Script UI code that is no longer used by desktop.
-- Keep SMSPool keys and other secrets only in Apps Script/ScriptProperties, never in desktop renderer.
-- Keep all bridge-visible text Russian where it can appear to the user.
-- Ensure Apps Script deploy is updated after code changes, otherwise desktop may still connect to an older bridge.
+- Never delete or rewrite the CM2 section in `Code.gs`. CM2 is an independent
+  in-sheet Company/MCC synchronization script and remains production code.
+- Every O1/MCC write must resolve its stable semantic identity immediately
+  before mutation. A cached or UI row number is only a hint because users may
+  insert rows anywhere.
+- Ambiguous, missing, moved, or uncertain targets must fail closed. Never fall
+  back to writing the original numeric row.
+- Keep replay ledgers and write IDs for operations whose acknowledgement may be
+  lost after the sheet was already changed.
+- Keep SMS provider keys only in Apps Script `ScriptProperties` or the native
+  desktop main process. Never expose them to a renderer or commit them.
 
-## Already Applied Locally In FarmA During This Work
+## Release Order
 
-- `apps-script/src/Code.gs`
-  - added `APP_NAME = 'SproutG.Web'`;
-  - changed title to `SproutG.Web`;
-  - changed `APP_VERSION` from old `0.4.5.5` to beta version.
-- `apps-script/src/Index.html`
-  - bridge page status changed to `SproutG.Web: мост готов`;
-  - bridge failure text changed to Russian;
-  - bridge version changed to beta version.
-- `apps-script/src/LegacyIndex.html`
-  - legacy visible version changed to beta version.
-- `docs/APPS_SCRIPT_BRIDGE_API.md`
-  - renamed bridge documentation to `SproutG.Web`.
+1. Rotate any historically exposed SMSPool credential.
+2. Set and verify a fresh `SMSPOOL_API_KEY` in Apps Script
+   `ScriptProperties`.
+3. Review the existing dirty FarmA worktree, especially any deleted files.
+4. Push the intended Apps Script sources and deploy a new Web App version.
+5. Open the deploy URL and verify bridge version `2.3.0`.
+6. Start/update SproutG Desktop and verify the durable queue begins draining.
 
-## Manual Checks In FarmA
+Publishing the desktop first is safe: v2.3.0 keeps writes on disk while the
+deployed Apps Script bridge is older than `2.3.0`.
 
-- Deploy Apps Script as a new Web App version.
-- Open deploy URL directly and verify it shows only the small bridge status page.
-- Verify desktop status changes to `Статус: ✓`.
-- Verify O1 search, MCC search, Company add and SMSPool calls still resolve through `apiCall` / `apiBatch`.
-- Verify Google authorization is requested only when the Apps Script deploy or browser session actually needs it.
+## Manual Verification
 
-## Notes For The Next Codex Pass In FarmA
+- Insert rows above active O1, MCC, PASS, and Company records, then confirm
+  writes follow the exact identity rather than the old row number.
+- Verify duplicate identities stop a write with an explicit error.
+- Verify Company append does not use a row containing data or a formula outside
+  columns A:F.
+- Verify O1/MCC/PASS edits survive reload through local drafts and the durable
+  queue.
+- Verify Company add and SMS provider calls still resolve through
+  `apiCall`/`apiBatch`.
+- Verify CM2 Company/MCC synchronization still runs inside the spreadsheet.
 
-- FarmA currently has unrelated dirty files and untracked files. Do not revert them without explicit permission.
-- Before committing FarmA, inspect:
-  - `apps-script/src/Code.gs`
-  - `apps-script/src/Index.html`
-  - `apps-script/src/LegacyIndex.html`
-  - `docs/APPS_SCRIPT_BRIDGE_API.md`
-- Avoid touching desktop UI code in FarmA unless `?legacy=1` fallback is intentionally being kept.
+## Repository Safety
+
+FarmA can contain unrelated dirty and untracked files. Do not revert, stage, or
+publish them without reviewing the exact diff. Apps Script deployment remains a
+separate manual operation from the SproutG Desktop GitHub release.

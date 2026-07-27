@@ -4,28 +4,240 @@ on:
   push:
     tags:
       - "v*.*.*"
-  workflow_dispatch:
 
 permissions:
   contents: write
 
+concurrency:
+  group: sproutg-release-${{ github.repository }}
+  cancel-in-progress: false
+
 jobs:
   windows-release:
     runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
-      - name: Checkout
+      - name: Checkout release tag
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "22"
+          cache: npm
 
-      - name: Install dependencies
-        run: npm install
-
-      - name: Build and publish Windows installer
+      - name: Verify immutable release preconditions
+        shell: pwsh
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npm run dist:win:publish
+          RELEASE_EVENT_FORCED: ${{ github.event.forced }}
+        run: |
+          if ($env:GITHUB_REF_TYPE -ne "tag") {
+            throw "Release workflow must run from a tag."
+          }
+          if ($env:RELEASE_EVENT_FORCED -eq "true") {
+            throw "Force-updated release tags are not allowed."
+          }
+
+          node scripts/validate-release.js --tag $env:GITHUB_REF_NAME
+          if ($LASTEXITCODE -ne 0) {
+            throw "Tag/package parity validation failed."
+          }
+
+          $tagCommit = git rev-parse "${env:GITHUB_REF_NAME}^{commit}"
+          if ($LASTEXITCODE -ne 0) {
+            throw "Cannot resolve the release tag commit."
+          }
+          $headCommit = git rev-parse HEAD
+          if ($LASTEXITCODE -ne 0 -or $tagCommit.Trim() -ne $headCommit.Trim()) {
+            throw "Checked-out commit does not match the release tag."
+          }
+
+          $releaseLookup = gh api "repos/$env:GITHUB_REPOSITORY/releases/tags/$env:GITHUB_REF_NAME" 2>&1
+          if ($LASTEXITCODE -eq 0) {
+            throw "Release $env:GITHUB_REF_NAME already exists; refusing to overwrite it."
+          }
+          if (($releaseLookup -join "`n") -notmatch "HTTP 404|Not Found") {
+            throw "Could not prove that release $env:GITHUB_REF_NAME is absent: $($releaseLookup -join ' ')"
+          }
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build Windows installer without publishing
+        run: npm run dist:win -- --publish never
+
+      - name: Stage and validate exact release assets
+        id: assets
+        shell: pwsh
+        run: |
+          $version = node -p "require('./package.json').version"
+          if ($LASTEXITCODE -ne 0) {
+            throw "Cannot read package version."
+          }
+          $productName = node -p "require('./package.json').productName"
+          if ($LASTEXITCODE -ne 0) {
+            throw "Cannot read product name."
+          }
+
+          $installerName = "$productName-Setup-$version.exe"
+          $blockmapName = "$installerName.blockmap"
+          $assetDir = Join-Path $env:RUNNER_TEMP "sproutg-release-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          if (Test-Path -LiteralPath $assetDir) {
+            throw "Release staging directory already exists: $assetDir"
+          }
+          New-Item -ItemType Directory -Path $assetDir | Out-Null
+
+          $assetNames = @("latest.yml", $installerName, $blockmapName)
+          foreach ($assetName in $assetNames) {
+            $source = Join-Path "dist" $assetName
+            if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
+              throw "Expected release asset is missing: $source"
+            }
+            Copy-Item -LiteralPath $source -Destination (Join-Path $assetDir $assetName)
+          }
+
+          node scripts/validate-release.js --tag $env:GITHUB_REF_NAME --version $version --dir $assetDir --exact
+          if ($LASTEXITCODE -ne 0) {
+            throw "Local release asset validation failed."
+          }
+
+          Add-Content -LiteralPath $env:GITHUB_ENV -Value "RELEASE_VERSION=$version"
+          Add-Content -LiteralPath $env:GITHUB_ENV -Value "RELEASE_INSTALLER=$installerName"
+          Add-Content -LiteralPath $env:GITHUB_ENV -Value "RELEASE_BLOCKMAP=$blockmapName"
+          Add-Content -LiteralPath $env:GITHUB_ENV -Value "RELEASE_ASSET_DIR=$assetDir"
+
+      - name: Create new draft release
+        shell: pwsh
+        run: |
+          gh release create $env:GITHUB_REF_NAME `
+            --repo $env:GITHUB_REPOSITORY `
+            --verify-tag `
+            --draft `
+            --title "SproutG v$env:RELEASE_VERSION" `
+            --generate-notes
+          if ($LASTEXITCODE -ne 0) {
+            throw "Draft release creation failed."
+          }
+
+          $draft = gh release view $env:GITHUB_REF_NAME `
+            --repo $env:GITHUB_REPOSITORY `
+            --json tagName,isDraft,isPrerelease,assets | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) {
+            throw "Cannot inspect the new draft release."
+          }
+          if ($draft.tagName -ne $env:GITHUB_REF_NAME -or -not $draft.isDraft -or $draft.isPrerelease) {
+            throw "New release is not the expected production draft."
+          }
+          if (@($draft.assets).Count -ne 0) {
+            throw "New draft unexpectedly contains assets; refusing to overwrite them."
+          }
+
+      - name: Upload exactly three release assets
+        shell: pwsh
+        run: |
+          $assets = @(
+            (Join-Path $env:RELEASE_ASSET_DIR "latest.yml"),
+            (Join-Path $env:RELEASE_ASSET_DIR $env:RELEASE_INSTALLER),
+            (Join-Path $env:RELEASE_ASSET_DIR $env:RELEASE_BLOCKMAP)
+          )
+          & gh release upload $env:GITHUB_REF_NAME --repo $env:GITHUB_REPOSITORY $assets
+          if ($LASTEXITCODE -ne 0) {
+            throw "Release asset upload failed."
+          }
+
+      - name: Verify uploaded draft assets
+        shell: pwsh
+        run: |
+          $release = gh release view $env:GITHUB_REF_NAME `
+            --repo $env:GITHUB_REPOSITORY `
+            --json tagName,isDraft,isPrerelease,assets | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) {
+            throw "Cannot inspect uploaded draft assets."
+          }
+          if ($release.tagName -ne $env:GITHUB_REF_NAME -or -not $release.isDraft -or $release.isPrerelease) {
+            throw "Release changed state before validation completed."
+          }
+
+          $expectedNames = @("latest.yml", $env:RELEASE_INSTALLER, $env:RELEASE_BLOCKMAP) | Sort-Object
+          $actualAssets = @($release.assets)
+          $actualNames = @($actualAssets | ForEach-Object { $_.name }) | Sort-Object
+          if (Compare-Object -ReferenceObject $expectedNames -DifferenceObject $actualNames) {
+            throw "Draft release does not contain exactly the expected three assets."
+          }
+          foreach ($asset in $actualAssets) {
+            if ([long]$asset.size -le 0) {
+              throw "Uploaded asset is empty: $($asset.name)"
+            }
+          }
+
+          $downloadDir = Join-Path $env:RUNNER_TEMP "sproutg-download-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          if (Test-Path -LiteralPath $downloadDir) {
+            throw "Release download directory already exists: $downloadDir"
+          }
+          New-Item -ItemType Directory -Path $downloadDir | Out-Null
+
+          gh release download $env:GITHUB_REF_NAME --repo $env:GITHUB_REPOSITORY --dir $downloadDir
+          if ($LASTEXITCODE -ne 0) {
+            throw "Downloading draft assets for verification failed."
+          }
+
+          node scripts/validate-release.js `
+            --tag $env:GITHUB_REF_NAME `
+            --version $env:RELEASE_VERSION `
+            --dir $downloadDir `
+            --reference-dir $env:RELEASE_ASSET_DIR `
+            --exact
+          if ($LASTEXITCODE -ne 0) {
+            throw "Downloaded release asset validation failed."
+          }
+
+      - name: Publish verified release as latest
+        shell: pwsh
+        run: |
+          gh release edit $env:GITHUB_REF_NAME `
+            --repo $env:GITHUB_REPOSITORY `
+            --draft=false `
+            --prerelease=false `
+            --latest
+          if ($LASTEXITCODE -ne 0) {
+            throw "Publishing the verified release failed."
+          }
+
+          $published = gh release view $env:GITHUB_REF_NAME `
+            --repo $env:GITHUB_REPOSITORY `
+            --json tagName,isDraft,isPrerelease,assets | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) {
+            throw "Cannot verify the published release."
+          }
+          if ($published.tagName -ne $env:GITHUB_REF_NAME -or $published.isDraft -or $published.isPrerelease) {
+            throw "Release was not published as a stable release."
+          }
+          if (@($published.assets).Count -ne 3) {
+            throw "Published release asset count changed after validation."
+          }
+
+          $latestTag = $null
+          for ($attempt = 1; $attempt -le 6; $attempt += 1) {
+            $latestJson = gh api "repos/$env:GITHUB_REPOSITORY/releases/latest" 2>$null
+            if ($LASTEXITCODE -eq 0) {
+              $latest = $latestJson | ConvertFrom-Json
+              $latestTag = $latest.tag_name
+              if ($latestTag -eq $env:GITHUB_REF_NAME) {
+                break
+              }
+            }
+            if ($attempt -lt 6) {
+              Start-Sleep -Seconds 2
+            }
+          }
+          if ($latestTag -ne $env:GITHUB_REF_NAME) {
+            throw "Published release is not GitHub's latest release."
+          }

@@ -7,6 +7,39 @@ const { isReadAction } = require('../shared/actions');
 const DEFAULT_TIMEOUT_MS = 30000;
 const READ_RETRIES = 1;
 const MAX_INFLIGHT = 6;
+const FRAME_RELAY_NAME = '__sproutgNativeBridge230';
+const FRAME_RELAY_MARKER = '__sproutgNativeBridge230Installed';
+
+function serializeForFrame(value) {
+  return JSON.stringify(value)
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029');
+}
+
+function buildFramePostScript(message) {
+  return `(() => {
+    const bridge = window[${JSON.stringify(FRAME_RELAY_NAME)}];
+    if (!bridge || typeof bridge.relay !== 'function') return false;
+    const marker = ${JSON.stringify(FRAME_RELAY_MARKER)};
+    if (!window[marker]) {
+      Object.defineProperty(window, marker, {
+        value:true,
+        configurable:false,
+        enumerable:false,
+        writable:false
+      });
+      window.addEventListener('message', (event) => {
+        const data = event && event.data;
+        if (event.source !== window || !data || typeof data !== 'object') return;
+        if (data.source !== 'sproutg-bridge') return;
+        if (!['BRIDGE_READY', 'PONG', 'API_RESULT'].includes(data.type)) return;
+        bridge.relay(data);
+      });
+    }
+    window.postMessage(${serializeForFrame(message)}, window.location.origin);
+    return true;
+  })()`;
+}
 
 function normalizedEndpoint(value) {
   const raw = String(value || '').trim();
@@ -394,8 +427,23 @@ class BridgeManager extends EventEmitter {
 
   sendToFrame(frame, message) {
     if (!frame || frame.detached || frame.isDestroyed()) return false;
+    if (typeof frame.executeJavaScript !== 'function') {
+      try {
+        frame.send('sproutg:bridge-post', message);
+        return true;
+      } catch (_error) {
+        return false;
+      }
+    }
     try {
-      frame.send('sproutg:bridge-post', message);
+      frame.executeJavaScript(buildFramePostScript(message), true)
+        .then((sent) => {
+          if (sent) return;
+          try { frame.send('sproutg:bridge-post', message); } catch (_error) {}
+        })
+        .catch(() => {
+          try { frame.send('sproutg:bridge-post', message); } catch (_error) {}
+        });
       return true;
     } catch (_error) {
       return false;

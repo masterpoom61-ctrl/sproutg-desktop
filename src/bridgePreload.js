@@ -1,6 +1,18 @@
-const { ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer } = require('electron');
 
 const BRIDGE_TYPES = new Set(['BRIDGE_READY', 'PONG', 'API_RESULT']);
+const NATIVE_RELAY_NAME = '__sproutgNativeBridge230';
+
+function relayBridgeMessage_(data) {
+  if (!data || typeof data !== 'object') return;
+  if (data.source !== 'sproutg-bridge') return;
+  if (!BRIDGE_TYPES.has(data.type)) return;
+  ipcRenderer.send('sproutg:bridge-message', data);
+}
+
+contextBridge.exposeInMainWorld(NATIVE_RELAY_NAME, {
+  relay: relayBridgeMessage_
+});
 
 function isAllowedOrigin(origin) {
   try {

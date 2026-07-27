@@ -4,6 +4,7 @@ const assert = require("node:assert/strict");
 const EventEmitter = require("node:events");
 const Module = require("node:module");
 const test = require("node:test");
+const vm = require("node:vm");
 
 const fakeIpcMain = new EventEmitter();
 let nextWebContentsId = 1;
@@ -71,6 +72,68 @@ function installChallenge(manager, frame, nonce = "nonce", id = "challenge") {
   manager.frameChallenges.set(key, { frame, key, nonce, id });
   return { key, nonce, id };
 }
+
+test("frame-specific main-world relay reaches an Apps Script nested frame", async () => {
+  const manager = createManager();
+  const listeners = [];
+  const relayed = [];
+  const frameWindow = {
+    location: { origin: "https://test-script.googleusercontent.com" },
+    __sproutgNativeBridge230: {
+      relay(message) {
+        relayed.push(message);
+      }
+    },
+    addEventListener(type, listener) {
+      if (type === "message") listeners.push(listener);
+    },
+    postMessage(message) {
+      for (const listener of listeners) {
+        listener({ source:frameWindow, data:message });
+      }
+    }
+  };
+  const scripts = [];
+  const frame = createFrame(9, 19);
+  frame.url = "https://test-script.googleusercontent.com/blank";
+  frame.executeJavaScript = async (source) => {
+    scripts.push(source);
+    return vm.runInNewContext(source, { window:frameWindow });
+  };
+
+  const challenge = {
+    source:"sproutg-desktop",
+    type:"PING",
+    id:"challenge-iframe",
+    bridgeNonce:"nonce-\u2028-safe"
+  };
+  assert.equal(manager.sendToFrame(frame, challenge), true);
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(scripts.length, 1);
+  assert.equal(scripts[0].includes("\u2028"), false);
+  assert.equal(frame.sent.length, 0);
+  assert.equal(relayed.length, 0);
+
+  frameWindow.postMessage({
+    source:"sproutg-bridge",
+    type:"PONG",
+    id:challenge.id,
+    bridgeNonce:challenge.bridgeNonce
+  });
+  assert.equal(relayed.length, 1);
+  assert.equal(relayed[0].type, "PONG");
+
+  for (const listener of listeners) {
+    listener({
+      source:{},
+      data:{ source:"sproutg-bridge", type:"API_RESULT" }
+    });
+  }
+  frameWindow.postMessage({ source:"untrusted", type:"PONG" });
+  assert.equal(relayed.length, 1);
+  manager.destroy();
+});
 
 test("modern bridge pins an exact challenged frame and rejects spoofed results", async () => {
   const manager = createManager();

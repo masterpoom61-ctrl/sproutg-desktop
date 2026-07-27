@@ -909,6 +909,32 @@ test("server-safe partition allows distinct identities together", () => {
   assert.deepEqual(batches.map((batch) => batch.map((group) => group.payload.row)), [[2, 3], [4]]);
 });
 
+test("cell writes are sent and committed in bounded batches", async () => {
+  const ctx = createQueue();
+  const accepted = [];
+  for (let index = 0; index < 9; index += 1) {
+    accepted.push(ctx.queue.enqueue("mcc.updateCells", {
+      row: index + 2,
+      updates: { N: `value-${index}` },
+      identity: {
+        profileName: "Profile",
+        accountName: `Account-${index}`
+      }
+    }));
+  }
+
+  await flushNow(ctx.queue);
+  await Promise.all(accepted);
+
+  const cellCalls = ctx.bridge.calls.filter((call) => call.type === "call");
+  assert.deepEqual(
+    cellCalls.map((call) => call.payload.items.length),
+    [4, 4, 1]
+  );
+  assert.equal(cellCalls.every((call) => call.action === "mcc.updateCellsBatch"), true);
+  assert.equal(ctx.queue.getState().pending, 0);
+});
+
 test("target identities preserve exact case and cannot collide on delimiters", () => {
   assert.notEqual(
     targetKey("mcc.updateCells", {

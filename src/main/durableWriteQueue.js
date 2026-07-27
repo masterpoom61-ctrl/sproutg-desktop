@@ -9,7 +9,9 @@ const SNAPSHOT_SCHEMA_VERSION = 1;
 const MAX_COMPLETED_IDS = 5000;
 const MAX_CONFIRMED_WRITES = 256;
 const MAX_BATCH_SIZE = 80;
+const MAX_CELL_GROUPS_PER_BATCH = 4;
 const MAX_DIRECT_BATCH_SIZE = 8;
+const CELL_BATCH_TIMEOUT_MS = 70000;
 const DEFAULT_ACK_AFTER_MS = 400;
 const MIN_WRITE_BRIDGE_VERSION = '2.3.0';
 
@@ -330,13 +332,20 @@ function serverIdentityKey(action, payload) {
   return encodeTarget('server-identity', [action, profile, account]);
 }
 
-function partitionServerSafeGroups(action, groups) {
+function partitionServerSafeGroups(action, groups, maxGroups = MAX_CELL_GROUPS_PER_BATCH) {
   const batches = [];
   let current = [];
   let identities = new Set();
+  const batchLimit = Math.max(1, Number(maxGroups) || MAX_CELL_GROUPS_PER_BATCH);
   for (const group of groups) {
     const identityKey = serverIdentityKey(action, group.payload);
-    if (identityKey && identities.has(identityKey)) {
+    if (
+      current.length
+      && (
+        current.length >= batchLimit
+        || (identityKey && identities.has(identityKey))
+      )
+    ) {
       batches.push(current);
       current = [];
       identities = new Set();
@@ -1183,7 +1192,7 @@ class DurableWriteQueue {
       response = await this.bridgeManager.callApi(batchAction, {
         items: groups.map((group) => group.payload)
       }, {
-        timeoutMs: 55000,
+        timeoutMs: CELL_BATCH_TIMEOUT_MS,
         retries: 0,
         minBridgeVersion: MIN_WRITE_BRIDGE_VERSION
       });

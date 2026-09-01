@@ -65,6 +65,14 @@
         </div>
 
         <div class="row">
+          <div class="label">Валидность в MCC</div>
+          <div class="segmented">
+            <button class="seg" id="mccValidityOn" type="button">Вкл</button>
+            <button class="seg" id="mccValidityOff" type="button">Выкл</button>
+          </div>
+        </div>
+
+        <div class="row">
           <div class="label">Размер текста</div>
           <div class="group">
             <div class="pill" id="fontScaleValue">100%</div>
@@ -180,8 +188,8 @@
             <button class="btn" id="btnInstallUpdate" disabled>Установить</button>
           </div>
           <div class="row rollbackRow">
-            <div class="hint compact" id="rollbackInfo">Поиск предыдущей версии...</div>
-            <button class="btn btn-wide" id="btnRollbackUpdate" disabled>Вернуться</button>
+            <div class="hint compact" id="rollbackInfo">Поиск предыдущей версии…</div>
+            <button class="btn btn-wide" id="btnRollbackUpdate" disabled>Назад</button>
           </div>
           <div class="hint compact">Фоновая установка отключена. Если новая версия найдена, SproutG покажет уведомление; установка запускается здесь.</div>
           <details class="releaseHistory" id="releaseHistory">

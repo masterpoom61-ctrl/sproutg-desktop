@@ -122,18 +122,21 @@ function setTopbarTheme(theme){
   __themeSwitchTimer = setTimeout(() => document.documentElement.classList.remove('theme-switching'), 140);
 }
 
-let desktopSettings = { smsService: 'smspool', mccVerificationInline: true };
+let desktopSettings = { smsService: 'smspool', mccVerificationInline: true, mccValidityInline: true };
 function applyDesktopSettings(settings = {}){
   const prevSmsService = desktopSettings.smsService || 'smspool';
   const prevMccVerificationInline = desktopSettings.mccVerificationInline !== false;
+  const prevMccValidityInline = desktopSettings.mccValidityInline !== false;
   desktopSettings = { ...desktopSettings, ...(settings || {}) };
   desktopSettings.smsService = desktopSettings.smsService === 'herosms' ? 'herosms' : 'smspool';
   desktopSettings.mccVerificationInline = desktopSettings.mccVerificationInline !== false;
+  desktopSettings.mccValidityInline = desktopSettings.mccValidityInline !== false;
   if (settings.theme) setTopbarTheme(settings.theme);
   document.documentElement.dataset.graphics = settings.graphicsMode === 'lite' ? 'lite' : 'ultra';
   document.documentElement.dataset.contrast = settings.contrastMode ? 'on' : 'off';
   document.documentElement.dataset.zjk = settings.classicTrafficLights ? 'on' : 'off';
   document.documentElement.dataset.mccVerificationInline = desktopSettings.mccVerificationInline ? 'on' : 'off';
+  document.documentElement.dataset.mccValidityInline = desktopSettings.mccValidityInline ? 'on' : 'off';
   document.documentElement.dataset.statGlow = desktopSettings.statCardGlow === false ? 'off' : 'on';
   document.documentElement.dataset.textScale = Math.abs((Number(desktopSettings.fontScale || 1)) - 1) > 0.001 ? 'on' : 'off';
   document.documentElement.style.setProperty('--app-font-scale', String(desktopSettings.fontScale || 1));
@@ -147,7 +150,10 @@ function applyDesktopSettings(settings = {}){
       }
     }catch(e){}
   }
-  if(prevMccVerificationInline !== (desktopSettings.mccVerificationInline !== false)){
+  if(
+    prevMccVerificationInline !== (desktopSettings.mccVerificationInline !== false)
+    || prevMccValidityInline !== (desktopSettings.mccValidityInline !== false)
+  ){
     try{
       if(typeof mccProfile !== 'undefined' && mccProfile && typeof renderMccProfile === 'function'){
         const snap = captureSproutScroll_('settings-mcc-verification-inline');
@@ -173,7 +179,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
   applyDesktopSettings(s || { theme: 'dark-classic' });
 })();
 
-  const APP_VERSION = '2.3.0';
+  const APP_VERSION = '2.3.3';
   const PAGE_KEY = 'FarmA.page';
   const HOME_RETURN_KEY = 'FarmA.homeReturnPage';
   const THEME_KEY = 'sproutg.theme';
@@ -1567,7 +1573,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     'Бан почты','бан почты','Бан аккаунта','Аккаунт удален',
     'Обход системы','Деловая практика',
     'Мультиаккаутинг','Мультиаккаунтинг',
-    'Проверка рекламодателя','Отказ','Не вышел'
+    'Проверка рекламодателя','Отказ','Не вышел','Селфи','Отказ Селфи'
   ]);
   const BAN_YELLOW_VALUES = new Set([
     '?','Аппел','Апелл','Аппеляция','Апелляция',
@@ -1594,6 +1600,8 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     Q:'Коммент',
     N:'Статус',
     O:'Статус Бан',
+    P:'Валидность',
+    S:'PrePay',
     AG:'Прокси',
     AH:'Регион',
     AI:'Город',
@@ -1604,6 +1612,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     AN:'Пароль',
     AO:'Аутентификатор'
   };
+  const MCC_PREPAY_OPTIONS = Array.from({ length:10 }, (_, index)=>`${(index + 1) * 10}$`);
 
   function o1LabelForField(f){
     const col = String(f?.col || '').toUpperCase();
@@ -8706,7 +8715,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
       return;
     }
 
-    if(col === 'O'){
+    if(col === 'O' || col === 'P'){
       if(isBanRedValue(v)) el.classList.add('redLight');
       else if(BAN_YELLOW_VALUES.has(v)) el.classList.add('yellowLight');
       if(el.classList.contains('yellowLight') || el.classList.contains('redLight')) el.dataset.appcolor = '1';
@@ -8895,7 +8904,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     const grid1 = document.createElement('div');
     grid1.className = 'mccInlineGrid2';
     grid1.appendChild(mccWrapFieldLabel('T', buildMccVerificationDateControl(rowObj)));
-    grid1.appendChild(mccWrapFieldLabel('S', mccEditMode ? mccBuildInput(rowObj, 'S', rowObj.values.S) : mccBuildButton(rowObj.values.S, 'S')));
+    grid1.appendChild(mccWrapFieldLabel('AC', mccEditMode ? mccBuildInput(rowObj, 'AC', rowObj.values.AC) : mccBuildButton(rowObj.values.AC, 'AC')));
     row1.appendChild(label1);
     row1.appendChild(grid1);
     row1.appendChild(document.createElement('div')).className='actions';
@@ -9123,21 +9132,23 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
       fieldsWrap.appendChild(eedunsRow);
 
       const splitCol = mccProfile.splitCol || 'P';
-      const split = splitMccCell(rowObj.values[splitCol]);
-      const splitRow = document.createElement('div');
-      splitRow.className = 'field';
-      const splitLabel = document.createElement('div');
-      splitLabel.className = 'label';
-      splitLabel.textContent = mccGetLabel(splitCol);
-      const splitGrid = document.createElement('div');
-      splitGrid.className = 'mccInlineGrid3';
-      splitGrid.appendChild(mccBuildButton(split.p1, splitCol));
-      splitGrid.appendChild(mccBuildButton(split.p2, splitCol));
-      splitGrid.appendChild(mccBuildButton(split.p3, splitCol));
-      splitRow.appendChild(splitLabel);
-      splitRow.appendChild(splitGrid);
-      splitRow.appendChild(document.createElement('div')).className='actions';
-      fieldsWrap.appendChild(splitRow);
+      if(splitCol !== 'P'){
+        const split = splitMccCell(rowObj.values[splitCol]);
+        const splitRow = document.createElement('div');
+        splitRow.className = 'field';
+        const splitLabel = document.createElement('div');
+        splitLabel.className = 'label';
+        splitLabel.textContent = mccGetLabel(splitCol);
+        const splitGrid = document.createElement('div');
+        splitGrid.className = 'mccInlineGrid3';
+        splitGrid.appendChild(mccBuildButton(split.p1, splitCol));
+        splitGrid.appendChild(mccBuildButton(split.p2, splitCol));
+        splitGrid.appendChild(mccBuildButton(split.p3, splitCol));
+        splitRow.appendChild(splitLabel);
+        splitRow.appendChild(splitGrid);
+        splitRow.appendChild(document.createElement('div')).className='actions';
+        fieldsWrap.appendChild(splitRow);
+      }
 
       const rRow = document.createElement('div');
       rRow.className = 'field';
@@ -9174,6 +9185,19 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
       rRow.appendChild(document.createElement('div')).className='actions';
       fieldsWrap.appendChild(rRow);
 
+      const prePayRow = document.createElement('div');
+      prePayRow.className = 'field';
+      const prePayLabel = document.createElement('div');
+      prePayLabel.className = 'label';
+      prePayLabel.textContent = 'PrePay';
+      const rawPrePayValue = String(rowObj.values.S ?? '').trim();
+      const prePayValue = MCC_PREPAY_OPTIONS.includes(rawPrePayValue) ? rawPrePayValue : '';
+      const prePaySelect = mccBuildSelect(rowObj, 'S', prePayValue, MCC_PREPAY_OPTIONS, null, { group:'Аккаунт MCC' });
+      prePayRow.appendChild(prePayLabel);
+      prePayRow.appendChild(prePaySelect);
+      prePayRow.appendChild(document.createElement('div')).className='actions';
+      fieldsWrap.appendChild(prePayRow);
+
       const nRow = document.createElement('div');
       nRow.className = 'field';
       const nLabel = document.createElement('div');
@@ -9207,6 +9231,23 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
       oRow.appendChild(oSelect);
       oRow.appendChild(document.createElement('div')).className='actions';
       fieldsWrap.appendChild(oRow);
+
+      if(desktopSettings.mccValidityInline !== false){
+        const validityRow = document.createElement('div');
+        validityRow.className = 'field mccValidityRow';
+        const validityLabel = document.createElement('div');
+        validityLabel.className = 'label';
+        validityLabel.textContent = 'Валидность';
+        const validityValue = rowObj.values.P ?? '';
+        const validitySelect = mccBuildSelect(rowObj, 'P', validityValue, mccProfile.dropdowns?.P, (next)=>{
+          applyMccSelectColor(validitySelect, 'P', next);
+        }, { group:'Аккаунт MCC' });
+        applyMccSelectColor(validitySelect, 'P', validityValue);
+        validityRow.appendChild(validityLabel);
+        validityRow.appendChild(validitySelect);
+        validityRow.appendChild(document.createElement('div')).className='actions';
+        fieldsWrap.appendChild(validityRow);
+      }
 
       appendMccAccountVerificationRows(fieldsWrap, rowObj);
       setMccGroupColor(card, rowObj.values.N, rowObj.values.O);
@@ -9317,10 +9358,10 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
       grid2.className = 'mccInlineGrid2';
       if(mccEditMode){
         grid2.appendChild(mccWrapFieldLabel('I', mccBuildInput(rowObj, 'I', rowObj.values.I)));
-        grid2.appendChild(mccWrapFieldLabel('S', mccBuildInput(rowObj, 'S', rowObj.values.S)));
+        grid2.appendChild(mccWrapFieldLabel('AC', mccBuildInput(rowObj, 'AC', rowObj.values.AC)));
       } else {
         grid2.appendChild(mccWrapFieldLabel('I', mccBuildButton(rowObj.values.I, 'I')));
-        grid2.appendChild(mccWrapFieldLabel('S', mccBuildButton(rowObj.values.S, 'S')));
+        grid2.appendChild(mccWrapFieldLabel('AC', mccBuildButton(rowObj.values.AC, 'AC')));
       }
       row2.appendChild(label2);
       row2.appendChild(grid2);
@@ -9477,7 +9518,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     const u = String(uValue || '').trim();
     const v = String(vValue || '').trim();
 
-    if(u === 'На рассмотрении'){
+    if(u === 'На рассмотрении' || u === 'На рассмотрении Селфи'){
       uSelect.classList.add('blueLight');
       if(isBanRedValue(v)) vSelect.classList.add('redLight');
       else if(BAN_YELLOW_VALUES.has(v)) vSelect.classList.add('yellowLight');
@@ -9489,13 +9530,13 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
       else if(BAN_YELLOW_VALUES.has(v)) vSelect.classList.add('yellowLight');
       return;
     }
-    if(u === 'Отказ' || isBanRedValue(u)){
+    if(u === 'Отказ' || u === 'Отказ Селфи' || isBanRedValue(u)){
       uSelect.classList.add('redLight');
       if(v === 'Бан аккаунта' || isBanRedValue(v)) vSelect.classList.add('redLight');
       else if(BAN_YELLOW_VALUES.has(v)) vSelect.classList.add('yellowLight');
       return;
     }
-    if(u === 'Успешно'){
+    if(u === 'Успешно' || u === 'Успешно Селфи'){
       uSelect.classList.add('greenLight');
       vSelect.classList.add('greenLight');
       return;

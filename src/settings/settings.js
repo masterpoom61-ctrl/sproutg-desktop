@@ -70,6 +70,8 @@ const trafficOff = $('trafficOff');
 const trafficOn = $('trafficOn');
 const mccVerifOff = $('mccVerifOff');
 const mccVerifOn = $('mccVerifOn');
+const mccValidityOff = $('mccValidityOff');
+const mccValidityOn = $('mccValidityOn');
 const statGlowOn = $('statGlowOn');
 const statGlowOff = $('statGlowOff');
 const customThemeName = $('customThemeName');
@@ -112,7 +114,7 @@ const techWebVersion = $('techWebVersion');
 const techAppSize = $('techAppSize');
 const settingsCloseBtn = $('settingsCloseBtn');
 
-let current = { theme: 'dark-classic', zoom: 1.0, fontScale: 1.0, alwaysOnTop: false, graphicsMode: 'ultra', contrastMode: false, classicTrafficLights: false, mccVerificationInline: true, statCardGlow: true, smsService: 'smspool', customThemeId: '', customThemes: [] };
+let current = { theme: 'dark-classic', zoom: 1.0, fontScale: 1.0, alwaysOnTop: false, graphicsMode: 'ultra', contrastMode: false, classicTrafficLights: false, mccVerificationInline: true, mccValidityInline: true, statCardGlow: true, smsService: 'smspool', customThemeId: '', customThemes: [] };
 let closing = false;
 let colorClipboard = '';
 let liveThemeTimer = null;
@@ -122,6 +124,16 @@ let updateStateUi = { status:'idle' };
 // RELEASE_HISTORY: при каждом публичном релизе добавляй новую запись сверху,
 // чтобы раздел "История обновлений" в настройках всегда был актуален для пользователей.
 const RELEASE_HISTORY = [
+  {
+    version: '2.3.3',
+    date: '2026-09-01',
+    changes: [
+      'Верификации MCC теперь используют данные из AC; статусы Селфи получили красную, синюю и зелёную подсветку по результату.',
+      'После D-U-N-S добавлен PrePay с выбором от 10$ до 100$ и сохранением в S.',
+      'После Статус Бан добавлена Валидность из P с тем же оформлением и отдельным переключателем видимости в настройках.',
+      'В блоке возврата к предыдущей версии выровнены подпись и кнопка.'
+    ]
+  },
   {
     version: '2.3.0',
     date: '2026-07-27',
@@ -613,6 +625,7 @@ function applySettingsUi(settings = {}, options = {}) {
     graphicsMode: normalizeGraphics(settings.graphicsMode || current.graphicsMode),
     fontScale: clampNumber(settings.fontScale ?? current.fontScale, .75, 1.45, 1),
     mccVerificationInline: settings.mccVerificationInline !== false,
+    mccValidityInline: settings.mccValidityInline !== false,
     statCardGlow: settings.statCardGlow !== false,
     customThemeId: String(settings.customThemeId || ''),
     customThemes: Array.isArray(settings.customThemes) ? settings.customThemes : [],
@@ -630,6 +643,7 @@ function applySettingsUi(settings = {}, options = {}) {
   setPair(contrastOff, contrastOn, !!next.contrastMode);
   setPair(trafficOff, trafficOn, !!next.classicTrafficLights);
   setPair(mccVerifOff, mccVerifOn, next.mccVerificationInline !== false);
+  setPair(mccValidityOff, mccValidityOn, next.mccValidityInline !== false);
   document.documentElement.dataset.graphics = next.graphicsMode;
   document.documentElement.dataset.contrast = next.contrastMode ? 'on' : 'off';
   document.documentElement.dataset.zjk = next.classicTrafficLights ? 'on' : 'off';
@@ -746,13 +760,13 @@ function renderRollbackInfo(info = {}) {
   if (!rollbackInfo || !btnRollbackUpdate) return;
   if (info.available) {
     const version = String(info.version || '').replace(/^v/i, '');
-    rollbackInfo.textContent = `Предыдущая: v${version}`;
+    rollbackInfo.textContent = `Предыдущая версия: v${version}`;
     btnRollbackUpdate.textContent = `Назад к v${version}`;
     const busy = ['checking', 'downloading'].includes(String(updateStateUi.status || '')) || String(updateStateUi.status || '').startsWith('rollback-');
     btnRollbackUpdate.disabled = busy;
   } else {
     rollbackInfo.textContent = info.error || info.message || 'Предыдущая версия недоступна';
-    btnRollbackUpdate.textContent = 'Вернуться';
+    btnRollbackUpdate.textContent = 'Назад';
     btnRollbackUpdate.disabled = true;
   }
 }
@@ -971,6 +985,16 @@ mccVerifOff?.addEventListener('click', async () => {
 
 mccVerifOn?.addEventListener('click', async () => {
   current = await window.sproutgSettings.setSetting({ mccVerificationInline: true });
+  applySettingsUi(current);
+});
+
+mccValidityOff?.addEventListener('click', async () => {
+  current = await window.sproutgSettings.setSetting({ mccValidityInline: false });
+  applySettingsUi(current);
+});
+
+mccValidityOn?.addEventListener('click', async () => {
+  current = await window.sproutgSettings.setSetting({ mccValidityInline: true });
   applySettingsUi(current);
 });
 

@@ -38,7 +38,7 @@ const STORE_DEFAULTS = {
     ui: { statsBounds: null, companyBounds: null },
     points: { days: {}, workDays: {} },
     statusState: {},
-    settings: { theme: 'dark-classic', zoom: 1.0, fontScale: 1.0, alwaysOnTop: false, graphicsMode: 'ultra', contrastMode: false, classicTrafficLights: false, mccVerificationInline: true, statCardGlow: true, smsService: 'smspool', customThemeId: '', customThemes: [] },
+    settings: { theme: 'dark-classic', zoom: 1.0, fontScale: 1.0, alwaysOnTop: false, graphicsMode: 'ultra', contrastMode: false, classicTrafficLights: false, mccVerificationInline: true, mccValidityInline: true, statCardGlow: true, smsService: 'smspool', customThemeId: '', customThemes: [] },
     heroSms: {
       apiKey: '',
       activeOrder: null,
@@ -1518,6 +1518,7 @@ function normalizeSettings(input){
     contrastMode: !!raw.contrastMode,
     classicTrafficLights: !!raw.classicTrafficLights,
     mccVerificationInline: raw.mccVerificationInline !== false,
+    mccValidityInline: raw.mccValidityInline !== false,
     statCardGlow: raw.statCardGlow !== false,
     smsService: raw.smsService === 'herosms' ? 'herosms' : 'smspool',
     customThemeId: String(raw.customThemeId || '').trim(),

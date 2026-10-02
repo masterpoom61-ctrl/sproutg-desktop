@@ -18,6 +18,7 @@ const { MutationRegistry } = require('./main/mutationRegistry');
 const { createRollbackBackup } = require('./main/rollbackBackup');
 const { isHeroSmsStateMutation } = require('./main/heroSmsMutationPolicy');
 const { prepareStoreBootstrap } = require('./main/storeRecovery');
+const { saveWorkSession, loadWorkSession } = require('./main/workSessionStore');
 
 // Acquire process ownership before electron-store or the durable WAL are
 // opened. A losing process must never initialize either persistence writer.
@@ -2719,6 +2720,12 @@ ipcMain.on('sproutg:write-barrier-result', (event, payload) => {
 });
 
 ipcMain.handle('sproutg:get-version', () => app.getVersion());
+ipcMain.handle('sproutg:get-work-session', () => loadWorkSession(path.join(USER_DATA_DIR, 'work-session.json'), getWebUrl()));
+ipcMain.on('sproutg:save-work-session', (event, snapshot) => {
+  if(event.sender !== mainWindow?.webContents) return;
+  try { saveWorkSession(path.join(USER_DATA_DIR, 'work-session.json'), getWebUrl(), snapshot); }
+  catch(error) { console.error('[SproutG] Cannot save work session', error); }
+});
 ipcMain.handle('sproutg:get-storage-integrity', () => publicStorageIntegrity());
 ipcMain.handle('sproutg:get-update-state', () => ({ ...updateState, version: app.getVersion(), isPackaged: app.isPackaged }));
 ipcMain.handle('sproutg:check-for-updates', () => checkForUpdates(true));

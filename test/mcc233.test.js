@@ -17,14 +17,13 @@ function section(text, start, end) {
   return text.slice(from, to);
 }
 
-test("v2.3.3 is aligned across package, renderer, and release history", () => {
+test("release version is aligned across package, renderer, and release history", () => {
   const packageJson = JSON.parse(source("package.json"));
   const renderer = source("src/renderer/app.js");
   const settings = source("src/settings/settings.js");
 
-  assert.equal(packageJson.version, "2.3.3");
-  assert.match(renderer, /const APP_VERSION = '2\.3\.3'/);
-  assert.match(settings, /const RELEASE_HISTORY = \[\s*\{\s*version: '2\.3\.3'/);
+  assert.ok(renderer.includes(`const APP_VERSION = '${packageJson.version}'`));
+  assert.match(settings, new RegExp(`const RELEASE_HISTORY = \\[\\s*\\{\\s*version: '${packageJson.version.replaceAll('.', '\\.')}'`));
 });
 
 test("MCC verification identity reads AC while S is reserved for PrePay", () => {
@@ -37,8 +36,7 @@ test("MCC verification identity reads AC while S is reserved for PrePay", () => 
 
   assert.match(inlineVerification, /mccWrapFieldLabel\('AC'/);
   assert.doesNotMatch(inlineVerification, /mccWrapFieldLabel\('S'/);
-  assert.match(renderer, /grid2\.appendChild\(mccWrapFieldLabel\('AC', mccBuildInput/);
-  assert.match(renderer, /grid2\.appendChild\(mccWrapFieldLabel\('AC', mccBuildButton/);
+  assert.match(renderer, /grid2\.appendChild\(mccWrapFieldLabel\('AC', mccBuildFioControl_/);
   assert.match(renderer, /MCC_PREPAY_OPTIONS = Array\.from\(\{ length:10 \}/);
   assert.match(renderer, /MCC_PREPAY_OPTIONS\.includes\(rawPrePayValue\) \? rawPrePayValue : ''/);
   assert.match(renderer, /mccBuildSelect\(rowObj, 'S', prePayValue, MCC_PREPAY_OPTIONS/);

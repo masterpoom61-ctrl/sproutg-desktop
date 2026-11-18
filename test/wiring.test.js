@@ -61,10 +61,6 @@ test("single-instance and corrupt-store recovery gates run before electron-store
   assert.match(main, /clearInvalidConfig:false/);
   assert.match(
     main,
-    /storageIntegrity\.heroSmsBlocked[\s\S]{0,260}LOCAL_STORE_INTEGRITY_BLOCKED/
-  );
-  assert.match(
-    main,
     /confirmArchiveBlocked:async[\s\S]{0,900}dialog\.showMessageBox[\s\S]{0,400}result\.response === 1/
   );
 });
@@ -76,7 +72,7 @@ test("storage-integrity warning is persistent and visible in bridge health", () 
     main,
     /notifyStorageIntegrity[\s\S]{0,500}durationMs:0[\s\S]{0,100}dismissible:false/
   );
-  assert.match(api, /if \(state\?\.storageIntegrity\?\.active\) return 'bad'/);
+  assert.match(api, /const writeIssue = state\.storageIntegrity\?\.active[\s\S]{0,350}return 'warn'/);
   assert.match(api, /storageIntegrity\.active[\s\S]{0,220}ТРЕБУЮТ ВОССТАНОВЛЕНИЯ/);
   assert.match(
     api,

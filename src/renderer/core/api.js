@@ -1,31 +1,4 @@
 (function () {
-  function smsOwnedOptions(value) {
-    const input = value && typeof value === 'object' ? value : {};
-    return {
-      ...input,
-      ownerIdentity:{
-        profileName:String(input.ownerIdentity?.profileName || '').trim()
-      }
-    };
-  }
-
-  const smsPoolOrderSpec = {
-    action:'smspool.orderO1',
-    payload:([options])=>smsOwnedOptions(options)
-  };
-  const smsPoolCheckSpec = {
-    action:'smspool.checkO1',
-    payload:([orderId, options])=>({ ...smsOwnedOptions(options), orderId })
-  };
-  const smsPoolRefundSpec = {
-    action:'smspool.refundO1',
-    payload:([orderId, options])=>({ ...smsOwnedOptions(options), orderId })
-  };
-  const smsPoolStateSpec = {
-    action:'smspool.stateO1',
-    payload:([options])=>smsOwnedOptions(options)
-  };
-
   const LEGACY_TO_ACTION = {
     findProfile: { action: 'o1.profileByName', payload: ([profileName]) => ({ profileName }) },
     getProfileByRow: { action: 'o1.profileByRow', payload: ([row, identity]) => ({ row, identity }) },
@@ -55,26 +28,12 @@
 
     getApellDataIndex: { action: 'apell.index', payload: ([options]) => (options || {}) },
     getPassLookupForFios: { action: 'pass.lookupFios', payload: ([fios]) => ({ fios }) },
-    getPassCatalog: { action: 'pass.catalog', payload: ([geos]) => ({ geos }) },
+    getPassCatalog: { action: 'pass.catalog', payload: () => ({}) },
     updatePassCell: { action: 'pass.updateCell', payload: ([row, col, value, identity]) => ({ row, col, value, identity }) },
     getCompanyFormMeta: { action: 'company.formMeta', payload: () => ({}) },
     checkCompanyDuplicate: { action: 'company.checkDuplicate', payload: ([value]) => ({ value }) },
     addCompanyRow: { action: 'company.addRow', payload: ([values]) => ({ values }) },
 
-    smsPoolOrderO1: smsPoolOrderSpec,
-    smsPoolCheckO1: smsPoolCheckSpec,
-    smsPoolRefundO1: smsPoolRefundSpec,
-    smsPoolGetStateO1: smsPoolStateSpec,
-    smspoolOrderO1: smsPoolOrderSpec,
-    smspoolCheckO1: smsPoolCheckSpec,
-    smspoolRefundO1: smsPoolRefundSpec,
-    smspoolGetStateO1: smsPoolStateSpec,
-    smspoolBalanceO1: { action: 'smspool.balanceO1', payload: () => ({}) },
-    heroSmsOrderO1: { action: 'herosms.orderO1', payload: ([options]) => smsOwnedOptions(options) },
-    heroSmsCheckO1: { action: 'herosms.checkO1', payload: ([orderId, options]) => ({ ...smsOwnedOptions(options), orderId }) },
-    heroSmsRefundO1: { action: 'herosms.refundO1', payload: ([orderId, options]) => ({ ...smsOwnedOptions(options), orderId }) },
-    heroSmsGetStateO1: { action: 'herosms.stateO1', payload: ([options]) => smsOwnedOptions(options) },
-    heroSmsBalanceO1: { action: 'herosms.balanceO1', payload: () => ({}) }
   };
 
   const readCache = new Map();
@@ -96,8 +55,6 @@
     'o1.profileByName', 'o1.profileByRow', 'o1.profilesByRows', 'o1.appealRow', 'o1.lists', 'o1.workLists', 'o1.groupDateList', 'o1.cleanupList', 'o1.proxyFields',
     'mcc.profile', 'mcc.overview', 'mcc.lists', 'mcc.stageList', 'mcc.workList', 'mcc.verificationPools', 'mcc.proxyFields',
     'apell.index', 'pass.lookupFios', 'pass.catalog', 'company.formMeta', 'company.checkDuplicate',
-    'smspool.balanceO1',
-    'herosms.balanceO1'
   ]);
   const DURABLE_ACTIONS = new Set([
     'o1.updateCells', 'mcc.updateCells', 'pass.updateCell',
@@ -258,9 +215,6 @@
       name === 'mcc.verificationPools'
     ) {
       return { ttlMs: 60000, staleMs: 60000 };
-    }
-    if (/^(smspool|herosms)\.(checkO1|stateO1|balanceO1)$/.test(name)) {
-      return { ttlMs: 3000, staleMs: 10000 };
     }
     return { ttlMs: DEFAULT_READ_TTL_MS, staleMs: DEFAULT_READ_STALE_MS };
   }
@@ -570,22 +524,12 @@
     getApellDataIndex: (force) => callApi('apell.index', { force }),
     getO1AppealRowData: (row, identity) => callApi('o1.appealRow', { row, identity }),
     getPassLookupForFios: (fios) => callApi('pass.lookupFios', { fios }),
-    getPassCatalog: (geos) => callApi('pass.catalog', { geos }, { cache: false }),
+    getPassCatalog: () => callApi('pass.catalog', {}, { cache: false }),
     updatePassCell: (row, col, value, identity) => callApi('pass.updateCell', { row, col, value, identity }, { cache: false }),
     getMccVerificationDropdownPools: () => callApi('mcc.verificationPools', {}),
     getCompanyFormMeta: () => callApi('company.formMeta', {}),
     checkCompanyDuplicate: (value) => callApi('company.checkDuplicate', { value }),
     addCompanyRow: (values) => callApi('company.addRow', { values }, { cache: false, timeoutMs: 60000 }),
-    smsPoolOrderO1: (options) => callApi('smspool.orderO1', smsOwnedOptions(options), { cache: false }),
-    smsPoolCheckO1: (orderId, options) => callApi('smspool.checkO1', { ...smsOwnedOptions(options), orderId }, { cache: false }),
-    smsPoolRefundO1: (orderId, options) => callApi('smspool.refundO1', { ...smsOwnedOptions(options), orderId }, { cache: false }),
-    smsPoolGetStateO1: (options) => callApi('smspool.stateO1', smsOwnedOptions(options), { cache: false }),
-    smsPoolBalanceO1: () => callApi('smspool.balanceO1', {}),
-    heroSmsOrderO1: (options) => callApi('herosms.orderO1', smsOwnedOptions(options), { cache: false }),
-    heroSmsCheckO1: (orderId, options) => callApi('herosms.checkO1', { ...smsOwnedOptions(options), orderId }, { cache: false }),
-    heroSmsRefundO1: (orderId, options) => callApi('herosms.refundO1', { ...smsOwnedOptions(options), orderId }, { cache: false }),
-    heroSmsGetStateO1: (options) => callApi('herosms.stateO1', smsOwnedOptions(options), { cache: false }),
-    heroSmsBalanceO1: () => callApi('herosms.balanceO1', {})
   };
 
   window.google = window.google || {};
@@ -630,20 +574,15 @@
     const status = state?.status || 'idle';
     const m = state?.metrics || {};
     const q = state?.writeQueue || {};
-    if (state?.storageIntegrity?.active) return 'bad';
-    if (
-      Number(q.blocked || 0) > 0
-      || Number(q.blockedEndpoint || 0) > 0
-      || Number(q.blockedBackend || 0) > 0
-    ) return 'bad';
-    if (['error', 'disconnected', 'missing-url', 'login-required'].includes(status)) return 'bad';
-    if (status === 'timeout') return 'bad';
-    const total = Number(m.total || 0);
-    const failed = Number(m.failed || 0);
-    const ratio = total >= 5 ? failed / Math.max(1, total) : 0;
-    if (Number(m.pending || 0) >= 8 || Number(m.queued || 0) >= 4 || Number(m.lastDurationMs || 0) > 9000 || Number(m.avgDurationMs || 0) > 6500 || ratio > 0.28) return 'bad';
-    if (Number(q.pending || 0) > 0 || ['connecting', 'reconnecting'].includes(status) || Number(m.pending || 0) >= 4 || Number(m.lastDurationMs || 0) > 4500 || Number(m.avgDurationMs || 0) > 3200 || ratio > 0.12) return 'warn';
-    return state?.ready ? 'ok' : 'warn';
+    if (!state?.ready) {
+      return ['error', 'disconnected', 'missing-url', 'login-required'].includes(status) ? 'bad' : 'warn';
+    }
+    const pending = Number(m.pending || 0);
+    const queued = Number(m.queued || 0);
+    const writeIssue = state.storageIntegrity?.active || q.storageIntegrity?.active
+      || Number(q.blocked || 0) > 0 || Number(q.blockedEndpoint || 0) > 0 || Number(q.blockedBackend || 0) > 0;
+    if (writeIssue || pending + queued >= 6 || queued >= 3 || Number(q.pending || 0) >= 5) return 'warn';
+    return 'ok';
   }
 
   function renderBridgePopup(state = latestBridgeState) {
@@ -666,7 +605,7 @@
     bridgePopup.dataset.health = health;
     bridgePopup.innerHTML = `
       <div class="bridgeStatusPopup__head">
-        <b>${health === 'bad' ? 'Проблемы с подключением' : (health === 'warn' ? 'Подключение нестабильно' : 'Подключение стабильно')}</b>
+        <b>${health === 'bad' ? 'Связь недоступна' : (!state.ready ? 'Подключение' : (health === 'warn' ? 'Очередь требует внимания' : 'Подключено'))}</b>
         <span>${escapeHtml(state.status || 'idle')}</span>
       </div>
       <div class="bridgeStatusPopup__grid">
@@ -799,7 +738,7 @@
     badge.innerHTML = '<span class="bridgeBadge__label">Статус:</span><span class="bridgeBadge__mark" aria-hidden="true"></span>';
     const mark = badge.querySelector('.bridgeBadge__mark');
     if (mark) {
-      const busy = status === 'connecting' || status === 'reconnecting' || status === 'timeout';
+      const busy = !state?.ready && (status === 'connecting' || status === 'reconnecting' || status === 'timeout');
       mark.classList.toggle('bridgeBadge__spinner', busy);
       if (busy) mark.textContent = '';
       else if (
@@ -809,8 +748,8 @@
         || Number(queue.blockedEndpoint || 0) > 0
         || Number(queue.blockedBackend || 0) > 0
       ) mark.textContent = '!';
-      else if (Number(queue.pending || 0) > 0) mark.textContent = String(queue.pending);
-      else mark.textContent = marks[status] || '...';
+      else if (badge.dataset.health === 'warn' && Number(queue.pending || 0) > 0) mark.textContent = String(queue.pending);
+      else mark.textContent = state?.ready ? '✓' : (marks[status] || '...');
     }
     badge.title = (storageIntegrity.active
       ? String(storageIntegrity.message || 'Локальное хранилище требует восстановления')

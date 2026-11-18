@@ -114,18 +114,6 @@ test("MCC rapid revert clears the canceled optimistic overlay", () => {
   );
 });
 
-test("SMS state and native HeroSMS mutations carry an exact profile owner", () => {
-  const renderer = source("src/renderer/app.js");
-  const main = source("src/main.js");
-  assert.match(renderer, /ownerIdentity:\{\s*profileName:context\.profileName\s*\}/);
-  assert.match(renderer, /incomingOrder\.ownerIdentity\?\.profileName/);
-  assert.match(renderer, /if\(!isSmsProfileContextActive_\(context\)\) return;/);
-  assert.match(main, /ownerIdentity:normalizeHeroSmsOwnerIdentity\(intent\.ownerIdentity\)/);
-  assert.match(main, /heroSms\.refundIntent/);
-  assert.match(main, /reconcileHeroSmsRefundIntent/);
-  assert.match(main, /HERO_SMS_OWNER_MISMATCH/);
-});
-
 test("stale direct callbacks update captured models, not a newly selected profile", () => {
   const renderer = source("src/renderer/app.js");
   assert.match(renderer, /function toggleDeleted\(\)[\s\S]{0,420}const targetProfile = current/);

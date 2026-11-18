@@ -30,18 +30,16 @@ compatible.
   back to writing the original numeric row.
 - Keep replay ledgers and write IDs for operations whose acknowledgement may be
   lost after the sheet was already changed.
-- Keep SMS provider keys only in Apps Script `ScriptProperties` or the native
-  desktop main process. Never expose them to a renderer or commit them.
+- In 2.3.6, Pass reads geography from E and passport text from F, starting at
+  row 2. Each field uses the fill of its own cell. The desktop expects the
+  `geo-e-value-f` layout marker before displaying the catalog.
 
 ## Release Order
 
-1. Rotate any historically exposed SMSPool credential.
-2. Set and verify a fresh `SMSPOOL_API_KEY` in Apps Script
-   `ScriptProperties`.
-3. Review the existing dirty FarmA worktree, especially any deleted files.
-4. Push the intended Apps Script sources and deploy a new Web App version.
-5. Open the deploy URL and verify bridge version `2.3.0`.
-6. Start/update SproutG Desktop and verify the durable queue begins draining.
+1. Review the existing FarmA worktree, especially any deleted files.
+2. Push the intended Apps Script sources and deploy a new Web App version.
+3. Open the deploy URL and verify that the bridge reports the deployed version.
+4. Start/update SproutG Desktop and verify the durable queue begins draining.
 
 Publishing the desktop first is safe: v2.3.0 keeps writes on disk while the
 deployed Apps Script bridge is older than `2.3.0`.
@@ -55,7 +53,7 @@ deployed Apps Script bridge is older than `2.3.0`.
   columns A:F.
 - Verify O1/MCC/PASS edits survive reload through local drafts and the durable
   queue.
-- Verify Company add and SMS provider calls still resolve through
+- Verify Company add and Pass catalog calls still resolve through
   `apiCall`/`apiBatch`.
 - Verify CM2 Company/MCC synchronization still runs inside the spreadsheet.
 

@@ -102,19 +102,12 @@ const btnInstallUpdate = $('btnInstallUpdate');
 const rollbackInfo = $('rollbackInfo');
 const btnRollbackUpdate = $('btnRollbackUpdate');
 const settingsCard = $('settingsCard');
-const smsPoolApiKey = $('smsPoolApiKey');
-const btnSaveSmsPoolKey = $('btnSaveSmsPoolKey');
-const heroSmsApiKey = $('heroSmsApiKey');
-const btnSaveHeroSmsKey = $('btnSaveHeroSmsKey');
-const smsServiceSmsPool = $('smsServiceSmsPool');
-const smsServiceHeroSms = $('smsServiceHeroSms');
-const smsPoolStatus = $('smsPoolStatus');
 const techDesktopVersion = $('techDesktopVersion');
 const techWebVersion = $('techWebVersion');
 const techAppSize = $('techAppSize');
 const settingsCloseBtn = $('settingsCloseBtn');
 
-let current = { theme: 'dark-classic', zoom: 1.0, fontScale: 1.0, alwaysOnTop: false, graphicsMode: 'ultra', contrastMode: false, classicTrafficLights: false, mccVerificationInline: true, mccValidityInline: true, statCardGlow: true, smsService: 'smspool', customThemeId: '', customThemes: [] };
+let current = { theme: 'dark-classic', zoom: 1.0, fontScale: 1.0, alwaysOnTop: false, graphicsMode: 'ultra', contrastMode: false, classicTrafficLights: false, mccVerificationInline: true, mccValidityInline: true, statCardGlow: true, customThemeId: '', customThemes: [] };
 let closing = false;
 let colorClipboard = '';
 let liveThemeTimer = null;
@@ -124,6 +117,18 @@ let updateStateUi = { status:'idle' };
 // RELEASE_HISTORY: при каждом публичном релизе добавляй новую запись сверху,
 // чтобы раздел "История обновлений" в настройках всегда был актуален для пользователей.
 const RELEASE_HISTORY = [
+  {
+    version: '2.3.6',
+    date: '2026-11-18',
+    changes: [
+      'В MCC копирование карты и 3DS перенесены в строку PrePay. Номер карты скрыт, кроме последних четырёх цифр.',
+      'Настройки получили компактное поле 3DS и уменьшенную кнопку закрытия.',
+      'Статус подключения показывает состояние связи и текущую нагрузку очереди.',
+      'Паспорта читаются из Pass!E:F. Гео и паспорт наследуют заливку своей ячейки.',
+      'Поиск O1 открывает профили по очереди. Вкладки можно перетаскивать, а закрытые вкладки не возвращаются после фонового сохранения.',
+      'Интеграции сервисов SMS-активации удалены.'
+    ]
+  },
   {
     version: '2.3.5',
     date: '2026-11-18',
@@ -204,7 +209,6 @@ const RELEASE_HISTORY = [
       'В MCC добавлен переключатель "Вериф в MCC", строка верифа показывает ФИО из S вместо AW, а аккаунты и блоки верификаций получили взаимные кнопки перехода.',
       'QR теперь подсвечивается красным как бан-статус, исправлена кнопка вверх в O1 и очередь открытия O1 во вкладки.',
       'Фильтры O1 получили кнопку "Во вкладки", статистика после перезапуска открывается на текущих периодах, а пружинка скролла не задевает кнопку закрытия.',
-      'Из HeroSMS убран бесполезный процент успешности, а toast больше не рисует второй loading-значок над основным нижним индикатором.'
     ]
   },
   {
@@ -223,7 +227,6 @@ const RELEASE_HISTORY = [
     version: '2.1.7',
     date: '2026-06-26',
     changes: [
-      'Раздел O1 "SMS Activate" переведен на HeroSMS: каталог стран, цены, количество и русские ответы сервиса.',
       'Лиги статистики получили фиксированные бронзовые, серебряные, золотые, алмазные и легендарные цвета.',
       'Добавлены настройка свечения карточек статистики, размер текста и редактор пользовательских тем.',
       'Исправлены иконки навигации в "Лигах месяца" и первое сохранение Gmail/Аутентификатора в O1.'
@@ -233,7 +236,6 @@ const RELEASE_HISTORY = [
     version: '2.1.6',
     date: '2026-06-25',
     changes: [
-      'Подготовлен каталог стран для SMS-сервиса O1 с ценой, количеством и сортировкой.',
       'Исправлена кнопка вверх на странице O1 и поведение пустого поля Gmail в колонке X.',
       'Лиги в статистике переведены с emoji на крупные кастомные SVG-иконки.',
       'Добавлена нижняя таблица лиг по дням, неделям, месяцу и рекордным достижениям.',
@@ -247,7 +249,6 @@ const RELEASE_HISTORY = [
     changes: [
       'Добавлен раздел "Доп.Работа" с цифровой клавиатурой и начислением поинтов за черновики, Okto и номера.',
       'Статистика получила 6 игровых карточек с разбивкой по типам работ и отдельными лигами дня/недели/месяца.',
-      'Добавлен выбор SMSPool/HeroSMS для O1 и поле API HeroSMS в настройках.',
       'Исправлены мини-уведомления, порядок тем, скролл настроек и поле "Резервная Почта" для O1.'
     ]
   },
@@ -631,12 +632,6 @@ function setGraphicsUi(mode) {
   themeList?.classList.toggle('liteThemeLock', lite);
 }
 
-function setSmsServiceUi(service) {
-  const key = service === 'herosms' ? 'herosms' : 'smspool';
-  if (smsServiceSmsPool) smsServiceSmsPool.dataset.active = key === 'smspool' ? 'true' : 'false';
-  if (smsServiceHeroSms) smsServiceHeroSms.dataset.active = key === 'herosms' ? 'true' : 'false';
-}
-
 function applySettingsUi(settings = {}, options = {}) {
   const next = {
     ...current,
@@ -649,7 +644,6 @@ function applySettingsUi(settings = {}, options = {}) {
     statCardGlow: settings.statCardGlow !== false,
     customThemeId: String(settings.customThemeId || ''),
     customThemes: Array.isArray(settings.customThemes) ? settings.customThemes : [],
-    smsService: settings.smsService === 'herosms' ? 'herosms' : 'smspool'
   };
   current = next;
   renderCustomThemeOptions(next);
@@ -658,7 +652,6 @@ function applySettingsUi(settings = {}, options = {}) {
   setFontScaleUi(next.fontScale);
   setAotUi(!!next.alwaysOnTop);
   setGraphicsUi(next.graphicsMode);
-  setSmsServiceUi(next.smsService);
   setStatGlowUi(next.statCardGlow !== false);
   setPair(contrastOff, contrastOn, !!next.contrastMode);
   setPair(trafficOff, trafficOn, !!next.classicTrafficLights);
@@ -1062,16 +1055,6 @@ btnDeleteCustomTheme?.addEventListener('click', async () => {
   applySettingsUi(current);
 });
 
-smsServiceSmsPool?.addEventListener('click', async () => {
-  current = await window.sproutgSettings.setSetting({ smsService: 'smspool' });
-  applySettingsUi(current);
-});
-
-smsServiceHeroSms?.addEventListener('click', async () => {
-  current = await window.sproutgSettings.setSetting({ smsService: 'herosms' });
-  applySettingsUi(current);
-});
-
 btnReload.addEventListener('click', async () => {
   await window.sproutgSettings.reloadWeb();
 });
@@ -1100,38 +1083,6 @@ btnLogout.addEventListener('click', async () => {
 });
 
 btnChangeUrl.addEventListener('click', () => window.sproutgSettings.openUrl());
-
-btnSaveSmsPoolKey?.addEventListener('click', async () => {
-  const key = String(smsPoolApiKey?.value || '').trim();
-  btnSaveSmsPoolKey.disabled = true;
-  if (smsPoolStatus) smsPoolStatus.textContent = 'Сохранение...';
-  try {
-    const res = await window.sproutgSettings.apiCall('smspool.setApiKey', { key }, { cache: false, timeoutMs: 15000 });
-    if (!res || res.ok === false) throw new Error(res?.error || 'Ошибка сохранения');
-    if (smsPoolApiKey) smsPoolApiKey.value = '';
-    if (smsPoolStatus) smsPoolStatus.textContent = key ? 'SMSPool API key сохранен.' : 'SMSPool API key очищен.';
-  } catch (e) {
-    if (smsPoolStatus) smsPoolStatus.textContent = String(e?.message || e);
-  } finally {
-    btnSaveSmsPoolKey.disabled = false;
-  }
-});
-
-btnSaveHeroSmsKey?.addEventListener('click', async () => {
-  const key = String(heroSmsApiKey?.value || '').trim();
-  btnSaveHeroSmsKey.disabled = true;
-  if (smsPoolStatus) smsPoolStatus.textContent = 'Сохранение HeroSMS...';
-  try {
-    const res = await window.sproutgSettings.heroSms('setApiKey', { key });
-    if (!res || res.ok === false) throw new Error(res?.error || 'Ошибка сохранения');
-    if (heroSmsApiKey) heroSmsApiKey.value = '';
-    if (smsPoolStatus) smsPoolStatus.textContent = key ? 'HeroSMS API key сохранен локально.' : 'HeroSMS API key очищен.';
-  } catch (e) {
-    if (smsPoolStatus) smsPoolStatus.textContent = String(e?.message || e);
-  } finally {
-    btnSaveHeroSmsKey.disabled = false;
-  }
-});
 
 btnCheckUpdate.addEventListener('click', async () => {
   btnCheckUpdate.disabled = true;

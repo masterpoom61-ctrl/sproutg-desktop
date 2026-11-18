@@ -96,14 +96,6 @@
       : '';
   }
 
-  function smsProfileStateKey(service, ownerKey) {
-    const owner = text(ownerKey);
-    const provider = text(service);
-    return owner && provider
-      ? encodeTuple('sms-profile-state', [provider, owner])
-      : '';
-  }
-
   function editDraftKey(scope, ownerParts, col) {
     const owners = Array.isArray(ownerParts) ? ownerParts : [ownerParts];
     const column = upper(col);
@@ -200,7 +192,6 @@
     mccOwnerKey,
     normalizeRecords,
     o1OwnerKey,
-    smsProfileStateKey,
     stableStringify
   };
 });

@@ -843,6 +843,9 @@ class BridgeManager extends EventEmitter {
     clearTimeout(item.timer);
     this.pending.delete(transportId);
     this.recordMetric({ item, ok: !(result && result.ok === false) });
+    if (this.ready && this.state.status === 'timeout') {
+      this.setState({ status:'ready', message:'Google Таблица подключена', error:null });
+    }
     if (!item.settled) {
       item.settled = true;
       item.resolve(result);

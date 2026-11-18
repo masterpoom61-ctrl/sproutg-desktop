@@ -112,8 +112,7 @@ function prepareStoreBootstrap({
         primaryPath,
         quarantines:[],
         walValid:false,
-        sheetWritesBlocked:false,
-        heroSmsBlocked:false
+        sheetWritesBlocked:false
       }
     };
   }
@@ -128,8 +127,8 @@ function prepareStoreBootstrap({
   const wal = readWalSnapshot(walPath);
   const walValid = !!wal.snapshot;
   const message = walValid
-    ? 'Основное локальное хранилище повреждено и сохранено в карантин. Очередь Google Таблицы восстановлена из проверенного WAL; операции HeroSMS заблокированы.'
-    : 'Основное локальное хранилище повреждено и сохранено в карантин. Проверенный WAL не найден; новые записи в Google Таблицу и операции HeroSMS заблокированы.';
+    ? 'Основное локальное хранилище повреждено и сохранено в карантин. Очередь Google Таблицы восстановлена из проверенного WAL.'
+    : 'Основное локальное хранилище повреждено и сохранено в карантин. Проверенный WAL не найден; новые записи в Google Таблицу заблокированы.';
 
   return {
     storeName:recovery.name,
@@ -144,8 +143,7 @@ function prepareStoreBootstrap({
       quarantines,
       walValid,
       walError:String(wal.error || ''),
-      sheetWritesBlocked:!walValid,
-      heroSmsBlocked:true
+      sheetWritesBlocked:!walValid
     }
   };
 }

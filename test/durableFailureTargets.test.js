@@ -7,8 +7,7 @@ const {
   entries,
   mccOwnerKey,
   normalizeRecords,
-  o1OwnerKey,
-  smsProfileStateKey
+  o1OwnerKey
 } = require('../src/renderer/core/durableFailureTargets');
 
 test('stable identity supersedes a failed write after its sheet row moves', () => {
@@ -91,10 +90,6 @@ test('stable owner and draft keys preserve case and delimiter boundaries', () =>
   assert.equal(
     cellStateKey('O1', p, 'D'),
     cellStateKey('O1', o1OwnerKey({ profileName:'Profile P' }), 'd')
-  );
-  assert.notEqual(
-    smsProfileStateKey('herosms', p),
-    smsProfileStateKey('herosms', q)
   );
   assert.notEqual(
     editDraftKey('MCC', ['A:B', 'C'], 'N'),

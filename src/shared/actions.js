@@ -1,30 +1,3 @@
-function smsOwnedOptions(value) {
-  const input = value && typeof value === 'object' ? value : {};
-  return {
-    ...input,
-    ownerIdentity:{
-      profileName:String(input.ownerIdentity?.profileName || '').trim()
-    }
-  };
-}
-
-const SMS_POOL_ORDER_SPEC = {
-  action:'smspool.orderO1',
-  payload:([options])=>smsOwnedOptions(options)
-};
-const SMS_POOL_CHECK_SPEC = {
-  action:'smspool.checkO1',
-  payload:([orderId, options])=>({ ...smsOwnedOptions(options), orderId })
-};
-const SMS_POOL_REFUND_SPEC = {
-  action:'smspool.refundO1',
-  payload:([orderId, options])=>({ ...smsOwnedOptions(options), orderId })
-};
-const SMS_POOL_STATE_SPEC = {
-  action:'smspool.stateO1',
-  payload:([options])=>smsOwnedOptions(options)
-};
-
 const READ_ACTIONS = new Set([
   'meta.config',
   'dropdown.maps',
@@ -49,8 +22,6 @@ const READ_ACTIONS = new Set([
   'pass.catalog',
   'company.formMeta',
   'company.checkDuplicate',
-  'smspool.balanceO1',
-  'herosms.balanceO1'
 ]);
 
 const LEGACY_TO_ACTION = {
@@ -88,25 +59,11 @@ const LEGACY_TO_ACTION = {
 
   getApellDataIndex: { action: 'apell.index', payload: ([options]) => (options || {}) },
   getPassLookupForFios: { action: 'pass.lookupFios', payload: ([fios]) => ({ fios }) },
-  getPassCatalog: { action: 'pass.catalog', payload: ([geos]) => ({ geos }) },
+  getPassCatalog: { action: 'pass.catalog', payload: () => ({}) },
   updatePassCell: { action: 'pass.updateCell', payload: ([row, col, value, identity]) => ({ row, col, value, identity }) },
   getCompanyFormMeta: { action: 'company.formMeta', payload: () => ({}) },
   addCompanyRow: { action: 'company.addRow', payload: ([values]) => ({ values }) },
 
-  smsPoolOrderO1: SMS_POOL_ORDER_SPEC,
-  smsPoolCheckO1: SMS_POOL_CHECK_SPEC,
-  smsPoolRefundO1: SMS_POOL_REFUND_SPEC,
-  smsPoolGetStateO1: SMS_POOL_STATE_SPEC,
-  smspoolOrderO1: SMS_POOL_ORDER_SPEC,
-  smspoolCheckO1: SMS_POOL_CHECK_SPEC,
-  smspoolRefundO1: SMS_POOL_REFUND_SPEC,
-  smspoolGetStateO1: SMS_POOL_STATE_SPEC,
-  smspoolBalanceO1: { action: 'smspool.balanceO1', payload: () => ({}) },
-  heroSmsOrderO1: { action: 'herosms.orderO1', payload: ([options]) => smsOwnedOptions(options) },
-  heroSmsCheckO1: { action: 'herosms.checkO1', payload: ([orderId, options]) => ({ ...smsOwnedOptions(options), orderId }) },
-  heroSmsRefundO1: { action: 'herosms.refundO1', payload: ([orderId, options]) => ({ ...smsOwnedOptions(options), orderId }) },
-  heroSmsGetStateO1: { action: 'herosms.stateO1', payload: ([options]) => smsOwnedOptions(options) },
-  heroSmsBalanceO1: { action: 'herosms.balanceO1', payload: () => ({}) }
 };
 
 function isReadAction(action) {

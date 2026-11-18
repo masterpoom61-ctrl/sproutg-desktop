@@ -73,11 +73,11 @@
 
         <form class="block mcc3dsForm" id="mcc3dsForm">
           <label class="label" for="mcc3dsText">Текст для кнопки 3DS в MCC</label>
-          <textarea id="mcc3dsText" rows="2" maxlength="4096" spellcheck="false" autocomplete="off"></textarea>
           <div class="row">
-            <span class="hint" id="mcc3dsStatus" role="status"></span>
+            <input class="input" id="mcc3dsText" type="password" maxlength="32" autocomplete="off" />
             <button class="btn" id="mcc3dsSave" type="submit" disabled>Сохранить</button>
           </div>
+          <span class="hint" id="mcc3dsStatus" role="status"></span>
         </form>
 
         <div class="row">
@@ -222,26 +222,6 @@
           </div>
           <div class="row">
             <button class="btn btn-wide" id="btnReload" title="Ctrl+R">Перезагрузить UI и мост</button>
-          </div>
-          <div class="settingsCluster">
-            <div class="label label-strong">SMS сервис O1</div>
-            <div class="row">
-              <div class="segmented">
-                <button class="seg" id="smsServiceSmsPool" type="button">SMSPool</button>
-                <button class="seg" id="smsServiceHeroSms" type="button">HeroSMS</button>
-              </div>
-            </div>
-            <div class="label label-strong">SMSPool</div>
-            <div class="row">
-              <input class="input" id="smsPoolApiKey" type="password" placeholder="SMSPool API key" autocomplete="off" />
-              <button class="btn" id="btnSaveSmsPoolKey">Сохранить</button>
-            </div>
-            <div class="label label-strong">HeroSMS</div>
-            <div class="row">
-              <input class="input" id="heroSmsApiKey" type="password" placeholder="HeroSMS API key" autocomplete="off" />
-              <button class="btn" id="btnSaveHeroSmsKey">Сохранить</button>
-            </div>
-            <div class="hint compact" id="smsPoolStatus">SMSPool хранится в SproutG.Web, HeroSMS хранится локально в SproutG Desktop.</div>
           </div>
           <div class="techInfo" id="techInfo">
             <div>SproutG: <b id="techDesktopVersion">—</b></div>

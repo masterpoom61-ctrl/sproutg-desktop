@@ -60,7 +60,7 @@ test("corrupt primary store is preserved byte-for-byte and a stable recovery sto
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), "sproutg-store-corrupt-"));
   try {
     const primaryPath = path.join(temp, "sproutg-desktop.json");
-    const corruptBytes = Buffer.from('{"heroSms":{"activeOrder":"paid"}', "utf8");
+    const corruptBytes = Buffer.from('{"settings":{"theme":"dark"}', "utf8");
     fs.writeFileSync(primaryPath, corruptBytes);
 
     const first = prepareStoreBootstrap({
@@ -69,7 +69,6 @@ test("corrupt primary store is preserved byte-for-byte and a stable recovery sto
     });
     assert.equal(first.integrity.active, true);
     assert.equal(first.integrity.sheetWritesBlocked, true);
-    assert.equal(first.integrity.heroSmsBlocked, true);
     assert.equal(first.storeName, "sproutg-desktop-recovery");
     assert.deepEqual(fs.readFileSync(primaryPath), corruptBytes);
     assert.deepEqual(
@@ -119,7 +118,6 @@ test("a checksummed WAL permits recovery-store sheet work and is imported", () =
     const bootstrap = prepareStoreBootstrap({ userDataDir:temp, walPath });
     assert.equal(bootstrap.integrity.walValid, true);
     assert.equal(bootstrap.integrity.sheetWritesBlocked, false);
-    assert.equal(bootstrap.integrity.heroSmsBlocked, true);
 
     const queue = new DurableWriteQueue({
       store:new MemoryStore(),

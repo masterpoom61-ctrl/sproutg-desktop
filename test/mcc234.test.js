@@ -133,6 +133,7 @@ test('MCC masks the number, copies all 16 digits, and preserves the whole G valu
   context.document.createElement = tag => {
     const el = new Element(tag);
     el.children = [];
+    el.classList = { add:()=>{} };
     el.appendChild = child => el.children.push(child);
     el.append = (...children) => el.children.push(...children);
     el.setAttribute = ()=>{};
@@ -141,8 +142,10 @@ test('MCC masks the number, copies all 16 digits, and preserves the whole G valu
   vm.runInContext(slice('  function splitMccCell(', '  function stopMccTotp('), context);
   const raw = '1234 5678 9012 3456\n12/28 987';
   const row = context.mccBuildCardDataRow(raw);
-  const [pan, date, cvv, wholeCell] = row.children[1].children;
-  assert.equal(pan.textContent, '1234...3456');
+  const [pan, date, cvv] = row.children[1].children;
+  const wholeCell = context.mccBuildCopyFullCardButton(raw);
+  assert.equal(pan.children.map(el=>el.textContent).join(''), '**** **** **** 3456');
+  assert.equal(row.children[1].children.length, 3);
   assert.equal(date.textContent, '12/28');
   assert.equal(cvv.textContent, '987');
   pan.dispatch('click');

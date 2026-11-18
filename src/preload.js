@@ -20,7 +20,6 @@ contextBridge.exposeInMainWorld('sproutg', {
   installUpdate: () => ipcRenderer.invoke('sproutg:install-update'),
   getRollbackInfo: () => ipcRenderer.invoke('sproutg:get-rollback-info'),
   rollbackUpdate: () => ipcRenderer.invoke('sproutg:rollback-update'),
-  heroSms: (action, payload) => ipcRenderer.invoke('sproutg:hero-sms', action, payload),
   apiCall: (action, payload, opts) => ipcRenderer.invoke('sproutg:api-call', action, payload, opts),
   apiBatch: (calls, opts) => ipcRenderer.invoke('sproutg:api-batch', calls, opts),
   legacyCall: (action, payload, opts) => ipcRenderer.invoke('sproutg:legacy-call', action, payload, opts),

@@ -122,13 +122,11 @@ function setTopbarTheme(theme){
   __themeSwitchTimer = setTimeout(() => document.documentElement.classList.remove('theme-switching'), 140);
 }
 
-let desktopSettings = { smsService: 'smspool', mccVerificationInline: true, mccValidityInline: true };
+let desktopSettings = { mccVerificationInline: true, mccValidityInline: true };
 function applyDesktopSettings(settings = {}){
-  const prevSmsService = desktopSettings.smsService || 'smspool';
   const prevMccVerificationInline = desktopSettings.mccVerificationInline !== false;
   const prevMccValidityInline = desktopSettings.mccValidityInline !== false;
   desktopSettings = { ...desktopSettings, ...(settings || {}) };
-  desktopSettings.smsService = desktopSettings.smsService === 'herosms' ? 'herosms' : 'smspool';
   desktopSettings.mccVerificationInline = desktopSettings.mccVerificationInline !== false;
   desktopSettings.mccValidityInline = desktopSettings.mccValidityInline !== false;
   if (settings.theme) setTopbarTheme(settings.theme);
@@ -141,15 +139,6 @@ function applyDesktopSettings(settings = {}){
   document.documentElement.dataset.textScale = Math.abs((Number(desktopSettings.fontScale || 1)) - 1) > 0.001 ? 'on' : 'off';
   document.documentElement.style.setProperty('--app-font-scale', String(desktopSettings.fontScale || 1));
   applyCustomThemeVars(desktopSettings);
-  if(prevSmsService !== desktopSettings.smsService){
-    try{
-      document.querySelectorAll('.smsServiceTitle').forEach((el)=>{ el.textContent = smsServiceLabel(); });
-      if(typeof stopSmsPool === 'function' && typeof smsPoolInit === 'function' && typeof current !== 'undefined' && current?.row){
-        stopSmsPool();
-        smsPoolInit({ preserve:false });
-      }
-    }catch(e){}
-  }
   if(
     prevMccVerificationInline !== (desktopSettings.mccVerificationInline !== false)
     || prevMccValidityInline !== (desktopSettings.mccValidityInline !== false)
@@ -179,7 +168,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
   applyDesktopSettings(s || { theme: 'dark-classic' });
 })();
 
-  const APP_VERSION = '2.3.5';
+  const APP_VERSION = '2.3.6';
   const PAGE_KEY = 'FarmA.page';
   const HOME_RETURN_KEY = 'FarmA.homeReturnPage';
   const THEME_KEY = 'sproutg.theme';
@@ -194,6 +183,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
   const tabNav  = {};
   let activeTabKey = '';
   let o1OpenQueue = Promise.resolve();
+  let o1SearchGeneration = 0;
 
   let cachedList = [];
   let cachedFilterLabel = '';
@@ -208,27 +198,6 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
 
   const _saveState = new Map();
   let totpInterval = null;
-  const smsPoolProfileStates = new Map();
-  const smsPoolUIState = {
-    profileRow: null,
-    profileName: '',
-    profileOwnerKey: '',
-    orderRow: null,
-    orderOwnerKey: '',
-    activeOrder: null,
-    pollTimerId: null,
-    countdownTimerId: null,
-    balanceTimerId: null,
-    balanceLastTs: 0,
-    balanceText: '—',
-    apFillPending: false,
-    codeText: 'Готов к заказу',
-    codeValue: '',
-    selectedCountry: '0',
-    countryCatalog: [],
-    countryLoadedAt: 0,
-    elements: null
-  };
   const EXTRA_WORK_TYPES = {
     drafts: { title: 'Черновики MCC', workType: 'Черновики MCC', unit: 'черновик', points: 10, valueId: 'extraDraftsValue' },
     okto: { title: 'Профили Okto', workType: 'Профиль Okto', unit: 'профиль', points: 10, valueId: 'extraOktoValue' },
@@ -264,7 +233,6 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
   let _o1FailedWrites = 0;
   let _writeBarrierActive = false;
   const _localWriteJobs = new Set();
-  const _heroSmsReadJobs = new Map();
   const FAILED_DRAFTS_KEY = 'sproutg:failedWriteDrafts:v1';
   const _failedWriteDrafts = new Map();
   let _failedDraftIntegrityBlocked = false;
@@ -295,7 +263,6 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
   const _o1QueuedSingleByCell = new Map();
   const _mccQueuedSingleByCell = new Map();
   const _stableIdentityKeys = window.SproutgDurableFailureTargets || {};
-  const _smsOwner = window.SproutgSmsOwner || {};
 
   function identityTupleKey_(namespace, values){
     if(typeof _stableIdentityKeys.encodeTuple === 'function'){
@@ -1166,8 +1133,11 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
             return o1OwnerKey_(payload) === ownerKey;
           });
       if(!sourceKey || !tabData[sourceKey]) return;
-      const sourceRow = Number(tabData[sourceKey]?.row || row);
+      const requestedTab = tabData[sourceKey];
+      if(requestedTab.__loading) return;
+      const sourceRow = Number(requestedTab.row || row);
       google.script.run.withSuccessHandler((response)=>{
+        if(tabData[sourceKey] !== requestedTab || !openTabs.includes(sourceKey)) return;
         const payload = apiPayload(response);
         if(!payload || payload.ok === false) return;
         if(String(payload.profileName || '').trim() !== profileName) return;
@@ -1186,7 +1156,6 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
         if(activeElement && out?.contains(activeElement)) return;
         const scrollSnap = captureSproutScroll_('server-confirmed-write');
         renderProfile(current, {
-          preserveSmsPool:true,
           preserveScrollSnapshot:scrollSnap
         });
       }).withFailureHandler(()=>{}).getProfileByRow(sourceRow, {
@@ -1534,20 +1503,11 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
   const MCC_PROFILE_TABS_KEY = 'mcc:profileTabs:v1';
   const MCC_PROFILE_CACHE_KEY = 'mcc:profileCache:v1';
   const MCC_PROFILE_CACHE_LIMIT = 30;
-  const PASS_GEO_CONFIG_KEY = 'sproutg.pass.geoConfig:v1';
-  const PASS_GEO_DEFAULTS = [
-    { code:'BY', col:'F' },
-    { code:'KZ', col:'G' },
-    { code:'BA', col:'L' },
-    { code:'RS', col:'M' },
-    { code:'TR', col:'N' },
-    { code:'RO', col:'S' }
-  ];
+  const PASS_LAYOUT = 'geo-e-value-f';
   const passState = {
-    geos: loadPassGeoConfig(),
-    items: [],
+    geos: [],
     byGeo: {},
-    lookup: {},
+    byValue: new Map(),
     activeGeo: 'BY',
     editMode: false,
     loading: false,
@@ -2512,8 +2472,19 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     renderTabs();
   }
 
+  const O1_TAB_DRAG_TYPE = 'application/x-sproutg-o1-tab';
+
+  function moveO1Tab_(sourceKey, targetKey, after){
+    const sourceIndex = openTabs.indexOf(sourceKey);
+    if(sourceIndex < 0 || sourceKey === targetKey || !openTabs.includes(targetKey)) return false;
+    openTabs.splice(sourceIndex, 1);
+    openTabs.splice(openTabs.indexOf(targetKey) + (after ? 1 : 0), 0, sourceKey);
+    return true;
+  }
+
   function renderTabs(){
     const bar=document.getElementById('tabsBar');
+    const scrollLeft = bar.scrollLeft;
     bar.innerHTML='';
     if(!openTabs.length) return;
 
@@ -2522,6 +2493,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
       const p=tabData[k];
       const pill=document.createElement('div');
       pill.className='tabPill' + (k===activeTabKey ? ' active' : '') + (p?.__loading ? ' is-loading' : '');
+      pill.draggable = true;
 
       const name=document.createElement('span');
       name.textContent=p?.__loading ? (p?.profileName || `Аккаунт ${p?.row || ''}`.trim()) : (p?.profileName || k);
@@ -2534,6 +2506,31 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
       close.addEventListener('click', (e)=>{ e.stopPropagation(); closeTab(k); });
 
       pill.addEventListener('click', ()=>activateTab(k));
+      pill.addEventListener('dragstart', (event)=>{
+        if(event.target.closest('.tabClose')){ event.preventDefault(); return; }
+        event.dataTransfer.setData(O1_TAB_DRAG_TYPE, k);
+        event.dataTransfer.effectAllowed = 'move';
+        pill.classList.add('tabDragging');
+      });
+      pill.addEventListener('dragend', ()=>pill.classList.remove('tabDragging', 'tabDropTarget'));
+      pill.addEventListener('dragover', (event)=>{
+        if(!event.dataTransfer.types.includes(O1_TAB_DRAG_TYPE) || pill.classList.contains('tabDragging')) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = 'move';
+        pill.classList.add('tabDropTarget');
+      });
+      pill.addEventListener('dragleave', (event)=>{
+        if(!pill.contains(event.relatedTarget)) pill.classList.remove('tabDropTarget');
+      });
+      pill.addEventListener('drop', (event)=>{
+        if(!event.dataTransfer.types.includes(O1_TAB_DRAG_TYPE)) return;
+        event.preventDefault();
+        pill.classList.remove('tabDropTarget');
+        const rect = pill.getBoundingClientRect();
+        if(moveO1Tab_(event.dataTransfer.getData(O1_TAB_DRAG_TYPE), k, event.clientX >= rect.left + rect.width / 2)){
+          renderTabs();
+        }
+      });
       if(p?.__loading){
         const spin=document.createElement('span');
         spin.className='tabSpinner';
@@ -2545,6 +2542,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
       frag.appendChild(pill);
     }
     bar.appendChild(frag);
+    bar.scrollLeft = scrollLeft;
     updateO1TabsColors();
   }
 
@@ -2598,6 +2596,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
   }
 
   function clearAllTabs(){
+    ++o1SearchGeneration;
     const pending = Array.from(_o1RowPendingWrites.values())
       .reduce((sum, entry)=>sum + Number(entry?.count || 0), 0);
     if(pending > 0) toast('Сохранение продолжится в фоне');
@@ -2785,7 +2784,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     if(!current) return;
     const scrollSnap = captureSproutScroll_('edit-toggle');
     editMode=!editMode;
-    renderProfile(current, { preserveSmsPool: true, preserveScrollSnapshot: scrollSnap });
+    renderProfile(current, { preserveScrollSnapshot: scrollSnap });
   }
 
   function toggleDeleted(){
@@ -2913,6 +2912,8 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     const requestRow = current.row;
     const requestProfileName = String(current.profileName || '').trim();
     const requestTabKey = activeTabKey;
+    const requestedTab = tabData[requestTabKey];
+    if(!requestedTab || !openTabs.includes(requestTabKey)) return;
     const requestWriteRevision = _o1WriteRevision;
     const scrollSnap = captureSproutScroll_('sync-current-profile');
     toast('Синхронизация…');
@@ -2924,6 +2925,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
       }
       if(
         activeTabKey !== requestTabKey
+        || tabData[requestTabKey] !== requestedTab
         || String(current?.profileName || '').trim() !== requestProfileName
       ){
         restoreSproutScroll_(scrollSnap);
@@ -3047,24 +3049,33 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     setError('');
     const name=document.getElementById('profile').value.trim();
     if(!name){ setError('Введи название профиля'); return; }
-    toast('Поиск…');
-    const token = nextReqToken('profile');
-    google.script.run.withSuccessHandler(res=>{
-      if(!isLatestReq('profile', token)) return;
-      const payload = apiPayload(res);
-      if(!payload || payload.ok === false){
-        const sug=(payload?.suggestions?.length) ? `\nПохожие: ${payload.suggestions.join(', ')}` : '';
-        setError(apiErrorText(payload, 'Ошибка') + sug);
-        return;
-      }
-      editMode=false;
-      ensureTab(payload, { label:'Поиск', stage:'', items:[], key:'search' });
-      renderProfile(current);
-      toast('Готово');
-    }).withFailureHandler(err=>{
-      if(!isLatestReq('profile', token)) return;
-      setError(String(err));
-    }).findProfile(name);
+    const generation = o1SearchGeneration;
+    const loadJob = () => {
+      if(generation !== o1SearchGeneration) return;
+      setError('');
+      toast('Поиск…');
+      return new Promise((resolve)=>{
+        google.script.run.withSuccessHandler(res=>{
+          try{
+            if(generation !== o1SearchGeneration) return;
+            const payload = apiPayload(res);
+            if(!payload || payload.ok === false){
+              const suggestions = payload?.suggestions?.length ? '\nПохожие: ' + payload.suggestions.join(', ') : '';
+              setError(apiErrorText(payload, 'Ошибка') + suggestions);
+              return;
+            }
+            editMode = false;
+            ensureTab(payload, { label:'Поиск', stage:'', items:[], key:'search' });
+            renderProfile(current);
+            toast('Готово');
+          } finally { resolve(); }
+        }).withFailureHandler(error=>{
+          if(generation === o1SearchGeneration) setError(String(error));
+          resolve();
+        }).findProfile(name);
+      });
+    };
+    o1OpenQueue = o1OpenQueue.then(loadJob, loadJob);
   }
 
   function openByRow(row, opts){
@@ -3115,7 +3126,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
       ? tabData[targetKey]
       : null;
     if(!openTabs.includes(targetKey)) openTabs.push(targetKey);
-    tabData[targetKey] = {
+    const loadingTab = tabData[targetKey] = {
       ...(cachedPayload || {}),
       row:Number(row),
       profileName:expectedProfileName || cachedPayload?.profileName || `Аккаунт ${row}`,
@@ -3132,8 +3143,10 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     renderTabs();
 
     const loadJob = () => new Promise((resolve) => {
+      if(tabData[targetKey] !== loadingTab){ resolve(); return; }
       google.script.run.withSuccessHandler(res=>{
         try{
+          if(tabData[targetKey] !== loadingTab) return;
           if(opts?.shouldApply && !opts.shouldApply()) return;
           const payload = apiPayload(res);
           if(!payload || payload.ok === false){
@@ -3201,6 +3214,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
         }
       }).withFailureHandler(err=>{
         try{
+          if(tabData[targetKey] !== loadingTab) return;
           if(opts?.shouldApply && !opts.shouldApply()) return;
           delete tabData[targetKey];
           delete tabNav[targetKey];
@@ -4698,256 +4712,6 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     }
   }
 
-  function stopSmsPool(){
-    if(smsPoolUIState.pollTimerId){
-      clearInterval(smsPoolUIState.pollTimerId);
-      smsPoolUIState.pollTimerId = null;
-    }
-    if(smsPoolUIState.countdownTimerId){
-      clearInterval(smsPoolUIState.countdownTimerId);
-      smsPoolUIState.countdownTimerId = null;
-    }
-    if(smsPoolUIState.balanceTimerId){
-      clearInterval(smsPoolUIState.balanceTimerId);
-      smsPoolUIState.balanceTimerId = null;
-    }
-  }
-
-  function smsPoolDefaultState(){
-    return {
-      activeOrder: null,
-      balanceLastTs: 0,
-      balanceText: '—',
-      apFillPending: false,
-      codeText: 'Готов к заказу',
-      codeValue: '',
-      orderRow: null,
-      orderOwnerKey: ''
-    };
-  }
-
-  function smsServiceKey(){
-    const key = desktopSettings?.smsService;
-    if(key === 'herosms') return 'herosms';
-    return 'smspool';
-  }
-
-  function smsServiceLabel(){
-    const key = smsServiceKey();
-    if(key === 'herosms') return 'SMS Activate';
-    return 'SMSPool';
-  }
-
-  function smsProfileContext_(profile = current){
-    const payload = profile && typeof profile === 'object' ? profile : {};
-    const row = Number(payload.row) || payload.row || '';
-    const profileName = String(payload.profileName || '').trim();
-    const tabKey = profileName ? getTabKey('', profileName) : '';
-    return {
-      row,
-      profileName,
-      tabKey,
-      ownerKey:o1OwnerKey_({ profileName, tabKey })
-    };
-  }
-
-  function smsStateKey(context){
-    const ownerKey = String(context?.ownerKey || '').trim();
-    if(!ownerKey) return '';
-    if(typeof _stableIdentityKeys.smsProfileStateKey === 'function'){
-      return _stableIdentityKeys.smsProfileStateKey(smsServiceKey(), ownerKey);
-    }
-    return identityTupleKey_('sms-profile-state', [smsServiceKey(), ownerKey]);
-  }
-
-  function legacySmsStateKey_(row){
-    return `${smsServiceKey()}:${String(row || '')}`;
-  }
-
-  function isSmsProfileContextActive_(context){
-    if(!context?.ownerKey || smsPoolUIState.profileOwnerKey !== context.ownerKey) return false;
-    return smsProfileContext_(current).ownerKey === context.ownerKey;
-  }
-
-  function smsApiMethod(action){
-    return `smsPool${action}O1`;
-  }
-
-  function smsDirectPayload(action, args){
-    const list = Array.isArray(args) ? args : [];
-    const options = (
-      list.find(value=>value && typeof value === 'object' && !Array.isArray(value))
-      || {}
-    );
-    const ownerIdentity = {
-      profileName:String(options.ownerIdentity?.profileName || '').trim()
-    };
-    if(action === 'Order') return {
-      country:String(options.country || smsPoolUIState.selectedCountry || '0'),
-      service:'go',
-      ownerIdentity
-    };
-    if(action === 'Check' || action === 'Refund') return {
-      orderId:list[0],
-      ownerIdentity
-    };
-    if(action === 'GetState') return { ownerIdentity };
-    if(action === 'Catalog') return { service: 'go', force: !!list[0]?.force };
-    return {};
-  }
-
-  function smsRun(action, args, onSuccess, onFailure){
-    if(smsServiceKey() === 'herosms'){
-      if(!window.sproutg?.heroSms){
-        const err = new Error('HeroSMS API недоступен');
-        if(onFailure) onFailure(err);
-        else toast(err.message);
-        return;
-      }
-      const isMutation = ['Catalog', 'Order', 'Check', 'Refund', 'GetState']
-        .includes(String(action || ''));
-      if(!isMutation && _writeBarrierActive) return;
-      const invoke = (resolve)=>{
-        const payload = smsDirectPayload(action, args);
-        const readKey = `${action}:${JSON.stringify(payload)}`;
-        if(!isMutation && _heroSmsReadJobs.has(readKey)){
-          resolve?.();
-          return;
-        }
-        const job = window.sproutg.heroSms(action, payload)
-          .then((res)=>{ if(onSuccess) onSuccess(res); })
-          .catch((err)=>{
-            if(onFailure) onFailure(err);
-            else toast(String(err?.message || err));
-          })
-          .finally(()=>{
-            if(!isMutation) _heroSmsReadJobs.delete(readKey);
-            resolve?.();
-          });
-        if(!isMutation) _heroSmsReadJobs.set(readKey, job);
-      };
-      if(isMutation) enqueueWrite_('HeroSMS', invoke);
-      else invoke();
-      return;
-    }
-    const method = smsApiMethod(action);
-    const runner = google.script.run
-      .withSuccessHandler(onSuccess)
-      .withFailureHandler(onFailure || ((err)=>toast(String(err))));
-    if(typeof runner[method] !== 'function'){
-      toast(`${smsServiceLabel()}: метод недоступен`);
-      return;
-    }
-    runner[method](...(Array.isArray(args) ? args : []));
-  }
-
-  function smsPoolStoreState(profile = current){
-    const context = smsProfileContext_(profile);
-    const key = smsStateKey(context);
-    if(!key || smsPoolUIState.profileOwnerKey !== context.ownerKey) return;
-    smsPoolProfileStates.set(key, {
-      service:smsServiceKey(),
-      ownerKey:context.ownerKey,
-      profileName:context.profileName,
-      rowHint:context.row,
-      activeOrder: smsPoolUIState.activeOrder,
-      balanceLastTs: smsPoolUIState.balanceLastTs,
-      balanceText: smsPoolUIState.balanceText,
-      apFillPending: smsPoolUIState.apFillPending,
-      codeText: smsPoolUIState.codeText,
-      codeValue: smsPoolUIState.codeValue,
-      orderRow: smsPoolUIState.orderRow,
-      orderOwnerKey:smsPoolUIState.orderOwnerKey
-    });
-  }
-
-  function smsPoolLoadState(profile = current){
-    const context = smsProfileContext_(profile);
-    const base = smsPoolDefaultState();
-    const key = smsStateKey(context);
-    let stored = key ? smsPoolProfileStates.get(key) : null;
-    if(!stored && context.ownerKey && context.row){
-      const legacyKey = legacySmsStateKey_(context.row);
-      const legacy = smsPoolProfileStates.get(legacyKey);
-      const legacyOwner = String(
-        legacy?.ownerKey
-        || o1OwnerKey_({ profileName:legacy?.profileName || '' })
-        || ''
-      );
-      if(legacy && legacyOwner === context.ownerKey){
-        stored = {
-          ...legacy,
-          service:smsServiceKey(),
-          ownerKey:context.ownerKey,
-          profileName:context.profileName,
-          rowHint:context.row
-        };
-        smsPoolProfileStates.set(key, stored);
-        smsPoolProfileStates.delete(legacyKey);
-      }
-    }
-    if(stored?.ownerKey !== context.ownerKey) stored = null;
-    const next = stored ? { ...base, ...stored } : base;
-    if(next.activeOrder && next.orderOwnerKey !== context.ownerKey){
-      next.activeOrder = null;
-      next.orderRow = null;
-      next.orderOwnerKey = '';
-      next.apFillPending = false;
-    }
-    smsPoolUIState.profileRow = context.row;
-    smsPoolUIState.profileName = context.profileName;
-    smsPoolUIState.profileOwnerKey = context.ownerKey;
-    smsPoolUIState.activeOrder = next.activeOrder;
-    smsPoolUIState.balanceLastTs = next.balanceLastTs;
-    smsPoolUIState.balanceText = next.balanceText;
-    smsPoolUIState.apFillPending = next.apFillPending;
-    smsPoolUIState.codeText = next.codeText;
-    smsPoolUIState.codeValue = next.codeValue;
-    smsPoolUIState.orderRow = next.orderRow;
-    smsPoolUIState.orderOwnerKey = next.orderOwnerKey || '';
-  }
-
-  function smsPoolFindOrderOwner_(orderId){
-    if(!orderId) return '';
-    for(const state of smsPoolProfileStates.values()){
-      if(state?.service !== smsServiceKey()) continue;
-      const storedId = state?.activeOrder?.order_id;
-      if(
-        storedId
-        && String(storedId) === String(orderId)
-        && state.orderOwnerKey
-        && state.orderOwnerKey === state.ownerKey
-      ) return state.orderOwnerKey;
-    }
-    return '';
-  }
-
-  function smsPoolStoreOrderForContext_(context, order, response){
-    const key = smsStateKey(context);
-    if(!key) return false;
-    const normalizedOrder = order && typeof _smsOwner.normalizeOwnedOrder === 'function'
-      ? _smsOwner.normalizeOwnedOrder(order, response)
-      : order;
-    const returnedOwnerKey = normalizedOrder
-      ? o1OwnerKey_({ profileName:normalizedOrder.ownerIdentity?.profileName || '' })
-      : context.ownerKey;
-    if(order && (!normalizedOrder || returnedOwnerKey !== context.ownerKey)) return false;
-    const previous = smsPoolProfileStates.get(key) || smsPoolDefaultState();
-    smsPoolProfileStates.set(key, {
-      ...previous,
-      service:smsServiceKey(),
-      ownerKey:context.ownerKey,
-      profileName:context.profileName,
-      rowHint:context.row,
-      activeOrder:normalizedOrder || null,
-      orderRow:normalizedOrder ? context.row : null,
-      orderOwnerKey:normalizedOrder ? context.ownerKey : '',
-      apFillPending:false
-    });
-    return true;
-  }
-
-  // ✅ FarmA_0.3.9.7_dev: dynamic TOTP button color by timer
   function applyTotpColor(btn, remain){
     btn.classList.remove('greenLight','yellowLight','redLight');
     const r = Number(remain);
@@ -5086,653 +4850,6 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     }
   }
 
-  // ---------- SMSPool ----------
-  function renderSmsPoolCard(){
-    const card = document.createElement('div');
-    card.className = 'card';
-    card.dataset.group = 'SMS Activate';
-      card.dataset.section = 'SMS Activate';
-      card.innerHTML = `
-        <div class="title">
-          <h3><span class="smsServiceTitle">${smsServiceLabel()}</span> • One-time</h3>
-          <div class="meta2">
-            <button class="btn smsActivateConnectBtn" type="button">Подключить</button>
-            <button class="btn btnPrimary smsPoolOrderBtn" type="button">Заказать номер</button>
-            <button class="btn smsPoolRefundBtn" type="button" disabled>Отмена</button>
-        </div>
-      </div>
-      <div class="field">
-        <div class="label">Номер</div>
-        <button class="btn value smsPoolNumber" type="button">—</button>
-        <div class="actions">
-          <div class="smsPoolPrice smsPoolMeta">—</div>
-        </div>
-      </div>
-      <div class="field">
-        <div class="label">Таймер</div>
-        <div class="value smsPoolTimer">—</div>
-        <div class="actions">
-          <div class="smsPoolBalance smsPoolMeta">—</div>
-        </div>
-      </div>
-      <div class="field">
-        <div class="label">Код</div>
-        <div class="value smsPoolCode">Готов к заказу</div>
-        <div class="actions"></div>
-      </div>
-      <div class="field smsActivateCatalogRow" hidden>
-        <div class="label">Страна</div>
-        <select class="value smsActivateCountry" aria-label="Страна SMS Activate"></select>
-        <div class="actions">
-          <button class="btn smsActivateRefreshBtn" type="button">↻</button>
-        </div>
-      </div>
-      <div class="field smsActivateCatalogRow" hidden>
-        <div class="label">Качество</div>
-        <div class="value smsActivateCountryMeta">—</div>
-        <div class="actions"></div>
-      </div>
-    `;
-
-    const elements = {
-      connectBtn: card.querySelector('.smsActivateConnectBtn'),
-      orderBtn: card.querySelector('.smsPoolOrderBtn'),
-      refundBtn: card.querySelector('.smsPoolRefundBtn'),
-      number: card.querySelector('.smsPoolNumber'),
-      timer: card.querySelector('.smsPoolTimer'),
-      code: card.querySelector('.smsPoolCode'),
-      price: card.querySelector('.smsPoolPrice'),
-      balance: card.querySelector('.smsPoolBalance'),
-      countryRows: Array.from(card.querySelectorAll('.smsActivateCatalogRow')),
-      countrySelect: card.querySelector('.smsActivateCountry'),
-      countryMeta: card.querySelector('.smsActivateCountryMeta'),
-      countryRefreshBtn: card.querySelector('.smsActivateRefreshBtn')
-    };
-    smsPoolUIState.elements = elements;
-
-    elements.connectBtn?.addEventListener('click', ()=>smsActivateConnect());
-    elements.orderBtn.addEventListener('click', smsPoolOrder);
-    elements.refundBtn.addEventListener('click', smsPoolRefund);
-    elements.number.addEventListener('click', ()=>{
-      const raw = smsPoolUIState.activeOrder?.number || elements.number.textContent || '';
-      const num = smsPoolNormalizeNumber(raw);
-      if(num && num !== '—') copyText(num);
-    });
-    elements.countrySelect?.addEventListener('change', ()=>{
-      smsPoolUIState.selectedCountry = String(elements.countrySelect.value || '0');
-      smsActivateRenderSelectedCountryMeta();
-    });
-    elements.countryRefreshBtn?.addEventListener('click', ()=>smsActivateLoadCatalog({ force:true }));
-
-    return card;
-  }
-
-  function smsActivateSetCatalogVisible(visible){
-    const el = smsPoolUIState.elements;
-    if(!el?.countryRows) return;
-    for(const row of el.countryRows) row.hidden = !visible;
-    if(el.connectBtn) el.connectBtn.hidden = !visible;
-  }
-
-  function smsActivateCountryLabel(item){
-    if(!item) return '—';
-    const name = item.rus || item.eng || item.name || `ID ${item.id}`;
-    const price = Number.isFinite(Number(item.cost)) ? `$${Number(item.cost).toFixed(2)}` : 'цена —';
-    const count = Number.isFinite(Number(item.count)) ? `${Number(item.count)} шт.` : 'наличие —';
-    return `${name} · ${price} · ${count}`;
-  }
-
-  function smsActivateSelectedCountry(){
-    const selected = String(smsPoolUIState.selectedCountry || '0');
-    return (smsPoolUIState.countryCatalog || []).find((item)=>String(item.id) === selected) || null;
-  }
-
-  function smsActivateRenderSelectedCountryMeta(){
-    const el = smsPoolUIState.elements;
-    if(!el) return;
-    const item = smsActivateSelectedCountry();
-    if(el.countryMeta) {
-      el.countryMeta.textContent = item
-        ? `Цена ${Number.isFinite(Number(item.cost)) ? `$${Number(item.cost).toFixed(2)}` : '—'} · Номеров ${Number.isFinite(Number(item.count)) ? item.count : '—'}`
-        : 'Каталог не загружен';
-    }
-    if(item?.cost != null) smsPoolRenderPrice(item.cost);
-  }
-
-  function smsActivateRenderCatalog(list){
-    const el = smsPoolUIState.elements;
-    if(!el?.countrySelect) return;
-    const rows = Array.isArray(list) ? list : [];
-    smsPoolUIState.countryCatalog = rows;
-    el.countrySelect.innerHTML = '';
-    for(const item of rows){
-      const opt = document.createElement('option');
-      opt.value = String(item.id);
-      opt.textContent = smsActivateCountryLabel(item);
-      el.countrySelect.appendChild(opt);
-    }
-    const currentId = String(smsPoolUIState.selectedCountry || '0');
-    const hasCurrent = rows.some((item)=>String(item.id) === currentId);
-    smsPoolUIState.selectedCountry = hasCurrent ? currentId : String(rows[0]?.id ?? '0');
-    el.countrySelect.value = smsPoolUIState.selectedCountry;
-    smsActivateRenderSelectedCountryMeta();
-  }
-
-  function smsActivateConnect(){
-    const el = smsPoolUIState.elements;
-    if(!el) return;
-    if(smsServiceKey() !== 'herosms'){
-      smsPoolUpdateBalance({ force:true });
-      return;
-    }
-    if(el.connectBtn){
-      el.connectBtn.disabled = true;
-      el.connectBtn.textContent = 'Подключение…';
-    }
-    if(!smsPoolUIState.activeOrder) smsPoolSetCodeDisplay('', 'Подключение…');
-    smsPoolUpdateBalance({ force:true });
-    smsActivateLoadCatalog({
-      force:true,
-      onDone:()=>{
-        if(el.connectBtn){
-          el.connectBtn.disabled = false;
-          el.connectBtn.textContent = 'Подключить';
-        }
-        if(!smsPoolUIState.activeOrder && !smsPoolUIState.codeValue){
-          smsPoolSetCodeDisplay('', smsPoolUIState.countryCatalog.length ? 'Готов к заказу' : 'Каталог не загружен');
-        }
-      }
-    });
-  }
-
-  function smsActivateLoadCatalog(opts = {}){
-    if(smsServiceKey() !== 'herosms') {
-      opts.onDone?.();
-      return;
-    }
-    const el = smsPoolUIState.elements;
-    if(!el) {
-      opts.onDone?.();
-      return;
-    }
-    const now = Date.now();
-    if(!opts.force && smsPoolUIState.countryCatalog.length && now - smsPoolUIState.countryLoadedAt < 5 * 60 * 1000){
-      smsActivateRenderCatalog(smsPoolUIState.countryCatalog);
-      opts.onDone?.();
-      return;
-    }
-    if(el.countryMeta) el.countryMeta.textContent = 'Загрузка стран...';
-    if(el.countryRefreshBtn) el.countryRefreshBtn.disabled = true;
-    smsRun('Catalog', [{ force: !!opts.force }], (res)=>{
-      if(el.countryRefreshBtn) el.countryRefreshBtn.disabled = false;
-      if(!res || res.ok === false){
-        if(el.countryMeta) el.countryMeta.textContent = res?.error || 'Не удалось загрузить страны';
-        opts.onDone?.();
-        return;
-      }
-      smsPoolUIState.countryLoadedAt = Date.now();
-      smsActivateRenderCatalog(res.countries || res.data?.countries || []);
-      opts.onDone?.();
-    }, (err)=>{
-      if(el.countryRefreshBtn) el.countryRefreshBtn.disabled = false;
-      if(el.countryMeta) el.countryMeta.textContent = String(err?.message || err || 'Ошибка загрузки');
-      opts.onDone?.();
-    });
-  }
-
-  function smsPoolNormalizeNumber(raw){
-    const s = String(raw || '').trim();
-    if(!s) return '';
-    return s.startsWith('+') ? s : `+${s}`;
-  }
-
-  function smsPoolDigitsOnly(raw){
-    return String(raw || '').replace(/[^\d]/g, '');
-  }
-
-  function smsPoolFormatMoney(raw){
-    if(raw == null) return '—';
-    const text = String(raw).trim();
-    if(!text) return '—';
-    if(/[^0-9.]/.test(text)) return text;
-    const num = Number(text);
-    if(Number.isFinite(num)) return `$${num.toFixed(2)}`;
-    return text;
-  }
-
-  function smsPoolRenderPrice(raw){
-    const el = smsPoolUIState.elements;
-    if(!el) return;
-    const txt = smsPoolFormatMoney(raw);
-    el.price.textContent = txt;
-  }
-
-  function smsPoolRenderBalance(raw){
-    const el = smsPoolUIState.elements;
-    if(!el) return;
-    const txt = smsPoolFormatMoney(raw);
-    smsPoolUIState.balanceText = txt;
-    el.balance.textContent = txt;
-  }
-
-  function smsPoolRenderNumber(raw){
-    const el = smsPoolUIState.elements;
-    if(!el) return;
-    const txt = smsPoolNormalizeNumber(raw);
-    el.number.textContent = txt || '—';
-    el.number.disabled = !txt;
-  }
-
-  function smsPoolSetCodeDisplay(code, fallback){
-    const el = smsPoolUIState.elements;
-    if(!el) return;
-    el.code.innerHTML = '';
-    if(code){
-      smsPoolUIState.codeValue = code;
-      smsPoolUIState.codeText = '';
-      const btn = document.createElement('button');
-      btn.type='button';
-      btn.className='btn value smsPoolCodeBtn centerText';
-      btn.textContent = code;
-      btn.addEventListener('click', ()=>copyText(code));
-      el.code.appendChild(btn);
-      return;
-    }
-    smsPoolUIState.codeValue = '';
-    smsPoolUIState.codeText = fallback || 'Ожидание…';
-    el.code.textContent = fallback || 'Ожидание…';
-  }
-
-  function smsPoolApplyStoredCode(){
-    if(smsPoolUIState.codeValue){
-      smsPoolSetCodeDisplay(smsPoolUIState.codeValue);
-      return;
-    }
-    const fallback = smsPoolUIState.codeText || 'Ожидание…';
-    smsPoolSetCodeDisplay('', fallback);
-  }
-
-  function smsPoolExtractGoogleCode(text){
-    const raw = String(text || '');
-    const match = raw.match(/G-\s*(\d{6})/i);
-    if(match) return match[1];
-    const plain = raw.match(/(?:^|\D)(\d{6})(?:\D|$)/);
-    return plain ? plain[1] : '';
-  }
-
-  function smsPoolUpdateBalance(opts = {}){
-    const now = Date.now();
-    if(!opts.force && now - smsPoolUIState.balanceLastTs < 20000) return;
-    smsPoolUIState.balanceLastTs = now;
-    smsRun('Balance', [], (res)=>{
-      if(!res || res.ok === false){
-        smsPoolRenderBalance(smsPoolUIState.balanceText || '—');
-        return;
-      }
-      smsPoolRenderBalance(res.balance);
-    }, ()=>{
-      smsPoolRenderBalance(smsPoolUIState.balanceText || '—');
-    });
-  }
-
-  function smsPoolStartBalancePoll(){
-    if(smsPoolUIState.balanceTimerId){
-      clearInterval(smsPoolUIState.balanceTimerId);
-    }
-    smsPoolUpdateBalance({ force:true });
-    smsPoolUIState.balanceTimerId = setInterval(smsPoolUpdateBalance, 30000);
-  }
-
-  function smsPoolMaybeFillAP(code){
-    if(!code) return;
-    if(!current?.row) return;
-    const targetProfile = current;
-    const context = smsProfileContext_(targetProfile);
-    if(!context.ownerKey || smsPoolUIState.profileOwnerKey !== context.ownerKey) return;
-    const order = smsPoolUIState.activeOrder;
-    if(!order?.number) return;
-    if(smsPoolUIState.orderOwnerKey !== context.ownerKey) return;
-    if(smsPoolUIState.apFillPending) return;
-    const existing = getO1FieldValue(targetProfile, 'AP');
-    if(existing) return;
-    const digits = String(order.number || '').replace(/[^\d]/g, '');
-    const apValue = digits.length === 11 && digits.startsWith('1') ? digits.slice(1) : digits;
-    if(!apValue) return;
-
-    smsPoolUIState.apFillPending = true;
-    toast('Сохранение AP…');
-    saveCellInstant(context.row, 'AP', apValue, ()=>{
-      const state = smsPoolProfileStates.get(smsStateKey(context));
-      if(state) state.apFillPending = false;
-      setO1FieldValue(targetProfile, 'AP', apValue);
-      if(!isSmsProfileContextActive_(context)) return;
-      updateApFieldUI(apValue);
-      smsPoolUIState.apFillPending = false;
-      toast('AP заполнен');
-    }, (err)=>{
-      const state = smsPoolProfileStates.get(smsStateKey(context));
-      if(state) state.apFillPending = false;
-      if(!isSmsProfileContextActive_(context)) return;
-      smsPoolUIState.apFillPending = false;
-      toast(err || 'Ошибка');
-    }, {
-      tabKey:context.tabKey,
-      profileName:context.profileName
-    });
-  }
-
-  function updateApFieldUI(value){
-    const row = document.querySelector('.apField');
-    if(!row) return;
-    const input = row.querySelector('input.value');
-    if(input) input.value = value;
-    const btn = row.querySelector('button.value');
-    if(btn) btn.textContent = value;
-  }
-
-  function smsPoolSetOrderLoading(loading){
-    const el = smsPoolUIState.elements;
-    if(!el) return;
-    el.orderBtn.disabled = !!loading;
-    el.orderBtn.textContent = loading ? 'Заказ…' : 'Заказать номер';
-  }
-
-  function smsPoolRenderIdle(){
-    const el = smsPoolUIState.elements;
-    if(!el) return;
-    smsPoolRenderNumber('');
-    smsPoolRenderPrice(null);
-    el.timer.textContent = '—';
-    smsPoolSetCodeDisplay('', 'Готов к заказу');
-    el.refundBtn.disabled = true;
-    smsPoolUIState.apFillPending = false;
-    smsPoolUIState.orderRow = null;
-    smsPoolUIState.orderOwnerKey = '';
-    smsPoolSetOrderLoading(false);
-  }
-
-  function smsPoolRenderActive(opts = {}){
-    const el = smsPoolUIState.elements;
-    const order = smsPoolUIState.activeOrder;
-    if(!el || !order) return;
-    if(!smsPoolUIState.orderOwnerKey) return;
-    smsPoolRenderNumber(order.number);
-    smsPoolRenderPrice(order.price ?? order.cost);
-    el.refundBtn.disabled = false;
-    if(opts.preserveCode) smsPoolApplyStoredCode();
-    else smsPoolSetCodeDisplay('', 'Ожидание…');
-    smsPoolUpdateCountdown();
-  }
-
-  function smsPoolUpdateCountdown(){
-    const el = smsPoolUIState.elements;
-    const order = smsPoolUIState.activeOrder;
-    if(!el || !order) return;
-    const leftMs = Number(order.expiresAtMs || 0) - Date.now();
-    if(leftMs <= 0){
-      stopSmsPool();
-      smsPoolUIState.activeOrder = null;
-      smsPoolUIState.orderRow = null;
-      smsPoolUIState.orderOwnerKey = '';
-      el.timer.textContent = 'Время истекло';
-      smsPoolSetCodeDisplay('', 'Время истекло');
-      smsPoolRenderNumber('');
-      smsPoolRenderPrice(null);
-      el.refundBtn.disabled = true;
-      smsPoolSetOrderLoading(false);
-      return;
-    }
-    const totalSec = Math.floor(leftMs / 1000);
-    const mm = String(Math.floor(totalSec / 60)).padStart(2,'0');
-    const ss = String(totalSec % 60).padStart(2,'0');
-    el.timer.textContent = `${mm}:${ss}`;
-  }
-
-  function smsPoolStartCountdown(){
-    if(smsPoolUIState.countdownTimerId){
-      clearInterval(smsPoolUIState.countdownTimerId);
-    }
-    smsPoolUpdateCountdown();
-    smsPoolUIState.countdownTimerId = setInterval(smsPoolUpdateCountdown, 1000);
-  }
-
-  function smsPoolCheck(){
-    const order = smsPoolUIState.activeOrder;
-    const el = smsPoolUIState.elements;
-    if(!order || !el) return;
-    const context = smsProfileContext_(current);
-    if(
-      !context.ownerKey
-      || smsPoolUIState.profileOwnerKey !== context.ownerKey
-      || smsPoolUIState.orderOwnerKey !== context.ownerKey
-    ) return;
-    smsRun('Check', [
-      order.order_id,
-      { ownerIdentity:{ profileName:context.profileName } }
-    ], (res)=>{
-      if(!isSmsProfileContextActive_(context) || smsPoolUIState.orderOwnerKey !== context.ownerKey) return;
-      if(!res || res.ok === false){
-        el.code.textContent = res?.error || 'Ошибка проверки';
-        return;
-      }
-      const smsRaw = String(res.sms ?? '').trim();
-      const fullRaw = String(res.full_sms ?? '').trim();
-      const smsText = fullRaw || smsRaw;
-      if(smsRaw && smsRaw !== '0'){
-        const code = smsPoolExtractGoogleCode(smsText);
-        if(code){
-          smsPoolSetCodeDisplay(code);
-          smsPoolMaybeFillAP(code);
-        } else {
-          smsPoolSetCodeDisplay('', 'Код не получен');
-        }
-        if(smsPoolUIState.pollTimerId){
-          clearInterval(smsPoolUIState.pollTimerId);
-          smsPoolUIState.pollTimerId = null;
-        }
-      } else {
-        smsPoolSetCodeDisplay('', 'Ожидание…');
-      }
-    }, (err)=>{
-      if(!isSmsProfileContextActive_(context)) return;
-      smsPoolSetCodeDisplay('', String(err));
-    });
-  }
-
-  function smsPoolStartPoll(){
-    if(smsPoolUIState.pollTimerId){
-      clearInterval(smsPoolUIState.pollTimerId);
-    }
-    smsPoolCheck();
-    smsPoolUIState.pollTimerId = setInterval(smsPoolCheck, 3000);
-  }
-
-  function smsPoolInit(opts = {}){
-    const el = smsPoolUIState.elements;
-    if(!el) return;
-    const isSmsActivate = smsServiceKey() === 'herosms';
-    smsActivateSetCatalogVisible(isSmsActivate);
-    if(isSmsActivate) smsActivateLoadCatalog();
-    const preserveRequested = opts.preserve === true;
-    const context = smsProfileContext_(current);
-    if(!context.ownerKey || !context.row) return;
-    const preserve = !!(
-      preserveRequested
-      && smsPoolUIState.profileOwnerKey === context.ownerKey
-      && (
-        !smsPoolUIState.activeOrder
-        || smsPoolUIState.orderOwnerKey === context.ownerKey
-      )
-    );
-    if(!preserve){
-      stopSmsPool();
-      smsPoolLoadState(current);
-      smsPoolUIState.apFillPending = false;
-      smsPoolSetCodeDisplay('', 'Загрузка…');
-      smsPoolRenderNumber('');
-      smsPoolRenderPrice(null);
-      el.timer.textContent = '—';
-      el.refundBtn.disabled = true;
-      smsPoolSetOrderLoading(false);
-    } else {
-      smsPoolUIState.profileRow = context.row;
-      smsPoolUIState.profileName = context.profileName;
-      smsPoolUIState.profileOwnerKey = context.ownerKey;
-    }
-
-    smsPoolStartBalancePoll();
-    if(preserve){
-      if(smsPoolUIState.activeOrder){
-        smsPoolRenderActive({ preserveCode: true });
-        if(!smsPoolUIState.countdownTimerId) smsPoolStartCountdown();
-        if(!smsPoolUIState.codeValue && !smsPoolUIState.pollTimerId) smsPoolStartPoll();
-      } else {
-        smsPoolRenderIdle();
-      }
-      return;
-    }
-
-    if(smsPoolUIState.activeOrder){
-      smsPoolRenderActive({ preserveCode: true });
-      smsPoolStartCountdown();
-      if(!smsPoolUIState.codeValue) smsPoolStartPoll();
-      return;
-    }
-
-    smsRun('GetState', [{ ownerIdentity:{ profileName:context.profileName } }], (res)=>{
-      if(!res || res.ok === false){
-        smsPoolSetCodeDisplay('', res?.error || 'Ошибка загрузки');
-        return;
-      }
-      if(!isSmsProfileContextActive_(context)) return;
-      const rawIncomingOrder = res.order || null;
-      const incomingOrder = rawIncomingOrder && typeof _smsOwner.normalizeOwnedOrder === 'function'
-        ? _smsOwner.normalizeOwnedOrder(rawIncomingOrder, res)
-        : rawIncomingOrder;
-      const persistedOwner = incomingOrder
-        ? o1OwnerKey_({ profileName:incomingOrder.ownerIdentity?.profileName || '' })
-        : '';
-      const orderOwner = persistedOwner || (
-        smsServiceKey() === 'herosms'
-          ? ''
-          : smsPoolFindOrderOwner_(incomingOrder?.order_id)
-      );
-      if(rawIncomingOrder && (!incomingOrder || orderOwner !== context.ownerKey)){
-        smsPoolUIState.activeOrder = null;
-        smsPoolUIState.orderRow = null;
-        smsPoolUIState.orderOwnerKey = '';
-        smsPoolRenderIdle();
-        logSave_('SMS', 'provider order ignored because stable owner is unknown or different', {
-          profileName:context.profileName,
-          orderId:rawIncomingOrder.order_id || ''
-        });
-        return;
-      }
-      smsPoolStoreOrderForContext_(context, incomingOrder, res);
-      smsPoolUIState.activeOrder = incomingOrder;
-      smsPoolUIState.orderRow = smsPoolUIState.activeOrder ? context.row : null;
-      smsPoolUIState.orderOwnerKey = smsPoolUIState.activeOrder ? context.ownerKey : '';
-      if(!smsPoolUIState.activeOrder){
-        smsPoolRenderIdle();
-        return;
-      }
-      smsPoolRenderActive();
-      smsPoolStartCountdown();
-      smsPoolStartPoll();
-    }, (err)=>{
-      smsPoolSetCodeDisplay('', String(err));
-    });
-  }
-
-  function smsPoolOrder(){
-    const el = smsPoolUIState.elements;
-    if(!el) return;
-    const context = smsProfileContext_(current);
-    if(!context.ownerKey || smsPoolUIState.profileOwnerKey !== context.ownerKey){
-      toast('Не удалось привязать SMS-заказ к профилю');
-      return;
-    }
-    smsPoolSetOrderLoading(true);
-    el.code.textContent = 'Заказ…';
-    smsRun('Order', [{
-      country:smsPoolUIState.selectedCountry || '0',
-      ownerIdentity:{ profileName:context.profileName }
-    }], (res)=>{
-      const rawOrder = res?.order || null;
-      const order = rawOrder && typeof _smsOwner.normalizeOwnedOrder === 'function'
-        ? _smsOwner.normalizeOwnedOrder(rawOrder, res)
-        : rawOrder;
-      const returnedOwner = order
-        ? o1OwnerKey_({ profileName:order.ownerIdentity?.profileName || '' })
-        : '';
-      if(rawOrder && (!order || returnedOwner !== context.ownerKey)){
-        if(isSmsProfileContextActive_(context)){
-          smsPoolSetOrderLoading(false);
-          smsPoolSetCodeDisplay('', 'HeroSMS вернул заказ без подтверждённого владельца');
-        }
-        return;
-      }
-      if(res?.ok !== false) smsPoolStoreOrderForContext_(context, order, res);
-      if(!isSmsProfileContextActive_(context)) return;
-      smsPoolSetOrderLoading(false);
-      if(!res || res.ok === false){
-        smsPoolSetCodeDisplay('', res?.error || 'Ошибка заказа');
-        return;
-      }
-      smsPoolUIState.activeOrder = order;
-      smsPoolUIState.apFillPending = false;
-      smsPoolUIState.orderRow = smsPoolUIState.activeOrder ? context.row : null;
-      smsPoolUIState.orderOwnerKey = smsPoolUIState.activeOrder ? context.ownerKey : '';
-      if(!smsPoolUIState.activeOrder){
-        smsPoolRenderIdle();
-        return;
-      }
-      smsPoolRenderActive();
-      smsPoolStartCountdown();
-      smsPoolStartPoll();
-      smsPoolUpdateBalance({ force:true });
-    }, (err)=>{
-      if(!isSmsProfileContextActive_(context)) return;
-      smsPoolSetOrderLoading(false);
-      smsPoolSetCodeDisplay('', String(err));
-    });
-  }
-
-  function smsPoolRefund(){
-    const el = smsPoolUIState.elements;
-    const order = smsPoolUIState.activeOrder;
-    if(!el || !order) return;
-    const context = smsProfileContext_(current);
-    if(!context.ownerKey || smsPoolUIState.orderOwnerKey !== context.ownerKey) return;
-    if(!confirm('Отменить номер и вернуть средства?')) return;
-    el.refundBtn.disabled = true;
-    smsRun('Refund', [
-      order.order_id,
-      { ownerIdentity:{ profileName:context.profileName } }
-    ], (res)=>{
-      if(res?.ok !== false) smsPoolStoreOrderForContext_(context, null);
-      if(!isSmsProfileContextActive_(context)) return;
-      if(!res || res.ok === false){
-        el.refundBtn.disabled = false;
-        toast(res?.error || 'Ошибка Refund');
-        return;
-      }
-      stopSmsPool();
-      smsPoolUIState.activeOrder = null;
-      smsPoolUIState.orderRow = null;
-      smsPoolUIState.orderOwnerKey = '';
-      smsPoolRenderIdle();
-      toast('Refund выполнен');
-      smsPoolStartBalancePoll();
-      smsPoolUpdateBalance({ force:true });
-    }, (err)=>{
-      if(!isSmsProfileContextActive_(context)) return;
-      el.refundBtn.disabled = false;
-      toast(String(err));
-    });
-  }
-
-  // ---------- BAN button color class ----------
   function banClassForValue(v){
     const s=String(v||'').trim();
     if(!s) return '';
@@ -5746,16 +4863,6 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     // stop old totp timer (important when switching tabs/profiles)
     stopTotp();
     if(res?.row) mergeO1LocalValues_(res);
-    const previousSmsContext = smsProfileContext_(current);
-    const nextSmsContext = smsProfileContext_(res);
-    if(previousSmsContext.ownerKey) smsPoolStoreState(current);
-    const preserveSmsPool = !!(
-      opts.preserveSmsPool
-      && previousSmsContext.ownerKey
-      && previousSmsContext.ownerKey === nextSmsContext.ownerKey
-    );
-    if(!preserveSmsPool) stopSmsPool();
-
     current = res;
     updateHeader();
     renderTabs();
@@ -6362,10 +5469,6 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
       card.appendChild(fieldsWrap);
       shell.appendChild(card);
 
-      if(g.name==='Аккаунт'){
-        shell.appendChild(renderSmsPoolCard());
-        smsPoolInit({ preserve: preserveSmsPool });
-      }
     }
 
     updateAllGroupBadges();
@@ -6378,43 +5481,22 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     resumeWorkSessionAfterRender_();
   }
 
-  function normalizePassGeoConfig(list){
-    const raw = Array.isArray(list) ? list : PASS_GEO_DEFAULTS;
-    const seen = new Set();
-    const out = [];
-    for(const item of raw){
-      const code = String(item?.code || item?.geo || item?.name || '').trim().toUpperCase();
-      const col = String(item?.col || item?.column || '').trim().toUpperCase();
-      if(!/^[A-Z0-9_-]{1,12}$/.test(code) || !/^[A-Z]{1,3}$/.test(col)) continue;
-      if(seen.has(code)) continue;
-      seen.add(code);
-      out.push({ code, col });
-    }
-    return out.length ? out : PASS_GEO_DEFAULTS.map(x=>({ ...x }));
-  }
-
-  function loadPassGeoConfig(){
-    try{
-      const raw = localStorage.getItem(PASS_GEO_CONFIG_KEY);
-      if(raw) return normalizePassGeoConfig(JSON.parse(raw));
-    }catch(e){}
-    return PASS_GEO_DEFAULTS.map(x=>({ ...x }));
-  }
-
-  function savePassGeoConfig(){
-    passState.geos = normalizePassGeoConfig(passState.geos);
-    try{ localStorage.setItem(PASS_GEO_CONFIG_KEY, JSON.stringify(passState.geos)); }catch(e){}
-  }
-
   function passKey(value){ return String(value || '').trim().toLowerCase(); }
 
   function applyPassCatalog(payload){
     const data = apiPayload(payload) || {};
-    passState.items = Array.isArray(data.items) ? data.items : [];
+    if(data.layout !== PASS_LAYOUT) {
+      throw new Error('Обновите развёртывание Apps Script до 2.3.6 для чтения Pass!E:F');
+    }
+    passState.geos = Array.isArray(data.geos) ? data.geos : [];
     passState.byGeo = data.byGeo && typeof data.byGeo === 'object' ? data.byGeo : {};
-    passState.lookup = data.lookup && typeof data.lookup === 'object' ? data.lookup : {};
+    passState.byValue.clear();
+    for(const item of Array.isArray(data.items) ? data.items : []){
+      const key = passKey(item.value);
+      if(key && item.geo && !passState.byValue.has(key)) passState.byValue.set(key, item);
+    }
     passState.loaded = true;
-    if(!passState.geos.some(g=>g.code === passState.activeGeo)) passState.activeGeo = passState.geos[0]?.code || 'BY';
+    if(!passState.geos.some(g=>g.code === passState.activeGeo)) passState.activeGeo = passState.geos[0]?.code ?? '';
     renderPassModal();
     applyPassGeoBadges();
   }
@@ -6428,7 +5510,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     passState.loading = true;
     renderPassModalStatus('Синхронизация...');
     try{
-      const res = await window.sproutgApi.getPassCatalog(passState.geos);
+      const res = await window.sproutgApi.getPassCatalog();
       if(!res || res.ok === false) throw new Error(apiErrorText(res, 'Ошибка PASS'));
       applyPassCatalog(res);
       renderPassModalStatus('Синхронизировано');
@@ -6445,15 +5527,14 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     passState.timer = setInterval(()=>syncPassCatalog({ silent:true }), 45000);
   }
 
-  function passGeoForValue(value){ return passState.lookup[passKey(value)] || ''; }
-
   function passGeoBadge(value){
-    const geo = passGeoForValue(value);
-    if(!geo) return null;
+    const item = passState.byValue.get(passKey(value));
+    if(!item) return null;
     const badge = document.createElement('span');
     badge.className = 'passGeoBadge';
-    badge.textContent = geo;
-    badge.title = `Pass: ${geo}`;
+    badge.textContent = item.geo;
+    badge.title = 'Pass: ' + item.geo;
+    applyPassGeoColor_(badge, item.bg);
     return badge;
   }
 
@@ -6481,6 +5562,13 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     return ((r * 299 + g * 587 + b * 114) / 1000) > 150 ? '#111827' : '#ffffff';
   }
 
+  function applyPassGeoColor_(element, color){
+    const textColor = readableTextColor(color);
+    if(!textColor) return;
+    element.style.backgroundColor = color;
+    element.style.color = textColor;
+  }
+
   function ensurePassModal(){
     let modal = document.getElementById('passModal');
     if(modal) return modal;
@@ -6502,7 +5590,6 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
           </div>
         </div>
         <div class="passGeoTabs" id="passGeoTabs"></div>
-        <div class="passConfig" id="passConfig" hidden></div>
         <div class="passList" id="passList"></div>
       </div>
     `;
@@ -6636,56 +5723,19 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     if(editBtn) editBtn.textContent = passState.editMode ? 'Готово' : 'Редактировать';
     const tabs = modal.querySelector('#passGeoTabs');
     const list = modal.querySelector('#passList');
-    const config = modal.querySelector('#passConfig');
-    if(!tabs || !list || !config) return;
+    if(!tabs || !list) return;
     tabs.innerHTML = '';
     for(const geo of passState.geos){
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'passGeoTab' + (geo.code === passState.activeGeo ? ' active' : '');
-      btn.textContent = `${geo.code} · ${geo.col}`;
+      btn.textContent = geo.code || 'Без гео';
+      btn.setAttribute('aria-pressed', String(geo.code === passState.activeGeo));
+      applyPassGeoColor_(btn, geo.bg);
       btn.addEventListener('click', ()=>{ passState.activeGeo = geo.code; renderPassModal(); });
       tabs.appendChild(btn);
     }
-    renderPassConfig(config);
     renderPassList(list);
-  }
-
-  function renderPassConfig(config){
-    config.hidden = !passState.editMode;
-    config.innerHTML = '';
-    if(config.hidden) return;
-    for(const geo of passState.geos){
-      const row = document.createElement('div');
-      row.className = 'passConfigRow';
-      const code = document.createElement('input');
-      code.value = geo.code;
-      code.maxLength = 12;
-      const col = document.createElement('input');
-      col.value = geo.col;
-      col.maxLength = 3;
-      const del = document.createElement('button');
-      del.type = 'button';
-      del.className = 'btn';
-      del.textContent = '×';
-      code.addEventListener('change', ()=>{ geo.code = code.value.trim().toUpperCase(); savePassGeoConfig(); renderPassModal(); syncPassCatalog({ force:true }); });
-      col.addEventListener('change', ()=>{ geo.col = col.value.trim().toUpperCase(); savePassGeoConfig(); renderPassModal(); syncPassCatalog({ force:true }); });
-      del.addEventListener('click', ()=>{ passState.geos = passState.geos.filter(x=>x !== geo); savePassGeoConfig(); renderPassModal(); syncPassCatalog({ force:true }); });
-      row.appendChild(code);
-      row.appendChild(col);
-      row.appendChild(del);
-      config.appendChild(row);
-    }
-    const add = document.createElement('button');
-    add.type = 'button';
-    add.className = 'btn';
-    add.textContent = '+ GEO';
-    add.addEventListener('click', ()=>{
-      passState.geos.push({ code:'NEW', col:'A' });
-      savePassGeoConfig();
-      renderPassModal();
-    });
-    config.appendChild(add);
   }
 
   function renderPassList(list){
@@ -6698,18 +5748,17 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     for(const item of items){
       const row = document.createElement('div');
       row.className = 'passItem';
-      if(item.bg){
-        row.style.background = item.bg;
-        row.style.color = readableTextColor(item.bg);
-      }
       const meta = document.createElement('span');
       meta.className = 'passItemMeta';
-      meta.textContent = `${item.geo} ${item.col}${item.row}`;
+      meta.textContent = item.geo || '—';
+      meta.title = 'Pass!F' + item.row;
+      applyPassGeoColor_(meta, item.bg);
       row.appendChild(meta);
       if(passState.editMode){
         const input = document.createElement('input');
         input.className = 'passItemInput';
         input.value = item.value || '';
+        applyPassGeoColor_(input, item.valueBg);
         input.dataset.row = String(item.row || '');
         input.dataset.col = String(item.col || '').toUpperCase();
         const descriptor = editDraftDescriptor_(
@@ -6728,6 +5777,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
         btn.type = 'button';
         btn.className = 'passCopyBtn';
         btn.textContent = item.value || '';
+        applyPassGeoColor_(btn, item.valueBg);
         btn.addEventListener('click', ()=>selectMccPassport_(item.value || ''));
         row.appendChild(btn);
       }
@@ -8818,7 +7868,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
         }
         if(card) applyVerificationCardColor(card, fieldMap || {});
         if(oldValue !== 'Апелл') sproutgEmitStatusEvent('O1', 'Речек', 'Апелл', 'BW', profile.row, oldValue);
-        syncProfile({ preserveSmsPool:true });
+        syncProfile();
         toast('Сохранено');
         close();
       }, (err)=>{ doneBtn.dataset.saving='0'; doneBtn.disabled=false; cancelBtn.disabled=false; toast(err||'Ошибка'); });
@@ -8855,8 +7905,9 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     mccPassLookupState.inFlight = true;
     google.script.run.withSuccessHandler((res)=>{
       mccPassLookupState.inFlight = false;
-      if(!res || res.ok===false){ applyMccFioVisualMarks(); return; }
-      mccPassLookupState.byFio = res.items || {};
+      const payload = apiPayload(res);
+      if(payload?.layout !== PASS_LAYOUT){ applyMccFioVisualMarks(); return; }
+      mccPassLookupState.byFio = payload.items || {};
       applyMccFioVisualMarks();
       autoFillMccVerificationAddresses();
     }).withFailureHandler(()=>{ mccPassLookupState.inFlight = false; applyMccFioVisualMarks(); }).getPassLookupForFios(fios);
@@ -8983,12 +8034,30 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     label.textContent = mccGetLabel('G') || 'Карта';
     const grid = document.createElement('div');
     grid.className = 'mccCardDataGrid';
-    const number = split.p1.length === 16
-      ? split.p1.slice(0,4) + '...' + split.p1.slice(-4)
-      : split.p1;
-    grid.appendChild(mccBuildButton(number, 'G', false, split.p1));
+    const number = mccBuildButton('', 'G', false, split.p1);
+    number.classList.add('mccCardNumber');
+    if(split.p1.length === 16){
+      const mask = document.createElement('span');
+      mask.className = 'mccCardMask';
+      mask.textContent = '**** **** **** ';
+      mask.setAttribute('aria-hidden', 'true');
+      const lastFour = document.createElement('strong');
+      lastFour.textContent = split.p1.slice(-4);
+      number.append(mask, lastFour);
+      number.setAttribute('aria-label', 'Скопировать номер карты, оканчивается на ' + lastFour.textContent);
+    } else if(split.p1){
+      number.textContent = '****';
+    }
+    number.title = 'Скопировать номер карты';
+    number.disabled = !split.p1;
+    grid.appendChild(number);
     grid.appendChild(mccBuildButton(split.p2, 'G'));
     grid.appendChild(mccBuildButton(split.p3, 'G'));
+    row.append(label, grid);
+    return row;
+  }
+
+  function mccBuildCopyFullCardButton(raw){
     const copyAll = document.createElement('button');
     copyAll.type = 'button';
     copyAll.className = 'btn mccCopyCardBtn';
@@ -8997,9 +8066,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     copyAll.disabled = !String(raw ?? '').trim();
     copyAll.innerHTML = '<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18M7 15h4"/></svg>';
     copyAll.addEventListener('click',()=>copyText(raw));
-    grid.appendChild(copyAll);
-    row.append(label, grid);
-    return row;
+    return copyAll;
   }
 
   function stopMccTotp(){
@@ -9390,7 +8457,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
       rLabel.textContent = mccGetLabel('R');
       rRow.appendChild(rLabel);
       const rWrap = document.createElement('div');
-      rWrap.className = 'mccDunsGrid';
+      rWrap.className = 'mccInlineGrid2';
       const rInput = mccBuildDateInput(rowObj, 'R', rowObj.values.R);
       rWrap.appendChild(rInput);
       const underReviewBtn = document.createElement('button');
@@ -9414,18 +8481,6 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
           .mccSetUnderReviewBg(rowObj.row, mccWriteIdentity_(rowObj.row));
       });
       rWrap.appendChild(underReviewBtn);
-      const copy3ds = document.createElement('button');
-      copy3ds.type = 'button';
-      copy3ds.className = 'btn';
-      copy3ds.textContent = '3DS';
-      copy3ds.title = 'Скопировать текст 3DS из настроек';
-      copy3ds.addEventListener('click', async ()=>{
-        try {
-          const response = await window.sproutg.copyMcc3ds();
-          toast(response.ok ? 'Скопировано' : response.error);
-        } catch { toast('Не удалось скопировать данные 3DS'); }
-      });
-      rWrap.appendChild(copy3ds);
       rRow.appendChild(rWrap);
       rRow.appendChild(document.createElement('div')).className='actions';
       fieldsWrap.appendChild(rRow);
@@ -9438,8 +8493,23 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
       const rawPrePayValue = String(rowObj.values.S ?? '').trim();
       const prePayValue = MCC_PREPAY_OPTIONS.includes(rawPrePayValue) ? rawPrePayValue : '';
       const prePaySelect = mccBuildSelect(rowObj, 'S', prePayValue, MCC_PREPAY_OPTIONS, null, { group:'Аккаунт MCC' });
+      prePaySelect.setAttribute('aria-label', 'PrePay');
+      const prePayGrid = document.createElement('div');
+      prePayGrid.className = 'mccInlineGrid3 mccPrePayGrid';
+      const copy3ds = document.createElement('button');
+      copy3ds.type = 'button';
+      copy3ds.className = 'btn';
+      copy3ds.textContent = '3DS';
+      copy3ds.title = 'Скопировать текст 3DS из настроек';
+      copy3ds.addEventListener('click', async ()=>{
+        try {
+          const response = await window.sproutg.copyMcc3ds();
+          toast(response.ok ? 'Скопировано' : response.error);
+        } catch { toast('Не удалось скопировать данные 3DS'); }
+      });
+      prePayGrid.append(prePaySelect, mccBuildCopyFullCardButton(rowObj.values.G), copy3ds);
       prePayRow.appendChild(prePayLabel);
-      prePayRow.appendChild(prePaySelect);
+      prePayRow.appendChild(prePayGrid);
       prePayRow.appendChild(document.createElement('div')).className='actions';
       fieldsWrap.appendChild(prePayRow);
 

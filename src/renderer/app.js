@@ -168,7 +168,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
   applyDesktopSettings(s || { theme: 'dark-classic' });
 })();
 
-  const APP_VERSION = '2.3.6';
+  const APP_VERSION = '2.3.7';
   const PAGE_KEY = 'FarmA.page';
   const HOME_RETURN_KEY = 'FarmA.homeReturnPage';
   const THEME_KEY = 'sproutg.theme';
@@ -1550,6 +1550,8 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
   const O1_GROUP_DATE_COL = { 'Ads Видео':'AQ', 'Платежка':'BC', 'Речек':'BQ' };
   const O1_GROUP_DONE_COL = { 'Ads Видео':'AZ', 'Платежка':'BI', 'Речек':'BW' };
   const O1_LABEL_OVERRIDES = {
+    O:'Дата',
+    X:'Gmail',
     AA:'Резервная Почта'
   };
   const MCC_LABEL_OVERRIDES = {
@@ -8391,8 +8393,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
       mainWrap.className = 'mccRowMain';
 
       const primaryGrid = document.createElement('div');
-      primaryGrid.className = 'mccPrimaryRow';
-      primaryGrid.appendChild(mccWrapFieldLabel('D', mccBuildDateInput(rowObj, 'D', rowObj.values.D)));
+      primaryGrid.className = 'mccInlineGrid2';
       if(mccEditMode){
         primaryGrid.appendChild(mccWrapFieldLabel('J', mccBuildInput(rowObj, 'J', rowObj.values.J)));
         primaryGrid.appendChild(mccWrapFieldLabel('K', mccBuildInput(rowObj, 'K', rowObj.values.K)));
@@ -8403,6 +8404,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
 
       const companyGrid = document.createElement('div');
       companyGrid.className = 'mccInlineGrid2';
+      companyGrid.appendChild(mccWrapFieldLabel('D', mccBuildDateInput(rowObj, 'D', rowObj.values.D)));
       if(mccEditMode){
         companyGrid.appendChild(mccWrapFieldLabel('I', mccBuildInput(rowObj, 'I', rowObj.values.I)));
       } else {
@@ -8410,7 +8412,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
       }
 
       const addressGrid = document.createElement('div');
-      addressGrid.className = 'mccInlineGrid3';
+      addressGrid.className = 'mccAddressGrid';
       if(mccEditMode){
         addressGrid.appendChild(mccWrapFieldLabel('AP', mccBuildInput(rowObj, 'AP', rowObj.values.AP)));
         addressGrid.appendChild(mccWrapFieldLabel('AQ', mccBuildInput(rowObj, 'AQ', rowObj.values.AQ)));
@@ -8435,7 +8437,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
       eedunsLabel.className = 'label';
       eedunsLabel.textContent = 'EE&DUNS';
       const eedunsGrid = document.createElement('div');
-      eedunsGrid.className = 'mccInlineGrid2';
+      eedunsGrid.className = 'mccRegistrationGrid';
       if(mccEditMode){
         eedunsGrid.appendChild(mccWrapFieldLabel('AS', mccBuildInput(rowObj, 'AS', rowObj.values.AS)));
         eedunsGrid.appendChild(mccWrapFieldLabel('AT', mccBuildInput(rowObj, 'AT', rowObj.values.AT)));

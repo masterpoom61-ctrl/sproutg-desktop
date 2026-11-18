@@ -12,6 +12,7 @@ const { MutationRegistry } = require('./main/mutationRegistry');
 const { createRollbackBackup } = require('./main/rollbackBackup');
 const { prepareStoreBootstrap } = require('./main/storeRecovery');
 const { saveWorkSession, loadWorkSession } = require('./main/workSessionStore');
+const { nativeWindowBounds, validRect, displayLayoutKey } = require('./main/windowPlacement');
 
 // Acquire process ownership before electron-store or the durable WAL are
 // opened. A losing process must never initialize either persistence writer.
@@ -153,6 +154,7 @@ function sanitizeBounds(bounds){
 }
 
 let mainWindow = null;
+let saveMainWindowBounds = async () => {};
 let bridgeManager = null;
 let writeQueueController = null;
 let writeGateClosed = false;
@@ -514,6 +516,7 @@ async function installDownloadedUpdate(){
   }
   try { await flushGoogleSession(); } catch (_error) {}
   try {
+    await saveMainWindowBounds();
     installBarrierToken = barrier.barrierToken;
     quitApproved = true;
     clearTimeout(installBarrierWatchdog);
@@ -773,6 +776,7 @@ async function rollbackToPreviousVersion(){
         flushGoogleSession()
       ]);
     } catch (_error) {}
+    await saveMainWindowBounds();
     backupRollbackData(info.version);
     setUpdateState({ status:'rollback-downloading', message:`Скачивание v${info.version} для отката...`, progress:{ percent:0 }, error:null });
     const installerPath = await downloadRollbackAsset(info);
@@ -1249,6 +1253,7 @@ function shutdownApp(){
       return result;
     }
     try { await flushGoogleSession(); } catch (_error) {}
+    await saveMainWindowBounds();
     destroyAuxiliaryWindows();
     try {
       if (mainWindow && !mainWindow.isDestroyed()) mainWindow.destroy();
@@ -1832,11 +1837,17 @@ function zoom(dir){
   return next;
 }
 
-function attachShortcuts(wc){
+function attachShortcuts(wc, toggleFullscreen){
   if (!wc) return;
   wc.on('before-input-event', (event, input) => {
     const ctrl = input.control || input.meta;
     const key = input.key;
+
+    if (input.alt && !ctrl && key === 'Enter') {
+      event.preventDefault();
+      if (input.type === 'keyDown' && !input.isAutoRepeat) toggleFullscreen();
+      return;
+    }
 
     if (ctrl && String(key).toLowerCase() === 'r') {
       event.preventDefault(); reloadWeb(); return;
@@ -1859,7 +1870,7 @@ function createMainWindow(){
   const winState = store.get('window');
   const safeBounds = sanitizeBounds(winState.bounds);
 
-  mainWindow = new BrowserWindow({
+  const window = mainWindow = new BrowserWindow({
     title: 'SproutG',
     ...(safeBounds ? safeBounds : { width: 1200, height: 820 }),
     minWidth: MIN_WIDTH,
@@ -1883,33 +1894,80 @@ function createMainWindow(){
   const s = getSettings();
   mainWindow.setAlwaysOnTop(!!s.alwaysOnTop);
 
-  mainWindow.loadFile(path.join(__dirname, 'renderer', 'app.html'));
-  mainWindow.once('ready-to-show', () => mainWindow.show());
+  const initialLayout = displayLayoutKey(screen.getAllDisplays());
+  const savedPhysical = winState.physical;
+  const restorePhysical = process.platform === 'win32' && validRect(winState.bounds)
+    && isRectVisible(winState.bounds) && savedPhysical?.layout === initialLayout
+    && validRect(savedPhysical.rect);
+  let lastNormal = safeBounds || window.getNormalBounds();
+  let lastMaximized = false;
+  let physical = null;
+  let persistTimer;
+  let persistRevision = 0;
+  let restoring = true;
+  let togglingFullScreen = false;
 
-  // save bounds
-  let lastNormal = safeBounds || mainWindow.getBounds();
-  let timer = null;
-  function scheduleSave(){
-    clearTimeout(timer);
-    timer = setTimeout(() => {
-      if (!mainWindow) return;
-      const isMax = mainWindow.isMaximized();
-      const bounds = isMax ? lastNormal : mainWindow.getBounds();
-      store.set('window', { bounds, isMaximized: isMax });
-    }, 150);
+  async function persistWindow(exact = false) {
+    clearTimeout(persistTimer);
+    if (restoring || window.isDestroyed()) return;
+    const revision = ++persistRevision;
+    const isFullScreen = window.isFullScreen();
+    if (!isFullScreen) {
+      lastNormal = window.getNormalBounds();
+      if (!window.isMinimized()) lastMaximized = window.isMaximized();
+    }
+    const bounds = lastNormal;
+    const isMaximized = lastMaximized;
+    const layout = displayLayoutKey(screen.getAllDisplays());
+    // A DPI/window move invalidates previously measured physical coordinates.
+    if (physical?.layout !== layout || JSON.stringify(physical?.bounds) !== JSON.stringify(bounds)) physical = null;
+    if (exact && !isFullScreen) {
+      const rect = await nativeWindowBounds(window);
+      if (revision !== persistRevision || window.isDestroyed()) return;
+      if (rect) physical = { layout, bounds, rect };
+    }
+    try { store.set('window', { bounds, isMaximized, isFullScreen, physical }); }
+    catch (error) { console.error('[SproutG] Failed to save window bounds:', error.message); }
   }
-  mainWindow.on('move', () => { if (!mainWindow.isMaximized()) lastNormal = mainWindow.getBounds(); scheduleSave(); });
-  mainWindow.on('resize', () => { if (!mainWindow.isMaximized()) lastNormal = mainWindow.getBounds(); scheduleSave(); });
-  mainWindow.on('maximize', scheduleSave);
-  mainWindow.on('unmaximize', scheduleSave);
-  mainWindow.on('close', (event) => {
-    const isMax = mainWindow.isMaximized();
-    const bounds = isMax ? lastNormal : mainWindow.getBounds();
-    store.set('window', { bounds, isMaximized: isMax });
+
+  saveMainWindowBounds = () => persistWindow(true);
+  async function toggleFullscreen(){
+    if (togglingFullScreen || restoring || isQuitting || window.isDestroyed()) return;
+    togglingFullScreen = true;
+    try {
+      const enter = !window.isFullScreen();
+      if (enter) await saveMainWindowBounds();
+      if (!isQuitting && !window.isDestroyed()) window.setFullScreen(enter);
+    } finally { togglingFullScreen = false; }
+  }
+
+  function scheduleSave(){
+    if (restoring || togglingFullScreen || isQuitting) return;
+    clearTimeout(persistTimer);
+    persistTimer = setTimeout(()=>persistWindow(), 150);
+  }
+  for (const event of ['move','resize','maximize','unmaximize','enter-full-screen','leave-full-screen']) {
+    window.on(event, scheduleSave);
+  }
+  window.on('close', (event) => {
     if (!isQuitting) {
       event.preventDefault();
       shutdownApp();
     }
+  });
+
+  window.loadFile(path.join(__dirname, 'renderer', 'app.html'));
+  window.once('ready-to-show', async () => {
+    const rect = restorePhysical ? await nativeWindowBounds(window, savedPhysical.rect) : null;
+    if (window.isDestroyed()) return;
+    if (!rect && safeBounds) window.setBounds(safeBounds);
+    lastNormal = window.getNormalBounds();
+    if (rect) physical = { layout:initialLayout, bounds:lastNormal, rect };
+    lastMaximized = !!winState.isMaximized;
+    if (lastMaximized) window.maximize();
+    if (winState.isFullScreen) window.setFullScreen(true);
+    restoring = false;
+    window.show();
   });
 
   const url = getWebUrl();
@@ -1923,9 +1981,7 @@ function createMainWindow(){
     applySettings(getSettings());
     notifyStorageIntegrity();
   });
-  if (winState && winState.isMaximized) mainWindow.maximize();
-
-  attachShortcuts(mainWindow.webContents);
+  attachShortcuts(mainWindow.webContents, toggleFullscreen);
 }
 
 function registerGlobal(){

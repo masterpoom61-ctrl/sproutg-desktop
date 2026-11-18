@@ -908,7 +908,7 @@ body{
       width:100%;
       min-width:0;
       gap:6px;
-      grid-template-columns:minmax(0,1fr) max-content max-content;
+      grid-template-columns:minmax(0,max-content) max-content max-content;
       font-variant-numeric:tabular-nums;
     }
     .mccCardDataGrid .value{width:auto;min-width:0;padding-inline:8px;}
@@ -926,12 +926,20 @@ body{
       gap:8px;
       width:100%;
     }
-    .mccPrimaryRow{
+    .mccAddressGrid,.mccRegistrationGrid{
       display:grid;
-      grid-template-columns:repeat(3,minmax(0,1fr));
       gap:8px;
       width:100%;
     }
+    .mccAddressGrid{
+      grid-template-columns:minmax(0,1fr) calc(5ch + 22px) minmax(0,1fr);
+    }
+    .mccRegistrationGrid{
+      grid-template-columns:minmax(0,calc(11ch + 22px)) minmax(0,calc(9ch + 22px));
+    }
+    .mccAddressGrid,.mccRegistrationGrid{font-size:calc(13px * var(--app-font-scale));}
+    .mccAddressGrid :is(input,button)[data-col="AQ"],
+    .mccRegistrationGrid .value{padding-inline:8px;font-variant-numeric:tabular-nums;}
     .mccAccountLabel{
       font-weight:900;
       font-size:12px;

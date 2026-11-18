@@ -109,15 +109,12 @@ html[data-custom-theme="on"][data-custom-bg="on"] body::before{
 }
 body.sgClosing .card{animation:windowOut .38s ease-in both;pointer-events:none;}
 body.sgClosing .windowClose{opacity:0;pointer-events:none;}
-@keyframes windowIn{from{opacity:0;transform:translateY(-8px) scale(.965);}to{opacity:1;transform:translateY(0) scale(1);}}
+@keyframes windowIn{from{opacity:0;}to{opacity:1;}}
 @keyframes windowOut{from{opacity:1;transform:translateY(0) scale(1);}to{opacity:0;transform:translateY(-8px) scale(.965);}}
 .windowClose{
-  position:fixed;
-  top:8px;
-  right:8px;
-  z-index:10000;
   width:38px;
   height:38px;
+  padding:0;
   border:1px solid var(--border);
   border-radius:999px;
   background:var(--btn);
@@ -133,16 +130,29 @@ body.sgClosing .windowClose{opacity:0;pointer-events:none;}
   justify-content:center;
 }
 .windowClose:hover{background:var(--btnH);}
-.dragbar{
-  position:fixed;
-  left:44px;
-  right:52px;
-  top:0;
-  height:42px;
-  z-index:10;
+.header{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) 38px;
+  align-items:stretch;
+  margin-bottom:10px;
+}
+.header .title{
+  display:flex;
+  align-items:center;
   -webkit-app-region:drag;
 }
-.header{margin-bottom:10px;padding-right:34px;position:relative;z-index:3;-webkit-app-region:drag;}
+.mcc3dsForm textarea{
+  display:block;
+  width:100%;
+  margin-top:6px;
+  padding:6px 8px;
+  resize:vertical;
+  color:var(--text);
+  background:var(--surface,var(--btn));
+  border:1px solid var(--border);
+  border-radius:8px;
+  font:inherit;
+}
 button,
 input,
 select,

@@ -1,6 +1,6 @@
 ﻿const { app, BrowserWindow, ipcMain, Menu, session, screen, globalShortcut, Notification, dialog } = require('electron');
 const { autoUpdater } = require('electron-updater');
-const { shell, net } = require('electron');
+const { shell, net, clipboard, safeStorage } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -31,6 +31,7 @@ const TOPBAR_HEIGHT = 38;
 const PARTITION = 'persist:sproutg';
 const MIN_WIDTH = 420;   // allow 9:16 portrait-like
 const MIN_HEIGHT = 560;
+const SETTINGS_WINDOW_SIZE = { width:360, height:680 };
 const RUNTIME_SESSION_ID = String(Date.now());
 const USER_DATA_DIR = app.getPath('userData');
 const DURABLE_WAL_PATH = path.join(USER_DATA_DIR, 'sproutg-pending-writes.wal.json');
@@ -1986,8 +1987,13 @@ function shutdownApp(){
 function positionSettingsWindow(){
   if (!mainWindow || !settingsWindow || settingsWindow.isDestroyed()) return;
   const b = mainWindow.getBounds();
-  const sw = settingsWindow.getBounds().width;
-  settingsWindow.setPosition(Math.round(b.x + b.width - sw - 12), Math.round(b.y + TOPBAR_HEIGHT + 6), false);
+  // Use the authored size across monitors instead of feeding rounded DIP bounds
+  // from the last move back into Electron.
+  settingsWindow.setBounds({
+    x:Math.round(b.x + b.width - SETTINGS_WINDOW_SIZE.width - 12),
+    y:Math.round(b.y + TOPBAR_HEIGHT + 6),
+    ...SETTINGS_WINDOW_SIZE
+  }, false);
 }
 
 function closeSettingsWindow(){
@@ -2171,8 +2177,11 @@ function openSettingsWindow(){
     parent: mainWindow,
     modal: false,
     show: false,
-    width: 360,
-    height: 680,
+    ...SETTINGS_WINDOW_SIZE,
+    minWidth: SETTINGS_WINDOW_SIZE.width,
+    maxWidth: SETTINGS_WINDOW_SIZE.width,
+    minHeight: SETTINGS_WINDOW_SIZE.height,
+    maxHeight: SETTINGS_WINDOW_SIZE.height,
     resizable: false,
     movable: true,
     minimizable: false,
@@ -2193,7 +2202,13 @@ function openSettingsWindow(){
 
   settingsWindow.loadFile(path.join(__dirname, 'settings', 'index.html'));
 
-  settingsWindow.on('closed', () => { lastSettingsClosedAt = Date.now(); settingsWindow = null; });
+  const ownerWindow = mainWindow;
+  settingsWindow.on('closed', () => {
+    ownerWindow.removeListener('move', positionSettingsWindow);
+    ownerWindow.removeListener('resize', positionSettingsWindow);
+    lastSettingsClosedAt = Date.now();
+    settingsWindow = null;
+  });
   try { settingsWindow.webContents.setVisualZoomLevelLimits(1, 1); settingsWindow.webContents.setZoomFactor(1); } catch(e) {}
   settingsWindow.webContents.on('before-input-event', (event, input) => {
     const isZoomKey = (input.key === '+' || input.key === '-' || input.key === '=' || input.key === '0');
@@ -2719,11 +2734,52 @@ ipcMain.on('sproutg:write-barrier-result', (event, payload) => {
   });
 });
 
+async function readMcc3dsText(){
+  const encrypted = store.get('mcc3dsEncrypted');
+  if(!encrypted) return '';
+  const { result } = await safeStorage.decryptStringAsync(Buffer.from(encrypted, 'base64'));
+  return result;
+}
+
+ipcMain.handle('sproutg:get-mcc-3ds', async (event)=>{
+  if(event.sender !== settingsWindow?.webContents) return { ok:false, error:'Откройте настройки' };
+  try { return { ok:true, value:await readMcc3dsText() }; }
+  catch { return { ok:false, error:'Не удалось прочитать локальные данные 3DS' }; }
+});
+
+ipcMain.handle('sproutg:set-mcc-3ds', async (event, value)=>{
+  if(event.sender !== settingsWindow?.webContents) return { ok:false, error:'Откройте настройки' };
+  if(typeof value !== 'string' || value.length > 4096) return { ok:false, error:'Допустимо до 4096 символов' };
+  try {
+    if(!value.trim()){
+      store.delete('mcc3dsEncrypted');
+    } else {
+      if(!await safeStorage.isAsyncEncryptionAvailable()) return { ok:false, error:'Шифрование Windows недоступно' };
+      const encrypted = await safeStorage.encryptStringAsync(value);
+      store.set('mcc3dsEncrypted', encrypted.toString('base64'));
+    }
+    return { ok:true };
+  } catch { return { ok:false, error:'Не удалось сохранить локальные данные 3DS' }; }
+});
+
+ipcMain.handle('sproutg:copy-mcc-3ds', async (event)=>{
+  if(event.sender !== mainWindow?.webContents) return { ok:false, error:'Откройте окно MCC' };
+  try {
+    const value = await readMcc3dsText();
+    if(!value) return { ok:false, error:'Укажите текст 3DS в настройках' };
+    clipboard.writeText(value);
+    return { ok:true };
+  } catch { return { ok:false, error:'Не удалось скопировать данные 3DS' }; }
+});
+
 ipcMain.handle('sproutg:get-version', () => app.getVersion());
-ipcMain.handle('sproutg:get-work-session', () => loadWorkSession(path.join(USER_DATA_DIR, 'work-session.json'), getWebUrl()));
+ipcMain.handle('sproutg:get-work-session', (event) => {
+  if(event.sender !== mainWindow?.webContents) return null;
+  return loadWorkSession(path.join(USER_DATA_DIR, 'work-session.json'), bridgeManager?.url || getWebUrl());
+});
 ipcMain.on('sproutg:save-work-session', (event, snapshot) => {
   if(event.sender !== mainWindow?.webContents) return;
-  try { saveWorkSession(path.join(USER_DATA_DIR, 'work-session.json'), getWebUrl(), snapshot); }
+  try { saveWorkSession(path.join(USER_DATA_DIR, 'work-session.json'), bridgeManager?.url || getWebUrl(), snapshot); }
   catch(error) { console.error('[SproutG] Cannot save work session', error); }
 });
 ipcMain.handle('sproutg:get-storage-integrity', () => publicStorageIntegrity());

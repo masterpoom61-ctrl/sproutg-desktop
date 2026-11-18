@@ -4,6 +4,7 @@ contextBridge.exposeInMainWorld('sproutg', {
   getSettings: () => ipcRenderer.invoke('sproutg:get-settings'),
   getWorkSession: () => ipcRenderer.invoke('sproutg:get-work-session'),
   saveWorkSession: (snapshot) => ipcRenderer.send('sproutg:save-work-session', snapshot),
+  copyMcc3ds: () => ipcRenderer.invoke('sproutg:copy-mcc-3ds'),
   setSetting: (partial) => ipcRenderer.invoke('sproutg:set-setting', partial),
   openSettings: () => ipcRenderer.invoke('sproutg:open-settings'),
   openStats: () => ipcRenderer.invoke('sproutg:open-stats'),

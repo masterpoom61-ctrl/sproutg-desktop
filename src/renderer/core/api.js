@@ -85,6 +85,7 @@
   let cacheGeneration = 0;
   let lastVersion = '';
   let pendingRequests = 0;
+  let activeProfileRequests = 0;
   let pendingMutations = 0;
   let localQueuePending = 0;
   let lastQueueConfirmationRevision = 0;
@@ -342,12 +343,14 @@
     return { ok: false, error: err?.message || String(err || 'Unknown API error'), code: err?.code || 'CLIENT_ERROR' };
   }
 
-  function setLoading(delta) {
+  function setLoading(delta, profileRequest = false) {
     const wasBusy = Math.max(pendingRequests, localQueuePending) > 0;
     pendingRequests = Math.max(0, pendingRequests + delta);
+    if (profileRequest) activeProfileRequests = Math.max(0, activeProfileRequests + delta);
     const totalPending = Math.max(0, pendingRequests, localQueuePending);
     const isBusy = totalPending > 0;
     document.documentElement.classList.toggle('api-busy', isBusy);
+    document.documentElement.classList.toggle('api-working', activeProfileRequests + pendingMutations + localQueuePending > 0);
     const count = document.getElementById('apiPendingCount');
     if (count) {
       count.textContent = totalPending > 1 ? String(totalPending) : '';
@@ -377,6 +380,10 @@
 
   function isPriorityRead(action) {
     return READ_ACTIONS.has(action) && /^(o1\.profile|mcc\.profile|company\.formMeta|o1\.lists|mcc\.lists)/.test(String(action || ''));
+  }
+
+  function isProfileRead(action) {
+    return /^(o1\.profileBy(?:Name|Row)|o1\.profilesByRows|mcc\.profile)$/.test(action);
   }
 
   function emitPriority(action, active) {
@@ -427,8 +434,9 @@
 
     emitPriority(action, true);
     const mutation = !READ_ACTIONS.has(action);
+    const profileRequest = isProfileRead(action);
     if (mutation) setMutationPending(1);
-    setLoading(1);
+    setLoading(1, profileRequest);
     try {
       if (!useCache) {
         return await performApiCall(action, payload, requestOpts, { useCache: false });
@@ -460,23 +468,24 @@
       );
       return await flight.promise;
     } finally {
-      setLoading(-1);
       if (mutation) setMutationPending(-1);
+      setLoading(-1, profileRequest);
       emitPriority(action, false);
     }
   }
 
   async function batchApi(calls = [], opts = {}) {
-    setLoading(1);
+    const list = Array.isArray(calls) ? calls : [];
+    const profileRequest = list.some(call => isProfileRead(call?.action));
+    setLoading(1, profileRequest);
     try {
       const res = await window.sproutg.apiBatch(calls, opts);
       observeVersion(res);
-      const hasMutation = (Array.isArray(calls) ? calls : [])
-        .some((call) => !READ_ACTIONS.has(String(call?.action || '')));
+      const hasMutation = list.some((call) => !READ_ACTIONS.has(String(call?.action || '')));
       if (hasMutation && isSuccessfulResult(res)) invalidateReadCache();
       return res;
     } finally {
-      setLoading(-1);
+      setLoading(-1, profileRequest);
     }
   }
 
@@ -487,8 +496,9 @@
     const payload = spec.payload(Array.from(args || []));
     const durableAttempt = beginDurableAttempt(spec.action, payload);
     const mutation = !READ_ACTIONS.has(spec.action);
+    const profileRequest = isProfileRead(spec.action);
     if (mutation) setMutationPending(1);
-    setLoading(1);
+    setLoading(1, profileRequest);
     try {
       const res = await window.sproutg.legacyCall(spec.action, payload, opts);
       updateDurableFailure(spec.action, payload, res, durableAttempt);
@@ -500,8 +510,8 @@
       updateDurableFailure(spec.action, payload, normalized, durableAttempt);
       return normalized;
     } finally {
-      setLoading(-1);
       if (mutation) setMutationPending(-1);
+      setLoading(-1, profileRequest);
     }
   }
 

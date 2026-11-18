@@ -179,7 +179,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
   applyDesktopSettings(s || { theme: 'dark-classic' });
 })();
 
-  const APP_VERSION = '2.3.4';
+  const APP_VERSION = '2.3.5';
   const PAGE_KEY = 'FarmA.page';
   const HOME_RETURN_KEY = 'FarmA.homeReturnPage';
   const THEME_KEY = 'sproutg.theme';
@@ -1622,16 +1622,16 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
   document.getElementById('profile').addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ e.preventDefault(); search(); }});
   document.getElementById('fltText').addEventListener('input', ()=>{ renderFilterList(); updateHeaderNav(); });
   document.getElementById('profilePill').addEventListener('click', async ()=>{ if(current?.profileName) await copyText(current.profileName); });
-  document.getElementById('pageSwitchO1').addEventListener('change', (e)=>setActivePage(e.target.value));
+  document.getElementById('pageSwitchO1').addEventListener('change', (e)=>choosePage(e.target.value));
 
   document.getElementById('mccProfileInput').addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ e.preventDefault(); mccSearch(); }});
   document.getElementById('mccProfilePill').addEventListener('click', async ()=>{
     if(mccEditMode) return;
     if(mccProfile?.profileName) await copyText(mccProfile.profileName);
   });
-  document.getElementById('pageSwitchMcc').addEventListener('change', (e)=>setActivePage(e.target.value));
-  document.getElementById('pageSwitchExtra')?.addEventListener('change', (e)=>setActivePage(e.target.value));
-  document.getElementById('pageSwitchCompany')?.addEventListener('change', (e)=>setActivePage(e.target.value));
+  document.getElementById('pageSwitchMcc').addEventListener('change', (e)=>choosePage(e.target.value));
+  document.getElementById('pageSwitchExtra')?.addEventListener('change', (e)=>choosePage(e.target.value));
+  document.getElementById('pageSwitchCompany')?.addEventListener('change', (e)=>choosePage(e.target.value));
   document.getElementById('companyAddBtn')?.addEventListener('click', ()=>openCompanyForm());
   document.getElementById('companySubmitBtn')?.addEventListener('click', ()=>submitCompanyForm());
   document.getElementById('mccProfileTabsSelect')?.addEventListener('change', (e)=>{
@@ -1639,6 +1639,17 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     const entry = mccProfileTabMap.get(key);
     if(!entry) return;
     openMccProfileTab(entry, { targetAccountName: entry.lastAccount || '' });
+  });
+
+  document.addEventListener('paste', (event)=>{
+    const input = event.target;
+    if(!input?.matches?.('input[type="date"]') || input.disabled || input.readOnly) return;
+    const iso = sheetDateToIso(event.clipboardData?.getData('text/plain'));
+    if(!iso) return;
+    event.preventDefault();
+    if(input.value === iso) return;
+    input.value = iso;
+    input.dispatchEvent(new Event('input', { bubbles:true }));
   });
 
   window.addEventListener('load', ()=>{
@@ -1872,18 +1883,38 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
   let workSessionRestoringSnapshot = null;
   let workSessionLast = '';
   let workSessionUserAction = false;
+  let workSessionScrollTimer = null;
 
-  function persistWorkSession_(){
+  function persistWorkSession_(clearIfEmpty = false){
     if(!workSessionReady || workSessionPending || Date.now() < workSessionRestoreUntil) return;
     const snap = captureSproutScroll_('work-session');
-    const value = window.SproutWorkSession.normalize(activePage === snap?.page
+    const canSave = activePage === snap?.page && !(activePage === 'O1' && current?.__loading);
+    const value = window.SproutWorkSession.normalize(canSave
       ? { ...snap, account:activePage === 'MCC' ? mccActiveAccount : '' } : null);
     // A temporary loading placeholder must not erase the last working account.
-    if(['O1', 'MCC'].includes(activePage) && !value) return;
+    if(clearIfEmpty !== true && ['O1', 'MCC'].includes(activePage) && !value) return;
     const serialized = JSON.stringify(value);
     if(serialized === workSessionLast) return;
     workSessionLast = serialized;
     window.sproutg?.saveWorkSession?.(value);
+  }
+
+  function clearClosedO1WorkSession_(){
+    if(activePage !== 'O1') return;
+    workSessionPending = null;
+    workSessionRestoreUntil = 0;
+    workSessionRestoringSnapshot = null;
+    ++sproutgScrollRestoreSeq;
+    persistWorkSession_(true);
+  }
+
+  function scheduleWorkSessionScrollSave_(event){
+    if(!['mainScrollO1', 'mainScrollMcc'].includes(event.target?.id) || workSessionScrollTimer !== null) return;
+    // Save during continuous scrolling without an fsync per scroll event.
+    workSessionScrollTimer = setTimeout(()=>{
+      workSessionScrollTimer = null;
+      persistWorkSession_();
+    }, 160);
   }
 
   function resumeWorkSessionAfterRender_(){
@@ -1931,7 +1962,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
       }
     };
     for(const type of ['pointerdown', 'keydown', 'wheel']) document.addEventListener(type, cancelRestore, { capture:true, passive:true });
-    document.addEventListener('scroll', persistWorkSession_, { capture:true, passive:true });
+    document.addEventListener('scroll', scheduleWorkSessionScrollSave_, { capture:true, passive:true });
     window.addEventListener('pagehide', persistWorkSession_);
     window.addEventListener('beforeunload', persistWorkSession_);
     document.addEventListener('visibilitychange', persistWorkSession_);
@@ -2032,7 +2063,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     requestAnimationFrame(updateSideSyncButtons);
     if(next === 'MCC') requestAnimationFrame(()=>{ loadMccOverview({ silent:true }); preloadMccApellIndex(); });
     if(next === 'COMPANY') requestAnimationFrame(()=>updateCompanyMeta());
-    requestAnimationFrame(persistWorkSession_);
+    requestAnimationFrame(()=>persistWorkSession_(opts.persist === true));
   }
 
   function updatePageSwitchers(page){
@@ -2204,8 +2235,6 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
 
   function runProfileReveal(shell){
     if(!shell) return;
-    shell.classList.remove('profileReveal');
-    void shell.offsetWidth;
     shell.classList.add('profileReveal');
     setTimeout(()=>shell.classList.remove('profileReveal'), 2100);
   }
@@ -2557,6 +2586,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
       current = activeTabKey ? tabData[activeTabKey] : null;
       editMode=false;
       document.getElementById('out').innerHTML='';
+      clearClosedO1WorkSession_();
       if(current && current.__loading){
         showO1LoadingPlaceholder();
         updateHeader();
@@ -2578,6 +2608,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     current=null;
     editMode=false;
     document.getElementById('out').innerHTML='';
+    clearClosedO1WorkSession_();
     renderTabs();
     updateHeader();
   }
@@ -6076,7 +6107,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
           const inp=document.createElement('input');
           inp.type='date';
           inp.className=('value '+proxyClass+truncClass+rsClass).trim();
-          inp.value=String(f.value||'');
+          inp.value=sheetDateToIso(f.value);
           inp.dataset.col = f.col;
           inp.dataset.row = String(res.row);
           inp.dataset.prevValue = String(f.value || '');
@@ -6147,7 +6178,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
         }
 
         // TEXT
-        const isEmptyAccountInlineText = g.name === 'Аккаунт' && (col === 'X' || col === 'AD') && !String(f.value ?? '').trim();
+        const isEmptyAccountInlineText = !editMode && g.name === 'Аккаунт' && (col === 'X' || col === 'AD') && !String(f.value ?? '').trim();
         if(editMode || (g.name==='Речек' && col==='BS') || isEmptyAccountInlineText){
           const inp=document.createElement('input');
           inp.type='text';
@@ -6210,11 +6241,14 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
           }
           applySheetCellColorHint(inp, f.bg);
 
-          inp.addEventListener('blur', ()=>{
+          let lastInlineValue = String(f.value ?? '');
+          const commitText = ()=>{
             if(g.name==='Речек' && col==='BS' && inp.dataset.placeholderDefault === '1'){
               return;
             }
             const nextValue = inp.value;
+            if(isEmptyAccountInlineText && lastInlineValue === nextValue && inp.dataset.unsaved !== '1') return;
+            lastInlineValue = nextValue;
             f.value = nextValue;
             if(g.name==='Речек' && col==='BS') applyBSColor(inp, nextValue);
             const isProxyMain = g.name === 'Прокси' && col === 'F';
@@ -6235,12 +6269,16 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
                 toast('Сохранено');
                 if(isProxyMain) updateProxyFieldsFromServer('O1', res.row, nextValue);
                 const finalValue = String(applied ?? nextValue).trim();
-                if(isEmptyAccountInlineText && finalValue){
+                if(isEmptyAccountInlineText && finalValue && inp.isConnected && !editMode && inp.value.trim() === finalValue){
                   rerenderCurrentO1Soft(res.row, `inline-${col}-locked`);
                 }
               },
               onFailed: (err)=>{ toast(err||'Ошибка'); }
             });
+          };
+          inp.addEventListener('blur', commitText);
+          if(isEmptyAccountInlineText) inp.addEventListener('input',(event)=>{
+            if(event.inputType === 'insertFromPaste' || inp.dataset.saving === '1') commitText();
           });
 
           inp.addEventListener('keydown',(e)=>{ if(e.key==='Enter'){ e.preventDefault(); inp.blur(); }});
@@ -7155,7 +7193,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
   }
 
   function pruneMccProfileTabs(){
-    if(mccProfileTabs.length <= MCC_PROFILE_CACHE_LIMIT) return;
+    if(mccProfileTabs.length <= MCC_PROFILE_CACHE_LIMIT) return false;
     const sorted = [...mccProfileTabs].sort((a,b)=>(a.lastUsed||0)-(b.lastUsed||0));
     const remove = sorted.slice(0, mccProfileTabs.length - MCC_PROFILE_CACHE_LIMIT);
     for(const entry of remove){
@@ -7164,6 +7202,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
       if(idx >= 0) mccProfileTabs.splice(idx,1);
       mccProfileCache.delete(entry.key);
     }
+    return true;
   }
 
   function pruneMccProfileCache(){
@@ -7189,7 +7228,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
   }
 
   function persistMccProfileTabs(){
-    pruneMccProfileTabs();
+    const pruned = pruneMccProfileTabs();
     try{
       const data = mccProfileTabs.map(entry=>({
         key: entry.key,
@@ -7200,7 +7239,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
       }));
       localStorage.setItem(MCC_PROFILE_TABS_KEY, JSON.stringify(data));
     }catch(e){}
-    persistMccProfileCache();
+    if(pruned) persistMccProfileCache();
   }
 
   function touchMccProfileTab(key){
@@ -7315,8 +7354,8 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     if(!mccProfile?.profileName) return;
     const key = getMccProfileKey(mccProfile.profileName);
     const entry = mccProfileTabMap.get(key);
-    if(entry){
-      entry.lastAccount = mccActiveAccount || entry.lastAccount || '';
+    if(entry && mccActiveAccount && entry.lastAccount !== mccActiveAccount){
+      entry.lastAccount = mccActiveAccount;
       entry.lastUsed = Date.now();
       persistMccProfileTabs();
     }
@@ -7374,6 +7413,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     mccProfileCache.set(newKey, { profile, lastUsed:Date.now() });
     if(mccActiveProfileKey === oldKey) mccActiveProfileKey = newKey;
     persistMccProfileTabs();
+    persistMccProfileCache();
     renderMccProfileTabsSelect();
     return true;
   }
@@ -7741,7 +7781,6 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     if(mccActiveAccount === name) return;
     mccActiveAccount = name;
     updateMccNav();
-    rememberMccActiveAccount();
     requestAnimationFrame(()=>mccEnsureTabVisible(idx));
   }
 
@@ -7867,7 +7906,6 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     if(!row) return;
     mccActiveAccount = row.accountName || '';
     updateMccNav();
-    rememberMccActiveAccount();
     requestAnimationFrame(()=>requestAnimationFrame(()=>{
       mccScrollToSection(`mcc-account-${idx}`);
     }));
@@ -8196,7 +8234,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     if(!c){ onFail?.('Bad col'); return; }
     saveMccCellsInstant(row, { [c]: value }, onOk, onFail);
   }
-  function mccBuildButton(text, col, isDate=false){
+  function mccBuildButton(text, col, isDate=false, copyValue){
     const btn = document.createElement('button');
     btn.type='button';
     btn.className='btn value';
@@ -8204,7 +8242,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     btn.textContent = isDate ? (val ? toRuDate(val) : '') : val;
     btn.title = col;
     btn.dataset.col = col;
-    btn.addEventListener('click', ()=>copyText(btn.textContent));
+    btn.addEventListener('click', ()=>copyText(copyValue ?? btn.textContent));
     if(mccIsExpenseCol(col)){
       btn.dataset.bs = '1';
       applyMccExpenseColor(btn, val);
@@ -8227,8 +8265,9 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     }
     applySheetCellColorHint(inp, rowObj?.bgMap?.[col]);
 
-    inp.addEventListener('input', ()=>{
+    inp.addEventListener('input', (event)=>{
       if(inp.dataset.saving === '1' || opts.instant){
+        if(opts.inlineCopy && event.inputType === 'insertFromPaste') inp.dataset.copyOnSave = '1';
         opts.onPending?.(inp.value);
         commit();
       }
@@ -8236,7 +8275,13 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
 
     const commit = ()=>{
       const nextValue = inp.value;
-      if(inp.dataset.lastDurableValue === String(nextValue) && inp.dataset.unsaved !== '1') return;
+      if(inp.dataset.lastDurableValue === String(nextValue) && inp.dataset.unsaved !== '1'){
+        if(opts.inlineCopy && inp.dataset.copyOnSave === '1' && inp.dataset.saving !== '1'){
+          opts.onSave?.(nextValue, inp);
+        }
+        return;
+      }
+      if(opts.inlineCopy && !nextValue && !inp.dataset.lastDurableValue && inp.dataset.unsaved !== '1') return;
       inp.dataset.lastDurableValue = String(nextValue);
       delete inp.dataset.pendingNextValue;
 
@@ -8263,12 +8308,15 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
         rowObj.values[col] = committedValue;
         finish(true);
         toast('Сохранено');
-        opts.onSave?.(committedValue);
+        opts.onSave?.(committedValue, inp);
       }, (err)=>{ finish(false); toast(err||'Ошибка'); });
       updateMccTabsColors();
     };
 
-    inp.addEventListener('blur', commit);
+    inp.addEventListener('blur', ()=>{
+      if(opts.inlineCopy) inp.dataset.copyOnSave = '1';
+      commit();
+    });
     inp.addEventListener('keydown',(e)=>{ if(e.key==='Enter'){ e.preventDefault(); inp.blur(); }});
     return inp;
   }
@@ -8277,7 +8325,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     const inp = document.createElement('input');
     inp.type = 'date';
     inp.className = 'value';
-    inp.value = mccToIsoDate(value);
+    inp.value = sheetDateToIso(value);
     inp.title = col;
     inp.dataset.col = col;
     inp.dataset.row = String(rowObj.row);
@@ -8376,15 +8424,17 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
       const accountName = String(rowObj.accountName || '').trim();
       control = mccBuildInput(rowObj, 'AC', value, false, {
         instant:!mccEditMode,
-        onSave:(saved)=>{
+        inlineCopy:!mccEditMode,
+        onSave:(saved, input)=>{
           if(String(mccProfile?.profileName || '').trim() !== profileName) return;
           const liveRow = mccProfile.rows.find(row=>String(row.accountName || '').trim() === accountName);
           if(!liveRow) return;
-          syncMccVerificationControls(liveRow, { AC:saved });
+          syncMccVerificationControls(liveRow, { AC:saved }, input);
           updateMccPassLookupAndApply();
           applyPassGeoBadges();
         }
       });
+      if(!mccEditMode) control.dataset.inlineCopy = '1';
     } else {
       control = mccBuildButton(value, 'AC');
     }
@@ -8575,7 +8625,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     xBtn.addEventListener('click', close);
     head.appendChild(xBtn);
 
-    const dateText = rowObj.values?.D ? toRuDate(mccToIsoDate(rowObj.values.D) || rowObj.values.D) : '';
+    const dateText = toRuDate(rowObj.values?.D);
     const items = [
       ['Страна', apell.country || ''],
       ['Деятельность', apell.activity || ''],
@@ -8701,7 +8751,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     const linkValue = String(rowData?.link || '').trim();
     const dateDisplay = String(rowData?.dateDisplay || '').trim();
     const dateIso = String(rowData?.dateIso || '').trim();
-    const dateText = dateDisplay || (dateIso ? toRuDate(dateIso) : '');
+    const dateText = toRuDate(dateIso || dateDisplay) || dateDisplay;
 
     const overlay = document.createElement('div');
     overlay.className = 'appealModalOverlay';
@@ -8909,13 +8959,47 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
   function splitMccCell(raw){
     const s = String(raw || '').trim().replace(/\s+/g,' ');
     if(!s) return { p1:'', p2:'', p3:'' };
-    const m = s.match(/(\d{16})\s+(\d{2}\/\d{2})\s+(\d{3})/);
-    if(m) return { p1:m[1], p2:m[2], p3:m[3] };
+    const m = s.match(/^(\d(?:[ -]*\d){15})(?!\d)/);
+    if(m){
+      const tail = s.slice(m[0].length);
+      const expiry = /\d{2}\/\d{2}/.exec(tail);
+      const codeText = expiry ? tail.slice(expiry.index + expiry[0].length) : tail;
+      const code = /(?:^|\D)(\d{3,4})(?!\d)/.exec(codeText);
+      return { p1:m[1].replace(/\D/g,''), p2:expiry?.[0] || '', p3:code?.[1] || '' };
+    }
     const digits = s.replace(/[^\d]/g,'');
     const exp = (s.match(/\d{2}\/\d{2}/) || [])[0] || '';
     const p1 = digits.slice(0,16);
     const p3 = digits.length >= 19 ? digits.slice(-3) : '';
     return { p1, p2:exp, p3 };
+  }
+
+  function mccBuildCardDataRow(raw){
+    const split = splitMccCell(raw);
+    const row = document.createElement('div');
+    row.className = 'field';
+    const label = document.createElement('div');
+    label.className = 'label';
+    label.textContent = mccGetLabel('G') || 'Карта';
+    const grid = document.createElement('div');
+    grid.className = 'mccCardDataGrid';
+    const number = split.p1.length === 16
+      ? split.p1.slice(0,4) + '...' + split.p1.slice(-4)
+      : split.p1;
+    grid.appendChild(mccBuildButton(number, 'G', false, split.p1));
+    grid.appendChild(mccBuildButton(split.p2, 'G'));
+    grid.appendChild(mccBuildButton(split.p3, 'G'));
+    const copyAll = document.createElement('button');
+    copyAll.type = 'button';
+    copyAll.className = 'btn mccCopyCardBtn';
+    copyAll.title = 'Скопировать все данные карты';
+    copyAll.setAttribute('aria-label', copyAll.title);
+    copyAll.disabled = !String(raw ?? '').trim();
+    copyAll.innerHTML = '<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18M7 15h4"/></svg>';
+    copyAll.addEventListener('click',()=>copyText(raw));
+    grid.appendChild(copyAll);
+    row.append(label, grid);
+    return row;
   }
 
   function stopMccTotp(){
@@ -9000,13 +9084,23 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     });
   }
 
-  function syncMccVerificationControls(rowObj, updates = {}){
+  function syncMccVerificationControls(rowObj, updates = {}, sourceInput = null){
     if(!rowObj?.row) return;
+    const lockInline = !sourceInput || sourceInput.dataset.copyOnSave === '1';
     for(const [colRaw, value] of Object.entries(updates || {})){
       const col = String(colRaw || '').toUpperCase();
       if(!col) continue;
       rowObj.values[col] = value;
       document.querySelectorAll(`#mccOut [data-row="${rowObj.row}"][data-col="${col}"]`).forEach((el)=>{
+        if(col === 'AC' && el.dataset.inlineCopy === '1' && String(value ?? '').trim()){
+          if(el !== sourceInput && (el.dataset.saving === '1' || el.dataset.unsaved === '1')) return;
+          if(lockInline && (el !== sourceInput || el.value === value)){
+            const copy = mccBuildButton(value, 'AC');
+            copy.dataset.row = String(rowObj.row);
+            el.replaceWith(copy);
+            return;
+          }
+        }
         if(el.matches('input,select,textarea')) el.value = String(value ?? '');
         else el.textContent = String(value ?? '');
       });
@@ -9287,24 +9381,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
       eedunsRow.appendChild(document.createElement('div')).className='actions';
       fieldsWrap.appendChild(eedunsRow);
 
-      const splitCol = mccProfile.splitCol || 'P';
-      if(splitCol !== 'P'){
-        const split = splitMccCell(rowObj.values[splitCol]);
-        const splitRow = document.createElement('div');
-        splitRow.className = 'field';
-        const splitLabel = document.createElement('div');
-        splitLabel.className = 'label';
-        splitLabel.textContent = mccGetLabel(splitCol);
-        const splitGrid = document.createElement('div');
-        splitGrid.className = 'mccInlineGrid3';
-        splitGrid.appendChild(mccBuildButton(split.p1, splitCol));
-        splitGrid.appendChild(mccBuildButton(split.p2, splitCol));
-        splitGrid.appendChild(mccBuildButton(split.p3, splitCol));
-        splitRow.appendChild(splitLabel);
-        splitRow.appendChild(splitGrid);
-        splitRow.appendChild(document.createElement('div')).className='actions';
-        fieldsWrap.appendChild(splitRow);
-      }
+      fieldsWrap.appendChild(mccBuildCardDataRow(rowObj.values.G));
 
       const rRow = document.createElement('div');
       rRow.className = 'field';
@@ -9313,7 +9390,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
       rLabel.textContent = mccGetLabel('R');
       rRow.appendChild(rLabel);
       const rWrap = document.createElement('div');
-      rWrap.className = 'mccInlineGrid2';
+      rWrap.className = 'mccDunsGrid';
       const rInput = mccBuildDateInput(rowObj, 'R', rowObj.values.R);
       rWrap.appendChild(rInput);
       const underReviewBtn = document.createElement('button');
@@ -9337,6 +9414,18 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
           .mccSetUnderReviewBg(rowObj.row, mccWriteIdentity_(rowObj.row));
       });
       rWrap.appendChild(underReviewBtn);
+      const copy3ds = document.createElement('button');
+      copy3ds.type = 'button';
+      copy3ds.className = 'btn';
+      copy3ds.textContent = '3DS';
+      copy3ds.title = 'Скопировать текст 3DS из настроек';
+      copy3ds.addEventListener('click', async ()=>{
+        try {
+          const response = await window.sproutg.copyMcc3ds();
+          toast(response.ok ? 'Скопировано' : response.error);
+        } catch { toast('Не удалось скопировать данные 3DS'); }
+      });
+      rWrap.appendChild(copy3ds);
       rRow.appendChild(rWrap);
       rRow.appendChild(document.createElement('div')).className='actions';
       fieldsWrap.appendChild(rRow);
@@ -9724,20 +9813,24 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
   }
   function cssEscape(s){ return String(s||'').replace(/["\\]/g,'\\$&'); }
 
-  function toRuDate(iso){
-    const m=String(iso||'').match(/^(\d{4})-(\d{2})-(\d{2})$/);
-    if(!m) return '';
-    return `${m[3]}.${m[2]}.${m[1]}`;
+  function toRuDate(value){
+    return sheetDateToIso(value).split('-').reverse().join('.');
   }
 
-  function mccToIsoDate(value){
-    const v = String(value || '').trim();
-    if(!v) return '';
-    let m = v.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-    if(m) return v;
-    m = v.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
-    if(m) return `${m[3]}-${m[2]}-${m[1]}`;
-    return '';
+  function sheetDateToIso(value){
+    const text = String(value ?? '').trim();
+    if(!text) return '';
+    const dayText = text.replace(/[T\s]+\d{1,2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:\s?(?:Z|[+-]\d{2}:?\d{2}))?$/, '');
+    const iso = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dayText);
+    const ru = iso ? null : /^(\d{1,2})\.(\d{1,2})\.(\d{4}|\d{2})$/.exec(dayText);
+    if(!iso && !ru) return '';
+    const year = iso ? Number(iso[1]) : Number(ru[3]) + (ru[3].length === 2 ? 2000 : 0);
+    const month = Number((iso || ru)[2]);
+    const day = Number(iso ? iso[3] : ru[1]);
+    if(year < 100 || month < 1 || month > 12 || day < 1 || day > 31) return '';
+    const date = new Date(Date.UTC(year, month - 1, day));
+    if(date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return '';
+    return date.toISOString().slice(0, 10);
   }
 
   function mccGetLabel(col, opts = {}){

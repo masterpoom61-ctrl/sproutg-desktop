@@ -125,6 +125,17 @@ let updateStateUi = { status:'idle' };
 // чтобы раздел "История обновлений" в настройках всегда был актуален для пользователей.
 const RELEASE_HISTORY = [
   {
+    version: '2.3.5',
+    date: '2026-11-18',
+    changes: [
+      'В MCC номер карты отображается как 1234...5678. Нажатие копирует номер целиком, а соседняя кнопка с картой копирует всю ячейку G.',
+      'Кнопка 3DS в строке D-U-N-S копирует текст, сохранённый в настройках на этом компьютере.',
+      'Вставка в пустое поле быстрого ввода после сохранения превращает его в кнопку копирования.',
+      'Исправлены даты и поиск по датам, закрытие и перемещение настроек. Закрытые вкладки больше не открываются при запуске.',
+      'В Lite возвращена анимация загрузки, синхронизации и сохранения. Сокращены повторные чтения Google Таблицы и запись локального снимка прокрутки.'
+    ]
+  },
+  {
     version: '2.3.4',
     date: '2026-10-02',
     changes: [
@@ -838,42 +849,36 @@ function setupElasticBounce(container, target){
   }, { passive:false, capture:true });
 }
 
-function setupAuxWindowDrag(api){
-  if(!api?.dragWindowStart || document.documentElement.dataset.auxDragBound === '1') return;
-  document.documentElement.dataset.auxDragBound = '1';
-  let dragging = false;
-  let pendingPoint = null;
-  let raf = null;
-  const isDragTarget = (target)=>(
-    target?.closest?.('.dragbar, .header') &&
-    !target.closest('button,input,select,textarea,summary,a,[role="button"],.windowClose')
-  );
-  const flushMove = ()=>{
-    raf = null;
-    if(pendingPoint) api.dragWindowMove(pendingPoint).catch(()=>{});
-    pendingPoint = null;
-  };
-  document.addEventListener('pointerdown', (event)=>{
-    if(event.button !== 0 || !isDragTarget(event.target)) return;
-    dragging = true;
-    api.dragWindowStart({ x:event.screenX, y:event.screenY }).catch(()=>{});
+async function setupMcc3dsForm(){
+  const form = $('mcc3dsForm');
+  const input = $('mcc3dsText');
+  const save = $('mcc3dsSave');
+  const status = $('mcc3dsStatus');
+  input.disabled = true;
+  try {
+    const response = await window.sproutgSettings.getMcc3ds();
+    if(response.ok) input.value = response.value;
+    else status.textContent = response.error;
+  } catch {
+    status.textContent = 'Не удалось загрузить текст 3DS';
+  }
+  input.disabled = false;
+  save.disabled = false;
+  form.addEventListener('submit', async (event)=>{
     event.preventDefault();
-  }, { capture:true });
-  window.addEventListener('pointermove', (event)=>{
-    if(!dragging) return;
-    pendingPoint = { x:event.screenX, y:event.screenY };
-    if(!raf) raf = requestAnimationFrame(flushMove);
-    event.preventDefault();
-  }, { capture:true });
-  const end = ()=>{
-    if(!dragging) return;
-    dragging = false;
-    pendingPoint = null;
-    if(raf){ cancelAnimationFrame(raf); raf = null; }
-    api.dragWindowEnd().catch(()=>{});
-  };
-  window.addEventListener('pointerup', end, { capture:true });
-  window.addEventListener('pointercancel', end, { capture:true });
+    if(save.disabled) return;
+    input.disabled = true;
+    save.disabled = true;
+    try {
+      const response = await window.sproutgSettings.setMcc3ds(input.value);
+      status.textContent = response.ok ? 'Сохранено на этом компьютере' : response.error;
+    } catch {
+      status.textContent = 'Не удалось сохранить текст 3DS';
+    } finally {
+      input.disabled = false;
+      save.disabled = false;
+    }
+  });
 }
 
 async function refresh() {
@@ -1178,5 +1183,5 @@ document.addEventListener('keydown', (event) => {
 setupColorTools();
 refresh();
 setupElasticBounce(document.getElementById('scrollableContent') || settingsCard);
-setupAuxWindowDrag(window.sproutgSettings);
+setupMcc3dsForm();
 

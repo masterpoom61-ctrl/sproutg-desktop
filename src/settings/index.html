@@ -10,11 +10,10 @@
 </head>
 <body>
   <div class="settingsShell">
-    <button class="windowClose" id="settingsCloseBtn" type="button" aria-label="Закрыть">×</button>
     <div class="card" id="settingsCard">
-      <div class="dragbar" title="Перетащить окно"></div>
       <div class="header">
         <div class="title">Настройки</div>
+        <button class="windowClose" id="settingsCloseBtn" type="button" aria-label="Закрыть">×</button>
       </div>
 
       <div class="scrollableContent" id="scrollableContent">
@@ -71,6 +70,15 @@
             <button class="seg" id="mccValidityOff" type="button">Выкл</button>
           </div>
         </div>
+
+        <form class="block mcc3dsForm" id="mcc3dsForm">
+          <label class="label" for="mcc3dsText">Текст для кнопки 3DS в MCC</label>
+          <textarea id="mcc3dsText" rows="2" maxlength="4096" spellcheck="false" autocomplete="off"></textarea>
+          <div class="row">
+            <span class="hint" id="mcc3dsStatus" role="status"></span>
+            <button class="btn" id="mcc3dsSave" type="submit" disabled>Сохранить</button>
+          </div>
+        </form>
 
         <div class="row">
           <div class="label">Размер текста</div>

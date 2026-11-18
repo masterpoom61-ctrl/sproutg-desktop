@@ -13,8 +13,9 @@ function slice(from, to){ return source.slice(source.indexOf(from), source.index
 class Element {
   constructor(tag){ this.tagName = tag.toUpperCase(); this.dataset = {}; this.handlers = {}; this.value = ''; this.textContent = ''; }
   addEventListener(type, fn){ (this.handlers[type] ||= []).push(fn); }
-  dispatch(type){ for(const fn of this.handlers[type] || []) fn({}); }
+  dispatch(type, event = {}){ for(const fn of this.handlers[type] || []) fn(event); }
   matches(selector){ return selector.split(',').includes(this.tagName.toLowerCase()); }
+  replaceWith(element){ this.replacement = element; }
 }
 function fioFixture(edit = false, value = ''){
   const writes = [];
@@ -105,6 +106,60 @@ test('AC sync changes button text, not its unrelated HTML value property', ()=>{
   context.syncMccVerificationControls({row:43,values:{}},{AC:'New FIO'});
   assert.equal(button.textContent,'New FIO'); assert.equal(input.value,'New FIO');
 });
+test('pasting into inline AC replaces the input with a copy button after the durable ACK', ()=>{
+  const { context, row, writes } = fioFixture();
+  const control = context.mccBuildFioControl_(row);
+  const copied = [];
+  context.copyText = value=>copied.push(value);
+  context.document.querySelectorAll = ()=>[control];
+  context.updateMccVerificationPairColors = ()=>{};
+  vm.runInContext(slice('  function syncMccVerificationControls(', '  function buildMccVerificationDateControl('),context);
+  control.value = 'Иванов Иван';
+  control.dispatch('input',{ inputType:'insertFromPaste' });
+  assert.equal(control.replacement, undefined);
+  writes[0][3]();
+  const button = control.replacement;
+  assert.equal(button.tagName,'BUTTON');
+  assert.equal(button.dataset.row,'42');
+  button.dispatch('click');
+  assert.deepEqual(copied,['Иванов Иван']);
+});
+
+test('MCC masks the number, copies all 16 digits, and preserves the whole G value separately', ()=>{
+  const { context } = fioFixture();
+  const copied = [];
+  context.copyText = value=>copied.push(value);
+  context.mccGetLabel = ()=> 'Карта';
+  context.document.createElement = tag => {
+    const el = new Element(tag);
+    el.children = [];
+    el.appendChild = child => el.children.push(child);
+    el.append = (...children) => el.children.push(...children);
+    el.setAttribute = ()=>{};
+    return el;
+  };
+  vm.runInContext(slice('  function splitMccCell(', '  function stopMccTotp('), context);
+  const raw = '1234 5678 9012 3456\n12/28 987';
+  const row = context.mccBuildCardDataRow(raw);
+  const [pan, date, cvv, wholeCell] = row.children[1].children;
+  assert.equal(pan.textContent, '1234...3456');
+  assert.equal(date.textContent, '12/28');
+  assert.equal(cvv.textContent, '987');
+  pan.dispatch('click');
+  wholeCell.dispatch('click');
+  assert.deepEqual(copied, ['1234567890123456', raw]);
+});
+
+test('desktop calendar dates accept two and four digit years without shifting the day', ()=>{
+  const context = vm.createContext({});
+  vm.runInContext(slice('  function toRuDate(', '  function mccGetLabel('), context);
+  for(const input of ['15.11.26','15.11.2026','15.11.26 01:00:00','2026-11-15T00:00:00+03:00']){
+    assert.equal(context.sheetDateToIso(input),'2026-11-15');
+    assert.equal(context.toRuDate(input),'15.11.2026');
+  }
+  assert.equal(context.sheetDateToIso('29.02.24'),'2024-02-29');
+  assert.equal(context.sheetDateToIso('29.02.2026'),'');
+});
 test('work session validates offsets and matches semantic profile even after sheet row moves', ()=>{
   const value = session.normalize({page:'MCC',profile:'P',row:42,account:'02',scrollTop:1234,scrollLeft:-10});
   assert.equal(value.scrollTop,1234); assert.equal(value.scrollLeft,0);
@@ -160,4 +215,29 @@ test('trusted user navigation cancels delayed startup restoration',async()=>{
   f.listeners.pointerdown({isTrusted:true});
   f.context.resumeWorkSessionAfterRender_();
   assert.equal(f.restored.length,0);
+});
+
+test('closing the final O1 tab immediately clears its restart snapshot',async()=>{
+  const f=resumeFixture(null);
+  await f.context.setupWorkSession_();
+  const context = f.context;
+  context.activePage = 'O1';
+  context.current = { row:90, profileName:'P' };
+  context.openTabs = ['P'];
+  context.activeTabKey = 'P';
+  context.tabData = { P:context.current };
+  context.tabNav = {};
+  context.captureSproutScroll_ = () => context.current
+    ? { page:'O1', profile:'P', row:'90', scrollTop:480 }
+    : { page:'' };
+  context.getO1PendingCountForRow = ()=>0;
+  context.document.getElementById = ()=>({innerHTML:''});
+  context.renderTabs = ()=>{};
+  context.updateHeader = ()=>{};
+  vm.runInContext(slice('  function closeTab(', '  function clearAllTabs('),context);
+  context.persistWorkSession_();
+  context.closeTab('P');
+  assert.equal(f.persisted.at(-2).profile,'P');
+  assert.equal(f.persisted.at(-1),null);
+  assert.equal(context.current,null);
 });

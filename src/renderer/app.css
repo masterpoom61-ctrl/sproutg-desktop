@@ -769,6 +769,16 @@ body{
     @keyframes sgSectionIn{from{opacity:.65;transform:translateY(5px);}to{opacity:1;transform:translateY(0);}}
     @keyframes sgSavePulse{0%{box-shadow:0 0 0 0 rgba(36,214,128,0);}35%{box-shadow:0 0 0 4px rgba(36,214,128,.22);}100%{box-shadow:0 0 0 0 rgba(36,214,128,0);}}
     @keyframes sgShimmer{to{transform:translateX(100%);}}
+    @media (prefers-reduced-motion: no-preference){
+      html[data-graphics="lite"] .o1LoadingSpinner,
+      html[data-graphics="lite"].api-working .apiSpinner{animation:apiSpin .75s linear infinite!important;}
+      html[data-graphics="lite"] .profileReveal{
+        animation:sgLiteProfileIn 180ms ease-out both!important;
+        will-change:auto;
+        transform:none;
+      }
+    }
+    @keyframes sgLiteProfileIn{from{opacity:.55;}to{opacity:1;}}
 
     .namePill{
       display:inline-flex;align-items:center;gap:8px;
@@ -890,6 +900,19 @@ body{
       gap:8px;
       width:100%;
     }
+    .mccCardDataGrid,.mccDunsGrid{
+      display:grid;
+      width:100%;
+      min-width:0;
+      gap:6px;
+    }
+    .mccCardDataGrid{grid-template-columns:minmax(0,1.6fr) minmax(0,1fr) minmax(0,.8fr) 30px;}
+    .mccCardDataGrid .value{min-width:0;padding-inline:5px;}
+    .mccCopyCardBtn{min-width:0;padding:0;display:grid;place-items:center;}
+    .mccCopyCardBtn svg{width:16px;height:16px;}
+    .mccDunsGrid{grid-template-columns:minmax(0,1fr) minmax(0,1.35fr) auto;}
+    .mccDunsGrid > *{min-width:0;}
+    .mccDunsGrid .btn{padding-inline:6px;}
     .mccRowMain{
       display:flex;
       flex-direction:column;

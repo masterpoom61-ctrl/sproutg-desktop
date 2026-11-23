@@ -173,7 +173,15 @@ let lastSettingsClosedAt = 0;
 let isQuitting = false;
 let quitApproved = false;
 
-app.on('second-instance', () => {
+app.on('second-instance', (_event, argv) => {
+  const exportArg = argv.find(arg => /^--octo-export=[a-f0-9-]{36}$/.test(arg));
+  if (exportArg && process.platform === 'win32') {
+    const { exportOctoRecords } = require('./main/octoExport');
+    const directory = path.join(process.env.LOCALAPPDATA, 'SproutG-Octo', 'exports');
+    exportOctoRecords(exportArg.slice('--octo-export='.length), bridgeManager, directory)
+      .catch(error => console.error('Octo export:', error.code || 'I/O error'));
+    return;
+  }
   if (!mainWindow || mainWindow.isDestroyed()) return;
   if (mainWindow.isMinimized()) mainWindow.restore();
   if (!mainWindow.isVisible()) mainWindow.show();
@@ -380,6 +388,8 @@ function configureAutoUpdater(){
   autoUpdater.autoInstallOnAppQuit = false;
   autoUpdater.allowPrerelease = cfg.allowPrerelease;
   if (cfg.channel) autoUpdater.channel = cfg.channel;
+  // Setting the channel enables downgrades in electron-updater.
+  autoUpdater.allowDowngrade = false;
 
   if (cfg.provider === 'github' && !isPlaceholderValue(cfg.owner) && !isPlaceholderValue(cfg.repo)) {
     const feed = { provider: 'github', owner: cfg.owner, repo: cfg.repo, private: cfg.private };

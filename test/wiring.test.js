@@ -42,7 +42,7 @@ test("O1 row reads carry stable profile identity and tabs are keyed by profile",
   );
   assert.match(
     renderer,
-    /getProfileByRow\([\s\S]{0,180}expectedProfileName\s*\?\s*\{\s*profileName:expectedProfileName\s*\}/
+    /const identity = expectedProfileName\s*\?\s*\{\s*profileName:expectedProfileName\s*\}[\s\S]{0,280}\.getProfileByRow\(row, identity\)/
   );
   assert.match(
     renderer,

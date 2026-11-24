@@ -70,13 +70,13 @@ function passportFixture(){
     syncMccVerificationControls:(...args)=>synced.push(args), updateMccPassLookupAndApply:()=>{}, applyPassGeoBadges:()=>{},
     saveMccCellInstant:(...args)=>writes.push(args), closePassModal:()=>closed++ });
   vm.runInContext('let passSelectionSession = {profileName:"P",accountName:"02",pending:false};'
-    + slice('  function selectMccPassport_(', '  function renderPassModalStatus('), context);
+    + slice('  function selectPassport_(', '  function renderPassModalStatus('), context);
   return { context,writes,copied,synced,closed:()=>closed };
 }
 test('passport selection writes exact target AC, copies and closes only after durable ACK', ()=>{
   const f = passportFixture();
-  f.context.selectMccPassport_('Passport');
-  f.context.selectMccPassport_('Duplicate click');
+  f.context.selectPassport_('Passport');
+  f.context.selectPassport_('Duplicate click');
   assert.equal(f.writes.length,1);
   assert.deepEqual(f.writes[0].slice(0,3),[43,'AC','Passport']);
   assert.equal(f.copied.length,0); assert.equal(f.closed(),0);
@@ -86,16 +86,16 @@ test('passport selection writes exact target AC, copies and closes only after du
 });
 test('passport target follows moved rows but rejects changed profiles and duplicate accounts', ()=>{
   const moved = passportFixture(); moved.context.mccProfile.rows[1].row = 81;
-  moved.context.selectMccPassport_('Passport'); assert.equal(moved.writes[0][0],81);
+  moved.context.selectPassport_('Passport'); assert.equal(moved.writes[0][0],81);
   const changed = passportFixture(); changed.context.mccProfile.profileName = 'Other';
-  changed.context.selectMccPassport_('Passport'); assert.equal(changed.writes.length,0);
+  changed.context.selectPassport_('Passport'); assert.equal(changed.writes.length,0);
   const duplicate = passportFixture(); duplicate.context.mccProfile.rows.push({row:82,accountName:'02'});
-  duplicate.context.selectMccPassport_('Passport'); assert.equal(duplicate.writes.length,0);
+  duplicate.context.selectPassport_('Passport'); assert.equal(duplicate.writes.length,0);
 });
 test('passport failure keeps picker open and retry enabled; late ACK cannot update another profile', ()=>{
-  const f = passportFixture(); f.context.selectMccPassport_('Passport'); f.writes[0][4]('disk failed');
+  const f = passportFixture(); f.context.selectPassport_('Passport'); f.writes[0][4]('disk failed');
   assert.equal(f.copied.length,0); assert.equal(f.closed(),0);
-  f.context.selectMccPassport_('Retry'); assert.equal(f.writes.length,2);
+  f.context.selectPassport_('Retry'); assert.equal(f.writes.length,2);
   f.context.mccProfile.profileName = 'Other'; f.writes[1][3]();
   assert.equal(f.synced.length,0);
 });
@@ -190,7 +190,7 @@ function resumeFixture(saved){
   const context = vm.createContext({window:{SproutWorkSession:session,addEventListener:()=>{},sproutg:{
     getWorkSession:async()=>saved,saveWorkSession:s=>persisted.push(s) }},
     document:{addEventListener:(event,fn)=>listeners[event]=fn},Date:{now:()=>now},
-    activePage:'',mccActiveAccount:'01',sproutgScrollRestoreSeq:0,
+    activePage:'',current:null,mccActiveAccount:'01',sproutgScrollRestoreSeq:0,
     captureSproutScroll_:()=>({page:context.activePage,profile:'P',row:'90',scrollTop:0,scrollLeft:0}),
     getCurrentScrollContext_:()=>({page:context.activePage,profile:'P',row:'90'}),
     requestAnimationFrame:()=>{},setTimeout:()=>{},console,
@@ -243,4 +243,39 @@ test('closing the final O1 tab immediately clears its restart snapshot',async()=
   assert.equal(f.persisted.at(-2).profile,'P');
   assert.equal(f.persisted.at(-1),null);
   assert.equal(context.current,null);
+});
+
+test('closing the previously saved tab while another tab loads clears the O1 snapshot', async()=>{
+  const f = resumeFixture(null);
+  await f.context.setupWorkSession_();
+  const ctx = f.context;
+  ctx.activePage = 'O1';
+  ctx.current = { row:90, profileName:'P' };
+  ctx.openTabs = ['P','Q'];
+  ctx.activeTabKey = 'P';
+  ctx.tabData = { P:ctx.current, Q:{ row:91, profileName:'Q', __loading:true } };
+  ctx.tabNav = {};
+  ctx.captureSproutScroll_ = ()=>({ page:'O1', profile:'P', row:'90' });
+  ctx.getO1PendingCountForRow = ()=>0;
+  ctx.renderTabs = ()=>{};
+  vm.runInContext(slice('  function closeTab(', '  function clearAllTabs('),ctx);
+  ctx.persistWorkSession_();
+  ctx.activeTabKey = 'Q';
+  ctx.current = null;
+  ctx.closeTab('P');
+  assert.equal(f.persisted.at(-2).profile, 'P');
+  assert.equal(f.persisted.at(-1), null);
+});
+
+test('2.3.9 ignores legacy O1 snapshots and keeps legacy MCC snapshots', t=>{
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(),'sproutg-session-legacy-'));
+  const file = path.join(dir,'session.json');
+  t.after(()=>fs.rmSync(dir,{ recursive:true, force:true }));
+  const snapshot = { page:'O1', profile:'P', row:42, scrollTop:37 };
+  fs.writeFileSync(file,JSON.stringify({ schema:1, endpoint:'A', snapshot }));
+  assert.equal(loadWorkSession(file,'A'),null);
+  fs.writeFileSync(file,JSON.stringify({ schema:1, endpoint:'A', snapshot:{ ...snapshot,page:'MCC' } }));
+  assert.equal(loadWorkSession(file,'A').page,'MCC');
+  saveWorkSession(file,'A',snapshot);
+  assert.equal(loadWorkSession(file,'A').profile,'P');
 });

@@ -2110,7 +2110,7 @@ ipcMain.handle('sproutg:set-mcc-3ds', async (event, value)=>{
 });
 
 ipcMain.handle('sproutg:copy-mcc-3ds', async (event)=>{
-  if(event.sender !== mainWindow?.webContents) return { ok:false, error:'Откройте окно MCC' };
+  if(event.sender !== mainWindow?.webContents) return { ok:false, error:'Откройте основное окно SproutG' };
   try {
     const value = await readMcc3dsText();
     if(!value) return { ok:false, error:'Укажите текст 3DS в настройках' };

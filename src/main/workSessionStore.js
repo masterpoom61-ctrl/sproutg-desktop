@@ -8,7 +8,7 @@ function saveWorkSession(file, endpoint, snapshot){
   const temporary = file + '.tmp';
   const fd = fs.openSync(temporary, 'w');
   try {
-    fs.writeFileSync(fd, JSON.stringify({ schema:1, endpoint, snapshot:value }), 'utf8');
+    fs.writeFileSync(fd, JSON.stringify({ schema:2, endpoint, snapshot:value }), 'utf8');
     fs.fsyncSync(fd);
   } finally { fs.closeSync(fd); }
   fs.renameSync(temporary, file);
@@ -17,7 +17,11 @@ function saveWorkSession(file, endpoint, snapshot){
 function loadWorkSession(file, endpoint){
   try {
     const value = JSON.parse(fs.readFileSync(file, 'utf8'));
-    return value.schema === 1 && value.endpoint === endpoint ? normalize(value.snapshot) : null;
+    if(value.endpoint !== endpoint) return null;
+    const snapshot = normalize(value.snapshot);
+    // Old O1 snapshots do not distinguish an open tab from a stale closed one.
+    if(value.schema === 2 || (value.schema === 1 && snapshot?.page === 'MCC')) return snapshot;
+    return null;
   } catch { return null; }
 }
 module.exports = { saveWorkSession, loadWorkSession };

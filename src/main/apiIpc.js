@@ -135,7 +135,7 @@ function registerApiIpc(ipcMain, bridgeManager, store, options = {}) {
     }
   });
 
-  ipcMain.handle('sproutg:api-call', async (_event, action, payload, opts) => {
+  async function callApi(action, payload, opts) {
     try {
       if (!isReadAction(action)) {
         const integrityFailure = writeIntegrityFailure(options);
@@ -164,7 +164,8 @@ function registerApiIpc(ipcMain, bridgeManager, store, options = {}) {
     } catch (err) {
       return { ok: false, error: err?.message || String(err), code: err?.code || 'BRIDGE_ERROR' };
     }
-  });
+  }
+  ipcMain.handle('sproutg:api-call', (_event, action, payload, opts) => callApi(action, payload, opts));
 
   ipcMain.handle('sproutg:api-batch', async (_event, calls, opts) => {
     try {
@@ -214,6 +215,7 @@ function registerApiIpc(ipcMain, bridgeManager, store, options = {}) {
   });
 
   return {
+    callApi,
     durableWrites,
     bindUnboundToEndpoint: (endpoint) => durableWrites.bindUnboundToEndpoint(endpoint),
     drain: (timeoutMs) => durableWrites.drain(timeoutMs),

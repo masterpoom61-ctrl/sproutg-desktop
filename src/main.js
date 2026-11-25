@@ -174,6 +174,14 @@ let isQuitting = false;
 let quitApproved = false;
 
 app.on('second-instance', (_event, argv) => {
+  const recheckArg = argv.find(arg => /^--octo-recheck=[a-f0-9-]{36}$/.test(arg));
+  if (recheckArg && process.platform === 'win32') {
+    const { handleRecheck } = require('./main/octoRecheck');
+    const directory = path.join(process.env.LOCALAPPDATA, 'SproutG-Octo', 'recheck-app');
+    handleRecheck(directory, recheckArg.slice('--octo-recheck='.length), writeQueueController?.callApi)
+      .catch(error => console.error('SproutG recheck:', error.code || 'I/O error'));
+    return;
+  }
   const exportArg = argv.find(arg => /^--octo-export=[a-f0-9-]{36}$/.test(arg));
   if (exportArg && process.platform === 'win32') {
     const { exportOctoRecords } = require('./main/octoExport');

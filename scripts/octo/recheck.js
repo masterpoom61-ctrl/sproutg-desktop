@@ -7,7 +7,8 @@ const {home,jobs,sleep,online,request,appRequest,clearAppReceipt}=require('./rec
 const {day,findRow,changes}=require('../../src/main/octoRecheck');
 const {nextWeek}=require('./recheck/rules');
 const queue=path.join(home,'queue'), reports=path.join(home,'rechecks');
-const readbackDelays=[0,5000,12000,25000,45000,60000,60000];
+// After the initial cache window, one profile read covers all outstanding rows every five minutes.
+const readbackDelays=[0,5000,12000,25000,45000,60000,120000,...Array(11).fill(300000)];
 function matchesSheet(snapshot,record,today) {
   const row=findRow(snapshot,record.account);
   return !Object.keys(changes(row.values,record,today,snapshot.verificationOptions)).length;
@@ -16,12 +17,16 @@ async function waitForSheet(profile,records,today,readProfile=appRequest,wait=sl
   let details='';
   for (const delay of readbackDelays) {
     if (delay) await wait(delay);
+    let snapshot;
     try {
-      const snapshot=await readProfile(profile,'snapshot');
-      const missing=records.filter(record=>!matchesSheet(snapshot,record,today));
-      if (!missing.length) return snapshot;
-      details=missing.map(r=>r.account).join(', ');
-    } catch(e) { details=e.message; }
+      snapshot=await readProfile(profile,'snapshot');
+    } catch(e) {
+      details=e.message;
+      continue;
+    }
+    const missing=records.filter(record=>!matchesSheet(snapshot,record,today));
+    if (!missing.length) return snapshot;
+    details=missing.map(r=>r.account).join(', ');
   }
   throw Error('Ждём подтверждения таблицы: '+details+'. Результат сохранён в журнале.');
 }

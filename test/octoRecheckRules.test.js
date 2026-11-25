@@ -37,6 +37,14 @@ test('delayed Google Sheets writes are verified as a group with increasing waits
   assert.equal(reads,3);
   assert.deepEqual(delays,[5000,12000]);
 });
+test('slow confirmation backs off to one read per five minutes and continues the existing run',async()=>{
+  const record={account:'03',cost:'0.20',currency:'USD'};
+  const waits=[];
+  const read=async()=>({verificationOptions:[],rows:[{account:'03',row:4,values:{
+    X:waits.length>=9?'0.20':'0.00',W:'2026-11-25',Z:'+'}}]});
+  await waitForSheet('Example MCC',[record],'2026-11-25',read,async ms=>waits.push(ms));
+  assert.deepEqual(waits.slice(-3),[300000,300000,300000]);
+});
 test('a new chat reuses an unresolved write for the same profiles and starts fresh after verification',async t=>{
   const fs=require('node:fs/promises');
   const id='12345678-1111-4444-8888-123456789abc';

@@ -1,0 +1,7 @@
+@echo off
+setlocal
+powershell.exe -NoLogo -NoProfile -Command "$ErrorActionPreference='Stop'; $w=Join-Path $env:LOCALAPPDATA 'SproutG-Octo\Recheck\worker.ps1'; $dir='\\tsclient\Q\recheck-jobs'; if ((Test-Path -LiteralPath $dir) -and @(Get-ChildItem -LiteralPath $dir -Filter '*.running.json').Count) { throw 'Recheck is still working.' }; $suffix='-File '+[char]34+$w+[char]34; Get-CimInstance Win32_Process -Filter 'Name=''powershell.exe''' | Where-Object { $_.ProcessId -ne $PID -and $_.SessionId -eq (Get-Process -Id $PID).SessionId -and $_.CommandLine -and $_.CommandLine.TrimEnd().EndsWith($suffix,[StringComparison]::OrdinalIgnoreCase) } | ForEach-Object { Stop-Process -Id $_.ProcessId -ErrorAction Stop }"
+if errorlevel 1 (pause & exit /b 1)
+set "SPROUTG_RECHECK_SOURCE=%~dp0worker.ps1"
+powershell.exe -NoLogo -NoProfile -Command "$ErrorActionPreference='Stop'; $dir=Join-Path $env:LOCALAPPDATA 'SproutG-Octo\Recheck'; [void][IO.Directory]::CreateDirectory($dir); $worker=Join-Path $dir 'worker.ps1'; Copy-Item -LiteralPath $env:SPROUTG_RECHECK_SOURCE -Destination $worker -Force; $link=(New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path ([Environment]::GetFolderPath('Startup')) 'SproutG Recheck.lnk')); $link.TargetPath=Join-Path $PSHOME 'powershell.exe'; $link.Arguments='-NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -File '+[char]34+$worker+[char]34; $link.WorkingDirectory=$dir; $link.Save(); Start-Process -FilePath $link.TargetPath -ArgumentList $link.Arguments -WindowStyle Hidden"
+if errorlevel 1 (pause & exit /b 1)

@@ -60,7 +60,7 @@ async function processRequest(req,call) {
   if (typeof profile!=='string' || !profile.trim() || profile.length>128 || !['snapshot','save'].includes(action)) throw Error('Неверный запрос речека.');
   if (typeof call!=='function') throw Error('SproutG ещё загружается.');
   const read=async()=>{
-    const reply=await call('mcc.profile',{profileName:profile},{timeoutMs:30000});
+    const reply=await call('mcc.profile',{profileName:profile,fields,dropdowns:true},{timeoutMs:30000});
     if (!reply?.ok) throw Error(reply?.error || 'Не удалось загрузить MCC.');
     return projection(profile,reply.data);
   };

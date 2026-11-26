@@ -94,6 +94,7 @@ class BridgeManager extends EventEmitter {
     this.ready = false;
     this.destroyed = false;
     this.pending = new Map();
+    this.lateCellReplies = new Map();
     this.queue = [];
     this.seq = 0;
     this.generation = 0;
@@ -661,6 +662,7 @@ class BridgeManager extends EventEmitter {
       type: 'API_CALL',
       action,
       payload,
+      onLateResult:opts.onLateResult,
       timeoutMs: opts.timeoutMs || DEFAULT_TIMEOUT_MS,
       queueTimeoutMs: opts.queueTimeoutMs,
       minBridgeVersion: opts.minBridgeVersion,
@@ -829,6 +831,13 @@ class BridgeManager extends EventEmitter {
       return;
     }
 
+    if (typeof item.onLateResult === 'function') {
+      const now = Date.now();
+      for (const [id, reply] of this.lateCellReplies) {
+        if (reply.expiresAt <= now || this.lateCellReplies.size >= 32) this.lateCellReplies.delete(id);
+      }
+      this.lateCellReplies.set(transportId, { accept:item.onLateResult, expiresAt:now + 300000 });
+    }
     this.rejectItem(
       item,
       'Google Таблица отвечает слишком долго',
@@ -839,7 +848,14 @@ class BridgeManager extends EventEmitter {
 
   settle(transportId, result) {
     const item = this.pending.get(transportId);
-    if (!item) return;
+    if (!item) {
+      const reply = this.lateCellReplies.get(transportId);
+      this.lateCellReplies.delete(transportId);
+      if (reply && reply.expiresAt > Date.now()) {
+        try { reply.accept(result); } catch (error) { this.emit('late-write-error', error); }
+      }
+      return;
+    }
     clearTimeout(item.timer);
     this.pending.delete(transportId);
     this.recordMetric({ item, ok: !(result && result.ok === false) });
@@ -886,6 +902,7 @@ class BridgeManager extends EventEmitter {
   }
 
   rejectAllPending(message, code) {
+    this.lateCellReplies.clear();
     for (const item of this.pending.values()) {
       clearTimeout(item.timer);
       this.rejectItem(item, message, code);

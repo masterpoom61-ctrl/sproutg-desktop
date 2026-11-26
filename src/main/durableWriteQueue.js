@@ -11,7 +11,9 @@ const MAX_CONFIRMED_WRITES = 256;
 const MAX_BATCH_SIZE = 80;
 const MAX_CELL_GROUPS_PER_BATCH = 4;
 const MAX_DIRECT_BATCH_SIZE = 8;
-const CELL_BATCH_TIMEOUT_MS = 70000;
+// The deployed 2.3 bridge can spend over two minutes committing and synchronizing MCC.
+const CELL_BATCH_TIMEOUT_MS = 180000;
+const RECEIPT_BRIDGE_VERSION = '2.4.1';
 const DEFAULT_ACK_AFTER_MS = 400;
 const MIN_WRITE_BRIDGE_VERSION = '2.3.0';
 
@@ -343,6 +345,7 @@ function partitionServerSafeGroups(action, groups, maxGroups = MAX_CELL_GROUPS_P
       current.length
       && (
         current.length >= batchLimit
+        || group.items?.[0]?.writerId !== current[0].items?.[0]?.writerId
         || (identityKey && identities.has(identityKey))
       )
     ) {
@@ -620,7 +623,9 @@ function normalizeStoredItem(raw, fallbackEndpointKey = '') {
   }
 
   const seq = Number(raw?.seq || 0) || Date.now();
+  if (raw?.writerId && !/^[a-zA-Z0-9_-]{1,100}$/.test(raw.writerId)) return null;
   return {
+    ...(raw?.writerId ? { writerId:raw.writerId } : {}),
     id: String(raw?.id || `restored-${seq}-${Math.random().toString(36).slice(2, 8)}`),
     action,
     kind: spec.kind,
@@ -693,6 +698,8 @@ const PERMANENT_FAILURE_CODES = new Set([
   'BAD_COL',
   'BAD_DATE',
   'BAD_WRITE',
+  'WRITE_ID_CONFLICT',
+  'SHEET_WRITE_REJECTED',
   'VALIDATION_FAILED',
   'NO_UPDATES',
   'SHEET_EMPTY',
@@ -1154,9 +1161,11 @@ class DurableWriteQueue {
   async flushCellAction(action, items) {
     const spec = ACTION_SPECS.get(action);
     for (const item of items) this.inflight.add(item.id);
+    const useReceipts = versionAtLeast(this.bridgeWriteState().version, RECEIPT_BRIDGE_VERSION);
     const groupedMap = new Map();
     for (const item of items) {
-      const key = targetKey(item.action, item.payload);
+      // A receipt belongs to an original WAL entry. Its columns may be trimmed by a newer edit.
+      const key = useReceipts ? item.id : targetKey(item.action, item.payload);
       if (!groupedMap.has(key)) {
         groupedMap.set(key, {
           payload: {
@@ -1178,7 +1187,7 @@ class DurableWriteQueue {
       // can never inherit one another's resolved row while clients upgrade.
       const safeBatches = partitionServerSafeGroups(action, groups);
       for (const batch of safeBatches) {
-        await this.flushCellGroups(spec.batchAction, batch);
+        await this.flushCellGroups(spec.batchAction, batch, useReceipts);
         this.persist();
       }
     } finally {
@@ -1186,16 +1195,54 @@ class DurableWriteQueue {
     }
   }
 
-  async flushCellGroups(batchAction, groups) {
+  sheetWriterId() {
+    if (this.writerId) return this.writerId;
+    const stored = this.store?.get('sheetWriterId');
+    if (stored) return (this.writerId = stored);
+    const recovered = Array.from(this.pending.values()).find(item => item.writerId);
+    const writerId = recovered?.writerId || crypto.randomUUID();
+    this.store?.set('sheetWriterId', writerId);
+    this.writerId = writerId;
+    return writerId;
+  }
+
+  async flushCellGroups(batchAction, groups, useReceipts = false) {
     let response;
     try {
-      response = await this.bridgeManager.callApi(batchAction, {
-        items: groups.map((group) => group.payload)
-      }, {
-        timeoutMs: CELL_BATCH_TIMEOUT_MS,
-        retries: 0,
-        minBridgeVersion: MIN_WRITE_BRIDGE_VERSION
-      });
+      const items = groups.map((group) => useReceipts
+        ? { ...group.payload, writeId:group.items[0].id, seq:group.items[0].seq }
+        : group.payload);
+      const payload = { items };
+      const options = { timeoutMs:CELL_BATCH_TIMEOUT_MS, retries:0, minBridgeVersion:MIN_WRITE_BRIDGE_VERSION };
+      const endpoint = this.currentEndpointKey();
+      options.onLateResult = (reply) => {
+        if (!reply?.ok || this.currentEndpointKey() !== endpoint) return;
+        this.applyCellResults(groups, reply, useReceipts, true);
+        if (this.persistenceDirty) {
+          try { this.persist(); } catch (error) {
+            this.lastPersistError = error?.message || String(error);
+            this.schedule(1000);
+          }
+        }
+        this.emitState();
+      };
+      if (useReceipts) {
+        payload.writer = groups[0].items[0].writerId || this.sheetWriterId();
+        // Persist the receipt namespace in the WAL before the first request can reach Google.
+        if (!groups[0].items[0].writerId) {
+          for (const group of groups) group.items[0].writerId = payload.writer;
+          this.persist();
+        } else if (this.persistenceDirty) this.persist();
+        options.minBridgeVersion = RECEIPT_BRIDGE_VERSION;
+        if (groups.some(group => group.items[0].attempts > 0)) {
+          const status = await this.bridgeManager.callApi('sheets.writeStatus', {
+            ...payload, scope:batchAction.split('.')[0]
+          }, { timeoutMs:45000, retries:0, minBridgeVersion:RECEIPT_BRIDGE_VERSION });
+          if (!status?.ok) throw Object.assign(new Error(status?.error || 'Нет ответа журнала записи'), { code:status?.code });
+          if (status.data?.complete === true) response = status;
+        }
+      }
+      if (!response) response = await this.bridgeManager.callApi(batchAction, payload, options);
     } catch (error) {
       const message = error?.message || String(error || 'Ошибка пакетного сохранения');
       for (const group of groups) {
@@ -1211,11 +1258,29 @@ class DurableWriteQueue {
       return;
     }
 
+    this.applyCellResults(groups, response, useReceipts, false);
+  }
+
+  applyCellResults(groups, response, useReceipts, late) {
     const data = response.data && typeof response.data === 'object' ? response.data : {};
     const results = Array.isArray(data.results) ? data.results : [];
     for (let index = 0; index < groups.length; index += 1) {
       const group = groups[index];
       const result = results[index];
+      if (late && (result?.ok !== true || !group.items.some(item => this.pending.get(item.id) === item))) continue;
+      if (late && !useReceipts && (Number(result.requestedRow ?? result.row) !== group.payload.row ||
+          !Object.keys(group.payload.updates).every(col => Object.hasOwn(result.applied || {}, col)))) continue;
+      if (useReceipts && result?.ok === true) {
+        const item = group.items[0];
+        if (this.pending.get(item.id) !== item) continue;
+        const valid = result.writeId === item.id && Object.keys(item.payload.updates).every(
+          col => Object.hasOwn(result.applied || {}, col) || result.supersededColumns?.includes(col)
+        );
+        if (!valid) {
+          if (!late) this.markFailed(item, 'Сервер не подтвердил идентификатор и поля записи', 'MISSING_WRITE_RECEIPT');
+          continue;
+        }
+      }
       if (result?.ok === true) {
         const applied = result.applied && typeof result.applied === 'object'
           ? result.applied
@@ -1223,6 +1288,7 @@ class DurableWriteQueue {
         for (const item of group.items) {
           const itemApplied = {};
           for (const col of Object.keys(item.payload.updates)) {
+            if (result.supersededColumns?.includes(col)) continue;
             itemApplied[col] = Object.prototype.hasOwnProperty.call(applied, col)
               ? applied[col]
               : item.payload.updates[col];
@@ -1230,6 +1296,7 @@ class DurableWriteQueue {
           this.complete(item, {
             ok: true,
             ...result,
+            ...(result.supersededColumns?.length && !Object.keys(itemApplied).length ? { superseded:true } : {}),
             applied: itemApplied,
             version: response.version || '',
             ts: response.ts || ''
@@ -1631,6 +1698,7 @@ class DurableWriteQueue {
       .sort((a, b) => a.seq - b.seq)
       .map((item) => ({
         id: item.id,
+        ...(item.writerId ? { writerId:item.writerId } : {}),
         action: item.action,
         kind: item.kind,
         payload: item.payload,

@@ -19,6 +19,7 @@ function normalizeBridgeResult(result) {
   return {
     ok: true,
     data: result.data == null ? {} : result.data,
+    ...(result.revisions ? { revisions:result.revisions } : {}),
     version: result.version || '',
     ts: result.ts || ''
   };
@@ -28,7 +29,7 @@ function legacyShape(result) {
   const normalized = normalizeBridgeResult(result);
   if (!normalized.ok) return normalized;
   const data = normalized.data && typeof normalized.data === 'object' ? normalized.data : { value: normalized.data };
-  return { ok: true, ...data, version: normalized.version, ts: normalized.ts };
+  return { ok: true, ...data, ...(normalized.revisions ? {revisions:normalized.revisions} : {}), version: normalized.version, ts: normalized.ts };
 }
 
 function isLockTimeout(result) {

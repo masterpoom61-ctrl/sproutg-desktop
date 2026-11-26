@@ -168,7 +168,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
   applyDesktopSettings(s || { theme: 'dark-classic' });
 })();
 
-  const APP_VERSION = '2.4.0';
+  const APP_VERSION = '2.4.1';
   const PAGE_KEY = 'FarmA.page';
   const HOME_RETURN_KEY = 'FarmA.homeReturnPage';
   const THEME_KEY = 'sproutg.theme';
@@ -1126,7 +1126,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     clearTimeout(_o1ConfirmedRefreshTimers.get(ownerKey));
     _o1ConfirmedRefreshTimers.set(ownerKey, setTimeout(()=>{
       _o1ConfirmedRefreshTimers.delete(ownerKey);
-      window.sproutgApi?.invalidate?.();
+      window.sproutgApi?.invalidate?.('o1');
       const preferredKey = String(entry.tabKey || getTabKey('', profileName));
       const sourceKey = tabData[preferredKey]
         ? preferredKey
@@ -1296,7 +1296,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     clearTimeout(_mccConfirmedRefreshTimers.get(name));
     _mccConfirmedRefreshTimers.set(name, setTimeout(()=>{
       _mccConfirmedRefreshTimers.delete(name);
-      window.sproutgApi?.invalidate?.();
+      window.sproutgApi?.invalidate?.('mcc');
       google.script.run.withSuccessHandler((response)=>{
         const payload = apiPayload(response);
         if(!payload || payload.ok === false) return;
@@ -1432,7 +1432,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
           renderPassModalStatus('Ожидание подтверждения сохранения...');
           return;
         }
-        window.sproutgApi?.invalidate?.();
+        window.sproutgApi?.invalidate?.('pass');
         syncPassCatalog({ force:true, confirmed:true });
       }, 40);
     } else if(action.startsWith('o1.') && current?.row){
@@ -1510,6 +1510,8 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     geos: [],
     byGeo: {},
     byValue: new Map(),
+    lastReadAt: 0,
+    readRevision: 0,
     activeGeo: 'BY',
     editMode: false,
     loading: false,
@@ -5566,29 +5568,40 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
   }
 
   async function syncPassCatalog(opts = {}){
-    if(_passAwaitingConfirmations.size && !opts.confirmed){
+    if(_passAwaitingConfirmations.size){
       renderPassModalStatus('Ожидание подтверждения сохранения...');
       return;
     }
     if(passState.loading && !opts.force) return;
+    const revision = ++passState.readRevision;
     passState.loading = true;
     renderPassModalStatus('Синхронизация...');
     try{
       const res = await window.sproutgApi.getPassCatalog();
       if(!res || res.ok === false) throw new Error(apiErrorText(res, 'Ошибка PASS'));
+      if(revision !== passState.readRevision || _passAwaitingConfirmations.size) return;
       applyPassCatalog(res);
+      passState.lastReadAt = Date.now();
       renderPassModalStatus('Синхронизировано');
     }catch(error){
-      renderPassModalStatus(String(error?.message || error));
+      if(revision === passState.readRevision) renderPassModalStatus(String(error?.message || error));
     }finally{
-      passState.loading = false;
+      if(revision === passState.readRevision) passState.loading = false;
     }
+  }
+
+  function refreshVisiblePassCatalog(){
+    if(document.hidden || window.sproutgApi.hasPendingWrites()) return;
+    const modal = document.getElementById('passModal');
+    const visible = modal && !modal.classList.contains('hidden');
+    if(Date.now() - passState.lastReadAt >= (visible ? 45000 : 300000)) syncPassCatalog({silent:true});
   }
 
   function startPassCatalogSync(){
     syncPassCatalog({ force:true });
     clearInterval(passState.timer);
-    passState.timer = setInterval(()=>syncPassCatalog({ silent:true }), 45000);
+    passState.timer = setInterval(refreshVisiblePassCatalog, 45000);
+    document.addEventListener('visibilitychange',refreshVisiblePassCatalog);
   }
 
   function passGeoBadge(value){
@@ -5739,7 +5752,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     if(passSelectionSession) passState.editMode = false;
     ensurePassModal().classList.remove('hidden');
     renderPassModal();
-    if(!passState.loaded) syncPassCatalog({ force:true });
+    if(!passState.loaded || Date.now() - passState.lastReadAt >= 45000) syncPassCatalog();
   }
 
   function closePassModal(){

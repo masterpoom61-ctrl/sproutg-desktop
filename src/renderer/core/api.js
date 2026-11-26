@@ -42,6 +42,8 @@
   const DEFAULT_READ_TTL_MS = 15000;
   const DEFAULT_READ_STALE_MS = 30000;
   let cacheGeneration = 0;
+  const domainGenerations = new Map();
+  let knownRevisions = null;
   let lastVersion = '';
   let pendingRequests = 0;
   let activeProfileRequests = 0;
@@ -228,9 +230,31 @@
     readCache.clear();
   }
 
+  function readDomain(action) {
+    const prefix = String(action || '').split('.')[0];
+    return prefix === 'dropdown' ? 'meta' : prefix;
+  }
+
+  function readGeneration(action) {
+    return cacheGeneration + '/' + (domainGenerations.get(readDomain(action)) || 0);
+  }
+
+  function invalidateDomains(domains) {
+    if (!domains.length) return;
+    for (const domain of new Set(domains)) {
+      domainGenerations.set(domain, (domainGenerations.get(domain) || 0) + 1);
+    }
+    pruneReadCache();
+  }
+
+  function mutationDomains(action) {
+    const domain = readDomain(action);
+    return domain === 'company' || domain === 'mcc' ? ['mcc','company'] : [domain];
+  }
+
   function pruneReadCache(now = Date.now()) {
     for (const [key, entry] of readCache) {
-      if (!entry || entry.generation !== cacheGeneration || now > entry.staleUntil) {
+      if (!entry || entry.generation !== readGeneration(entry.action) || now > entry.staleUntil) {
         readCache.delete(key);
       }
     }
@@ -244,7 +268,7 @@
   function readCacheState(key, now = Date.now()) {
     const entry = readCache.get(key);
     if (!entry) return { fresh: null, stale: null };
-    if (entry.generation !== cacheGeneration || now > entry.staleUntil) {
+    if (entry.generation !== readGeneration(entry.action) || now > entry.staleUntil) {
       readCache.delete(key);
       return { fresh: null, stale: null };
     }
@@ -261,7 +285,8 @@
       value,
       expiresAt: now + policy.ttlMs,
       staleUntil: now + policy.ttlMs + policy.staleMs,
-      generation: cacheGeneration
+      action,
+      generation:readGeneration(action)
     };
     readCache.delete(key);
     readCache.set(key, entry);
@@ -271,7 +296,7 @@
   function staleFallback(entry, error) {
     if (
       !entry ||
-      entry.generation !== cacheGeneration ||
+      entry.generation !== readGeneration(entry.action) ||
       Date.now() > Number(entry.staleUntil || 0)
     ) {
       return null;
@@ -289,7 +314,15 @@
   function observeVersion(result) {
     const version = String(result?.version || '').trim();
     if (!version) return;
-    if (lastVersion && version !== lastVersion) invalidateReadCache();
+    if (result?.revisions && typeof result.revisions === 'object') {
+      if (knownRevisions) {
+        invalidateDomains(Object.keys(result.revisions).filter(k => knownRevisions[k] !== result.revisions[k]));
+      } else if (lastVersion && version !== lastVersion) invalidateReadCache();
+      knownRevisions = result.revisions;
+    } else if (lastVersion && version !== lastVersion) {
+      knownRevisions = null;
+      invalidateReadCache();
+    }
     lastVersion = version;
   }
 
@@ -352,12 +385,12 @@
       updateDurableFailure(action, payload, res, durableAttempt);
       observeVersion(res);
 
-      if (!READ_ACTIONS.has(action) && isSuccessfulResult(res)) {
-        invalidateReadCache();
+      if (!READ_ACTIONS.has(action) && isSuccessfulResult(res) && !res?.data?.queued) {
+        invalidateDomains(mutationDomains(action));
       }
 
       if (cacheContext?.useCache && res?.ok === true) {
-        if (cacheContext.generation === cacheGeneration) {
+        if (cacheContext.generation === readGeneration(action)) {
           storeReadCache(cacheContext.key, action, res);
         }
       } else if (cacheContext?.useCache && res && res.ok === false) {
@@ -397,11 +430,11 @@
       }
 
       const currentFlight = inflightReads.get(key);
-      if (currentFlight && currentFlight.generation === cacheGeneration) {
+      if (currentFlight && currentFlight.generation === readGeneration(action)) {
         return await currentFlight.promise;
       }
 
-      const generation = cacheGeneration;
+      const generation = readGeneration(action);
       const flight = {
         generation,
         promise: performApiCall(action, payload, requestOpts, {
@@ -435,8 +468,10 @@
     try {
       const res = await window.sproutg.apiBatch(calls, opts);
       observeVersion(res);
-      const hasMutation = list.some((call) => !READ_ACTIONS.has(String(call?.action || '')));
-      if (hasMutation && isSuccessfulResult(res)) invalidateReadCache();
+      if (isSuccessfulResult(res)) {
+        const mutations = list.filter(call => call?.action && !READ_ACTIONS.has(call.action));
+        invalidateDomains(mutations.flatMap(call => mutationDomains(call.action)));
+      }
       return res;
     } finally {
       setLoading(-1, profileRequest);
@@ -457,7 +492,7 @@
       const res = await window.sproutg.legacyCall(spec.action, payload, opts);
       updateDurableFailure(spec.action, payload, res, durableAttempt);
       observeVersion(res);
-      if (!READ_ACTIONS.has(spec.action) && isSuccessfulResult(res)) invalidateReadCache();
+      if (!READ_ACTIONS.has(spec.action) && isSuccessfulResult(res) && !res?.queued) invalidateDomains(mutationDomains(spec.action));
       return res;
     } catch (err) {
       const normalized = normalizeError(err);
@@ -498,7 +533,8 @@
   window.sproutgApi = {
     callApi,
     batchApi,
-    invalidate: invalidateReadCache,
+    invalidate: domain => domain ? invalidateDomains([domain]) : invalidateReadCache(),
+    hasPendingWrites: () => localQueuePending > 0 || Number(latestBridgeState?.writeQueue?.pending || 0) > 0,
     findO1Profile: (profileName) => callApi('o1.profileByName', { profileName }),
     getO1ProfileByRow: (row, identity) => callApi('o1.profileByRow', { row, identity }),
     getO1ProfilesByRows: (rows) => callApi('o1.profilesByRows', { rows }),
@@ -699,8 +735,11 @@
         state.writeQueue.confirmationRevision || 0
       );
       if (confirmationRevision > lastQueueConfirmationRevision) {
+        const confirmations = (state.writeQueue.confirmedWrites || []).filter(c => c.revision > lastQueueConfirmationRevision);
+        if (confirmations.length === confirmationRevision - lastQueueConfirmationRevision) {
+          invalidateDomains(confirmations.flatMap(c => mutationDomains(c.action)));
+        } else invalidateReadCache();
         lastQueueConfirmationRevision = confirmationRevision;
-        invalidateReadCache();
       }
       window.dispatchEvent(new CustomEvent('sproutg-write-queue-state', {
         detail:state.writeQueue

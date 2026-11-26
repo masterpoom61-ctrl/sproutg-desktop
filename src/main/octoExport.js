@@ -25,7 +25,7 @@ async function exportOctoRecords(id, bridge, directory) {
     const {profile, accounts} = JSON.parse(await fs.readFile(base + '.request.json', 'utf8'));
     if (typeof profile !== 'string' || !profile.trim() || profile.length > 128) throw Error('Invalid profile.');
     if (!bridge) throw Error('SproutG bridge is not ready.');
-    const result = await bridge.callApi('mcc.profile', {profileName:profile}, {timeoutMs:30000});
+    const result = await bridge.callApi('mcc.profile', {profileName:profile,fields:['J','K']}, {timeoutMs:30000});
     if (!result?.ok) throw Error('SproutG profile lookup failed.');
     response = {profile, records:projectAccounts(profile, accounts, result.data)};
   } catch (error) {

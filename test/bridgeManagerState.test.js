@@ -195,6 +195,35 @@ test("modern bridge pins an exact challenged frame and rejects spoofed results",
   manager.destroy();
 });
 
+test("a timed-out write delivers one authenticated late result", async () => {
+  const manager = createManager();
+  const frame = createFrame(15, 30);
+  const challenge = installChallenge(manager, frame);
+  manager.handleMessage({
+    type: "BRIDGE_READY", bridgeVersion: "2.4.1", challengeId: challenge.id,
+    authenticated: true, bridgeNonce: challenge.nonce
+  }, frame);
+  const received = [];
+  const call = manager.callApi("mcc.updateCellsBatch", {}, {
+    retries: 0,
+    onLateResult: result => received.push(result)
+  });
+  const id = frame.sent.at(-1).message.id;
+  manager.timeout(id);
+  await assert.rejects(call, error => error.code === "BRIDGE_TIMEOUT");
+  const reply = {
+    type: "API_RESULT", id, authenticated: true,
+    bridgeNonce: challenge.nonce, result: { ok: true, data: { confirmed: true } }
+  };
+  manager.handleMessage(reply, createFrame(15, 31));
+  manager.handleMessage({ ...reply, bridgeNonce: "expired" }, frame);
+  assert.equal(received.length, 0);
+  manager.handleMessage(reply, frame);
+  manager.handleMessage(reply, frame);
+  assert.deepEqual(received, [reply.result]);
+  manager.destroy();
+});
+
 test("modern bridge rejects a wrong challenge id", () => {
   const manager = createManager();
   const frame = createFrame(11, 22);

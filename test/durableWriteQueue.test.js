@@ -106,6 +106,86 @@ async function flushNow(queue) {
   queue.timer = null;
 }
 
+test("a lost cell reply is recovered from the same server receipt after restart", async () => {
+  const store = new MemoryStore();
+  const calls = [];
+  let recorded;
+  const bridge = {
+    getState: () => ({ready:true, bridgeVersion:"2.4.1"}),
+    async callApi(action, payload) {
+      calls.push(action);
+      const item = payload.items[0];
+      if (action === "sheets.writeStatus") {
+        assert.equal(payload.writer, recorded.writer);
+        assert.equal(item.writeId, recorded.id);
+        return {ok:true, data:{complete:true, results:[{ok:true, writeId:item.writeId, applied:item.updates}]}};
+      }
+      recorded = {writer:payload.writer, id:item.writeId};
+      return {ok:false, code:"BRIDGE_TIMEOUT", error:"late"};
+    }
+  };
+  const first = createQueue({store,bridge});
+  const accepted = first.queue.enqueue("mcc.updateCells", {row:2,identity:{profileName:"P",accountName:"01"},updates:{U:"A"}});
+  await flushNow(first.queue);
+  assert.equal((await accepted).queued, true);
+  assert.equal(first.queue.getState().pending, 1);
+  assert.equal(store.get("pendingWrites")[0].writerId, recorded.writer);
+  delete store.values.sheetWriterId; // The independent WAL snapshot still carries the receipt namespace.
+  const second = createQueue({store,bridge});
+  for (const item of second.queue.pending.values()) item.nextAttemptAt = 0;
+  await flushNow(second.queue);
+  assert.deepEqual(calls, ["mcc.updateCellsBatch","sheets.writeStatus"]);
+  assert.equal(second.queue.getState().pending, 0);
+  assert.equal(second.queue.getState().confirmedWrites[0].writeId, recorded.id);
+});
+
+test("a late reply can confirm only the original WAL entry and its remaining columns", async () => {
+  let late, sent;
+  const bridge = {
+    getState: () => ({ready:true, bridgeVersion:"2.4.1"}),
+    async callApi(_action,payload,options) {
+      late = options.onLateResult;
+      sent = payload.items[0];
+      return {ok:false, code:"BRIDGE_TIMEOUT",error:"late"};
+    }
+  };
+  const {queue,store} = createQueue({bridge});
+  const target = {row:2,identity:{profileName:"P",accountName:"01"}};
+  const old = queue.enqueue("mcc.updateCells",{...target,updates:{U:"old",S:"A"}});
+  await flushNow(queue);
+  await old;
+  const latest = queue.enqueue("mcc.updateCells",{...target,updates:{U:"new"}});
+  clearTimeout(queue.timer); queue.timer = null;
+  const reply = (id,applied) => ({ok:true,data:{results:[{ok:true,writeId:id,applied}]}});
+  late(reply("a different write",{S:"A"}));
+  late(reply(sent.writeId,{U:"old"}));
+  assert.equal(queue.getState().pending, 2);
+  late(reply(sent.writeId,{U:"old",S:"A"}));
+  assert.equal(queue.getState().pending,1);
+  assert.deepEqual(store.get("pendingWrites").map(i=>i.payload.updates),[{U:"new"}]);
+  late(reply(sent.writeId,{U:"old",S:"A"}));
+  assert.equal(queue.getState().confirmedWrites.length,1);
+  await latest;
+});
+
+test("an unrecorded retry writes only after its successful status probe", async () => {
+  const calls = [];
+  const bridge = {getState:()=>({ready:true,bridgeVersion:"2.4.1"}),async callApi(action,payload) {
+    calls.push(action);
+    if (calls.length===1) return {ok:false,code:"BRIDGE_TIMEOUT",error:"timeout"};
+    if (action==="sheets.writeStatus") return {ok:true,data:{complete:false,results:[]}};
+    const item=payload.items[0];
+    return {ok:true,data:{results:[{ok:true,writeId:item.writeId,applied:item.updates}]}};
+  }};
+  const {queue}=createQueue({bridge});
+  const accepted=queue.enqueue("o1.updateCells",{row:4,identity:{profileName:"P"},updates:{D:"a"}});
+  await flushNow(queue); await accepted;
+  for (const item of queue.pending.values()) item.nextAttemptAt=0;
+  await flushNow(queue);
+  assert.deepEqual(calls,["o1.updateCellsBatch","sheets.writeStatus","o1.updateCellsBatch"]);
+  assert.equal(queue.getState().pending,0);
+});
+
 test("stable write identities are semantic targets independent of row", async () => {
   const ctx = createQueue();
   const identity = { profileName: "Profile", accountName: "Account" };

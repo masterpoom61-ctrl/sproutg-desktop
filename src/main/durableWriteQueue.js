@@ -1,4 +1,5 @@
 const crypto = require('crypto');
+const { formatExpense } = require('../renderer/core/expense');
 const fs = require('fs');
 const path = require('path');
 
@@ -988,6 +989,13 @@ class DurableWriteQueue {
       });
     }
 
+    // Existing WAL entries keep their original values and server receipt identities.
+    const expenseCol = action === 'mcc.updateCells' ? 'X' : action === 'o1.updateCells' ? 'BS' : null;
+    if (expenseCol && Object.hasOwn(normalized.payload.updates, expenseCol)) {
+      const amount = formatExpense(normalized.payload.updates[expenseCol]);
+      if (amount === null) return Promise.resolve({ ok:false, code:'BAD_WRITE', error:'Введите расход с точностью до сотых.' });
+      normalized.payload.updates[expenseCol] = amount;
+    }
     chainPassExpectedValue(normalized, this.pending.values());
     const superseded = this.removeSuperseded(normalized);
     this.pending.set(normalized.id, normalized);

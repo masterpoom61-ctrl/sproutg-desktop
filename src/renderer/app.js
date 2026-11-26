@@ -168,7 +168,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
   applyDesktopSettings(s || { theme: 'dark-classic' });
 })();
 
-  const APP_VERSION = '2.4.1';
+  const APP_VERSION = '2.4.2';
   const PAGE_KEY = 'FarmA.page';
   const HOME_RETURN_KEY = 'FarmA.homeReturnPage';
   const THEME_KEY = 'sproutg.theme';
@@ -4075,7 +4075,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
   }
 
   function saveO1RechekExpenseInstant(row, nextValue, fieldMap, uiContext = {}){
-    const nextBS = String(nextValue ?? '');
+    const nextBS = window.SproutExpense.formatExpense(nextValue) ?? String(nextValue ?? '');
     const hasExpense = !!nextBS.trim();
     const prevDate = String(fieldMap?.BQ?.value || getO1FieldValue(tabData[getTabKey(row)] || current, 'BQ') || '').trim();
     const oldBwValue = String(fieldMap?.BW?.value || getO1FieldValue(tabData[getTabKey(row)] || current, 'BW') || '').trim();
@@ -4302,7 +4302,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     delete el.dataset.appcolor;
     const s=String(v||'').trim();
     if(!s) return;
-    if(s === '0.00$') el.classList.add('redLight');
+    if(/^0\.00[$€]?$/.test(window.SproutExpense.formatExpense(s))) el.classList.add('redLight');
     else el.classList.add('greenLight');
     if(el.classList.contains('redLight') || el.classList.contains('greenLight')) el.dataset.appcolor = '1';
   }
@@ -5364,7 +5364,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
             inp.dataset.bs = '1';
             applyBSColor(inp, inp.value);
             if(!String(inp.value||'').trim()){
-              inp.value='0.00$';
+              inp.value='0.00';
               inp.dataset.placeholderDefault = '1';
             }
             applyBSColor(inp, inp.value);
@@ -5419,6 +5419,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
             if(g.name==='Речек' && col==='BS' && inp.dataset.placeholderDefault === '1'){
               return;
             }
+            if(g.name === 'Речек' && col === 'BS') inp.value = window.SproutExpense.formatExpense(inp.value) ?? inp.value;
             const nextValue = inp.value;
             if(isEmptyInlineText && lastInlineValue === nextValue && inp.dataset.unsaved !== '1') return;
             lastInlineValue = nextValue;
@@ -7471,6 +7472,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     };
 
     inp.addEventListener('blur', ()=>{
+      if(col === 'X') inp.value = window.SproutExpense.formatExpense(inp.value) ?? inp.value;
       if(opts.inlineCopy) inp.dataset.copyOnSave = '1';
       commit();
     });
@@ -8902,7 +8904,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
   }
 
   function saveMccRechekExpenseInstant(rowObj, nextValue, flow){
-    const nextX = String(nextValue ?? '');
+    const nextX = window.SproutExpense.formatExpense(nextValue) ?? String(nextValue ?? '');
     const hasExpense = !!nextX.trim();
     const prevW = String(rowObj?.values?.W || '').trim();
     const prevZ = String(rowObj?.values?.Z || '').trim();
@@ -9045,7 +9047,7 @@ window.sproutg.onApplySettings((s) => { if (s) applyDesktopSettings(s); });
     delete btn.dataset.appcolor;
     const raw = String(value || '').trim();
     if(!raw) return;
-    if(raw.replace(/\s+/g,'') === '0.00$'){
+    if(/^0\.00[$€]?$/.test(window.SproutExpense.formatExpense(raw))){
       btn.classList.add('redLight');
       btn.dataset.appcolor = '1';
       return;

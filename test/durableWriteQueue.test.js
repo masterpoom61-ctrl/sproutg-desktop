@@ -106,6 +106,21 @@ async function flushNow(queue) {
   queue.timer = null;
 }
 
+test("new MCC X and O1 BS expenses use exact decimal text while restored receipt payloads keep their spelling", async () => {
+  const {queue, store} = createQueue();
+  const identity = {profileName:"Profile",accountName:"01"};
+  const pending = [
+    queue.enqueue("mcc.updateCells",{row:2,identity,updates:{X:"0,14",S:"20$"}}),
+    queue.enqueue("o1.updateCells",{row:2,identity,updates:{BS:0,X:"1,2"}})
+  ];
+  const saved = store.get("pendingWrites");
+  assert.deepEqual(saved.map(i=>i.payload.updates), [{X:"0.14",S:"20$"},{BS:"0.00",X:"1,2"}]);
+  assert.equal(normalizeStoredItem({...saved[0],payload:{...saved[0].payload,updates:{X:"0,14"}}}).payload.updates.X,"0,14");
+  const bad = await queue.enqueue("o1.updateCells",{row:2,identity,updates:{BS:"0,141"}});
+  assert.equal(bad.code,"BAD_WRITE");
+  await flushNow(queue); await Promise.all(pending);
+});
+
 test("a lost cell reply is recovered from the same server receipt after restart", async () => {
   const store = new MemoryStore();
   const calls = [];
